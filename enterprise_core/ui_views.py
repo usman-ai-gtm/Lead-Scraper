@@ -49,10 +49,17 @@ from enterprise_core.security_compliance import (
 from enterprise_core.copilot_integrations import (
     AISalesCopilot, UniversalGlobalSearch, SystemObservabilityCenter
 )
+
+import sys, os
+_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+if _root not in sys.path:
+    sys.path.insert(0, _root)
+
 from database.models import AccountRepository
 from services.account_service import AccountOrchestrationService, AccountRoutingStrategy
 from services.message_service import OutboundMessagePipeline
 from ui.connected_accounts import render_connected_accounts_page
+
 
 
 def render_executive_command_center(workspace_id: int):

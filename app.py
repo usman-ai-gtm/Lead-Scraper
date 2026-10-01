@@ -1,4 +1,11 @@
 import os
+import sys
+
+# Ensure application root directory is at head of sys.path on Streamlit Cloud & local
+ROOT_DIR = os.path.dirname(os.path.abspath(__file__))
+if ROOT_DIR not in sys.path:
+    sys.path.insert(0, ROOT_DIR)
+
 import io
 import sqlite3
 import json
@@ -65,50 +72,16 @@ try:
         render_copilot_and_global_search,
         render_connected_accounts_page
     )
-except ImportError:
-    import sys
-    sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-    from enterprise_core import (
-        init_enterprise_schema,
-        get_enterprise_db_connection,
-        EnterpriseSearchOrchestrator,
-        SEARCH_MODES,
-        EnterpriseLeadIntelligenceEngine,
-        EnterpriseEmailEngine,
-        EmailDeliverabilityDiagnostics,
-        EmailVariableRenderer,
-        AIReplyIntelligenceEngine,
-        EnterpriseWhatsAppManager,
-        WhatsAppCloudAPIClient,
-        EnterpriseCRMManager,
-        UnifiedOmnichannelTimeline,
-        SalesAutomationWorkflowEngine,
-        RevenueIntelligenceEngine,
-        CustomerSuccessManager,
-        SalesEnablementSuite,
-        ABMOrchestrator,
-        EnterpriseAuditLogger,
-        ComplianceManager,
-        NotificationAlertCenter,
-        AISalesCopilot,
-        UniversalGlobalSearch,
-        SystemObservabilityCenter,
-        render_executive_command_center,
-        render_ultra_search_orchestrator,
-        render_lead_intelligence_studio,
-        render_cold_email_command_center,
-        render_whatsapp_command_center,
-        render_enterprise_crm,
-        render_omnichannel_automation,
-        render_revenue_intelligence,
-        render_customer_success,
-        render_sales_enablement,
-        render_abm_studio,
-        render_integration_hub,
-        render_compliance_and_audit,
-        render_copilot_and_global_search,
-        render_connected_accounts_page
-    )
+except Exception as e:
+    import traceback
+    logger.error(f"Error importing enterprise_core: {e}\n{traceback.format_exc()}")
+    # Fallback placeholder to prevent app crash on cloud
+    try:
+        from enterprise_core.ui_views import *
+        from enterprise_core.schema import *
+    except Exception:
+        pass
+
 
 # -------------------------------------------------------------------------
 # 1. DATABASE SETUP & CLEAN PROVIDER REGISTRY INITIALIZATION
