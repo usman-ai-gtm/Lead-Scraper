@@ -26,9 +26,10 @@ class AISalesCopilot:
     """
     @classmethod
     def query_copilot(cls, query: str, workspace_id: int = 1) -> Dict[str, Any]:
-        conn = sqlite3.connect(os.getenv("USMAN_DB_PATH", "usman_data_analytics.db"), check_same_thread=False)
-        conn.row_factory = sqlite3.Row
+        from database.database import get_connection
+        conn = get_connection()
         q_lower = query.lower().strip()
+
 
         response = {
             "query": query,
@@ -76,7 +77,64 @@ class AISalesCopilot:
                 response["answer"] = "All outreach tasks are up to date! No overdue tasks detected."
             response["recommended_next_step"] = "Review upcoming sequence steps for newly replied leads."
 
-        # 4. Email campaign health / replies
+        # 4. Connected Accounts - Reconnection & Health checks
+        elif any(w in q_lower for w in ["reconnect", "reconnection", "account health", "disconnected"]):
+            conn_accs = conn.execute(
+                "SELECT display_name, external_identity, status, last_error_message FROM connected_accounts WHERE workspace_id = ? AND status IN ('ACTION REQUIRED', 'ERROR', 'DISCONNECTED')",
+                (workspace_id,)
+            ).fetchall()
+            if conn_accs:
+                items = [f"• **{a['display_name']}** ({a['external_identity']}) - Status: {a['status']} ({a['last_error_message'] or 'Re-authorization required'})" for a in conn_accs]
+                response["answer"] = f"The following accounts require attention or reconnection:\n" + "\n".join(items)
+                response["recommended_next_step"] = "Navigate to Settings -> Connected Accounts to refresh authorization or reconnect tokens."
+            else:
+                response["answer"] = "All connected communication accounts (Gmail, WhatsApp, and SMTP) are healthy, authorized, and fully operational. Zero accounts require reconnection."
+                response["recommended_next_step"] = "Your communication channels are 100% ready for campaign dispatch."
+
+        # 5. Connected Accounts - Top Gmail Senders
+        elif "gmail" in q_lower and any(w in q_lower for w in ["most", "sent", "volume", "top"]):
+            top_gmail = conn.execute('''
+                SELECT ca.display_name, ca.external_identity, COALESCE(SUM(au.messages_sent), 0) as total_sent
+                FROM connected_accounts ca
+                LEFT JOIN account_usage au ON ca.id = au.account_id
+                WHERE ca.workspace_id = ? AND ca.provider = 'gmail'
+                GROUP BY ca.id
+                ORDER BY total_sent DESC
+            ''', (workspace_id,)).fetchall()
+            if top_gmail:
+                leader = top_gmail[0]
+                response["answer"] = f"**{leader['display_name']}** ({leader['external_identity']}) has dispatched the most emails with **{leader['total_sent']}** messages sent."
+                response["data_summary"] = {"top_sender": leader["display_name"], "total_sent": leader["total_sent"]}
+                response["recommended_next_step"] = "Balance outreach volume by setting routing policy to 'Lowest Daily Usage'."
+            else:
+                response["answer"] = "No Google Gmail accounts are currently registered. Connect a Gmail account via Google OAuth 2.0 in the Connected Accounts Center."
+                response["recommended_next_step"] = "Connect your primary Gmail account in Settings -> Connected Accounts."
+
+        # 6. Connected Accounts - WhatsApp Reply Rate
+        elif "whatsapp" in q_lower and any(w in q_lower for w in ["reply", "replies", "response", "rate", "highest"]):
+            wa_stats = conn.execute('''
+                SELECT ca.display_name, ca.external_identity,
+                       COALESCE(SUM(au.messages_sent), 0) as total_sent,
+                       COALESCE(SUM(au.messages_replied), 0) as total_replied
+                FROM connected_accounts ca
+                LEFT JOIN account_usage au ON ca.id = au.account_id
+                WHERE ca.workspace_id = ? AND ca.account_type = 'whatsapp'
+                GROUP BY ca.id
+            ''', (workspace_id,)).fetchall()
+            if wa_stats:
+                best = sorted(wa_stats, key=lambda x: (x["total_replied"] / max(1, x["total_sent"])), reverse=True)[0]
+                rate = (best["total_replied"] / max(1, best["total_sent"])) * 100
+                response["answer"] = (
+                    f"**{best['display_name']}** ({best['external_identity']}) has the highest WhatsApp performance with "
+                    f"**{best['total_replied']}** replies on {best['total_sent']} sent messages (Reply Rate: **{rate:.1f}%**)."
+                )
+                response["data_summary"] = {"best_line": best["display_name"], "reply_rate_pct": rate}
+                response["recommended_next_step"] = "Route high-intent B2B prospect campaigns through this WhatsApp Business line."
+            else:
+                response["answer"] = "No WhatsApp Business lines have sent messages yet. Connect your official Meta Cloud API account in Connected Accounts."
+                response["recommended_next_step"] = "Connect WhatsApp Business in Settings -> Connected Accounts."
+
+        # 7. Email campaign health / replies
         elif any(w in q_lower for w in ["campaign", "email", "reply", "response"]):
             camps = conn.execute("SELECT * FROM email_campaigns WHERE workspace_id = ?", (workspace_id,)).fetchall()
             replies = conn.execute("SELECT * FROM email_replies LIMIT 5").fetchall()
@@ -91,12 +149,13 @@ class AISalesCopilot:
             response["answer"] = (
                 f"I analyzed your request against workspace #{workspace_id}. All lead databases, "
                 "multi-AI consensus routers, official WhatsApp queues, and CRM pipelines are operational. "
-                "Try asking: 'Show me high-priority leads with valid emails' or 'Summarize our current pipeline'."
+                "Try asking: 'Which account needs reconnection?', 'Which Gmail account sent the most emails?', or 'Summarize our current pipeline'."
             )
             response["recommended_next_step"] = "Run an Ultra Search to prospect new accounts."
 
         conn.close()
         return response
+
 
 class UniversalGlobalSearch:
     """

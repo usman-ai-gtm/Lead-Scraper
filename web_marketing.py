@@ -318,12 +318,76 @@ def render_footer():
         </a>
     """, unsafe_allow_html=True)
 
+def render_connected_channels_section():
+    st.markdown("""
+        <div class="container-center section-spacing" id="integrations">
+            <span class="eyebrow text-center">OMNICHANNEL INFRASTRUCTURE</span>
+            <h2 class="text-center" style="font-size: 2.5rem; margin-bottom: 1rem;">Connect the channels your team already uses.</h2>
+            <p class="text-center" style="color: var(--text-secondary); max-width: 650px; margin: 0 auto 3.5rem auto;">
+                Authenticate unlimited communication lines with zero disruption. Enterprise-grade OAuth 2.0 and official Meta Cloud API protocols ensure maximum deliverability and compliance.
+            </p>
+            
+            <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 24px;">
+                <div class="premium-card text-center" style="padding: 30px 20px;">
+                    <div style="font-size: 2.5rem; margin-bottom: 15px;">🔴</div>
+                    <h3 style="font-size: 1.25rem; margin-bottom: 8px;">Google Gmail</h3>
+                    <p style="color: var(--text-secondary); font-size: 0.88rem; line-height: 1.5; margin-bottom: 15px;">
+                        Official OAuth 2.0 authorization. Connect multiple Google Workspace accounts with zero password sharing.
+                    </p>
+                    <span class="status-badge connected-badge">Official OAuth 2.0</span>
+                </div>
+                
+                <div class="premium-card text-center" style="padding: 30px 20px;">
+                    <div style="font-size: 2.5rem; margin-bottom: 15px;">🟢</div>
+                    <h3 style="font-size: 1.25rem; margin-bottom: 8px;">WhatsApp Business</h3>
+                    <p style="color: var(--text-secondary); font-size: 0.88rem; line-height: 1.5; margin-bottom: 15px;">
+                        Official Meta Cloud API. Verified phone numbers, approved interactive templates, and 2-way live sync.
+                    </p>
+                    <span class="status-badge connected-badge">Meta Verified</span>
+                </div>
+                
+                <div class="premium-card text-center" style="padding: 30px 20px;">
+                    <div style="font-size: 2.5rem; margin-bottom: 15px;">🔵</div>
+                    <h3 style="font-size: 1.25rem; margin-bottom: 8px;">Microsoft 365</h3>
+                    <p style="color: var(--text-secondary); font-size: 0.88rem; line-height: 1.5; margin-bottom: 15px;">
+                        Native Azure Active Directory and Outlook Graph API integration for enterprise mailboxes.
+                    </p>
+                    <span class="status-badge connected-badge">Azure AD</span>
+                </div>
+                
+                <div class="premium-card text-center" style="padding: 30px 20px;">
+                    <div style="font-size: 2.5rem; margin-bottom: 15px;">✉️</div>
+                    <h3 style="font-size: 1.25rem; margin-bottom: 8px;">Authorized SMTP</h3>
+                    <p style="color: var(--text-secondary); font-size: 0.88rem; line-height: 1.5; margin-bottom: 15px;">
+                        Connect SendGrid, Amazon SES, Mailgun, or private corporate mail relays with TLS/SSL encryption.
+                    </p>
+                    <span class="status-badge connected-badge">TLS Encrypted</span>
+                </div>
+            </div>
+            
+            <div style="text-align: center; margin-top: 3.5rem;">
+                <div style="display: inline-block;">
+                    <span style="color: var(--text-secondary); margin-right: 15px; font-size: 0.95rem;">Ready to scale authenticated outreach?</span>
+                </div>
+            </div>
+        </div>
+    """, unsafe_allow_html=True)
+    
+    col_a, col_b, col_c = st.columns([1, 1, 1])
+    with col_b:
+        if st.button("🔗 Connect Your Accounts", key="pub_connect_acc_btn", type="primary", use_container_width=True):
+            st.session_state["app_state"] = "authenticated"
+            st.session_state["premium_menu_default"] = "🔗 Connected Accounts Center"
+            st.rerun()
+
 def render_public_website():
     render_navigation()
     render_hero()
     render_statistics()
     render_capabilities()
+    render_connected_channels_section()
     render_workflow()
     render_showcase()
     render_pricing()
     render_footer()
+

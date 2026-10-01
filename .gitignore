@@ -6,16 +6,30 @@ __pycache__/
 # Virtual environments
 venv/
 env/
-.env/
+.env
+.env.*
 
 # Streamlit specific
 .streamlit/secrets.toml
 
-# Database
+# Databases & local persistent storage
 *.db
 *.sqlite
 *.sqlite3
+data/*.db
+data/.encryption_key
 enterprise_gtm.db
+
+# OAuth & Local Credentials
+credentials.json
+token.json
+client_secret*.json
+
+# Logs & temp files
+*.log
+logs/
+temp/
+tmp/
 
 # OS specific
 .DS_Store

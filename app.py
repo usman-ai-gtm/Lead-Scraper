@@ -62,7 +62,8 @@ try:
         render_abm_studio,
         render_integration_hub,
         render_compliance_and_audit,
-        render_copilot_and_global_search
+        render_copilot_and_global_search,
+        render_connected_accounts_page
     )
 except ImportError:
     import sys
@@ -105,7 +106,8 @@ except ImportError:
         render_abm_studio,
         render_integration_hub,
         render_compliance_and_audit,
-        render_copilot_and_global_search
+        render_copilot_and_global_search,
+        render_connected_accounts_page
     )
 
 # -------------------------------------------------------------------------
@@ -15533,6 +15535,7 @@ menu_options = [
     "🎯 Enterprise Lead Intelligence",
     "📧 Cold Email Command Center",
     "💬 WhatsApp Business Cloud API",
+    "🔗 Connected Accounts Center",
     "👥 Enterprise CRM & Kanban",
     "📡 Omnichannel Outreach Timeline",
     "🤖 AI Sales Copilot & Global Search",
@@ -15578,8 +15581,11 @@ elif menu == "📧 Cold Email Command Center":
     render_cold_email_command_center(active_ws_id)
 elif menu == "💬 WhatsApp Business Cloud API":
     render_whatsapp_command_center(active_ws_id)
+elif menu == "🔗 Connected Accounts Center":
+    render_connected_accounts_page(active_ws_id)
 elif menu == "👥 Enterprise CRM & Kanban":
     render_enterprise_crm(active_ws_id)
+
 elif menu == "📡 Omnichannel Outreach Timeline":
     render_omnichannel_automation(active_ws_id)
 elif menu == "🤖 AI Sales Copilot & Global Search":

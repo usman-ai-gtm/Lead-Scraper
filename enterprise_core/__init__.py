@@ -67,8 +67,10 @@ from enterprise_core.ui_views import (
     render_abm_studio,
     render_integration_hub,
     render_compliance_and_audit,
-    render_copilot_and_global_search
+    render_copilot_and_global_search,
+    render_connected_accounts_page
 )
+
 
 __all__ = [
     "init_enterprise_schema",

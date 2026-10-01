@@ -49,6 +49,11 @@ from enterprise_core.security_compliance import (
 from enterprise_core.copilot_integrations import (
     AISalesCopilot, UniversalGlobalSearch, SystemObservabilityCenter
 )
+from database.models import AccountRepository
+from services.account_service import AccountOrchestrationService, AccountRoutingStrategy
+from services.message_service import OutboundMessagePipeline
+from ui.connected_accounts import render_connected_accounts_page
+
 
 def render_executive_command_center(workspace_id: int):
     st.markdown("""
@@ -86,12 +91,40 @@ def render_executive_command_center(workspace_id: int):
     with m5:
         st.metric("Weighted Pipeline", f"${crm_summary['weighted_pipeline']:,.0f}", f"{crm_summary['win_rate']}% Win Rate")
 
+    # Connected Accounts Widget (Section 57)
+    conn_accs = AccountRepository.get_accounts(workspace_id=workspace_id)
+    email_active = sum(1 for a in conn_accs if a["account_type"] == "email" and a["status"] == "CONNECTED")
+    wa_active = sum(1 for a in conn_accs if a["account_type"] == "whatsapp" and a["status"] == "CONNECTED")
+    all_healthy = all(a["status"] == "CONNECTED" for a in conn_accs) if conn_accs else True
+
+    col_acc_info, col_acc_btn = st.columns([4, 1])
+    with col_acc_info:
+        st.markdown(f"""
+            <div style="background: rgba(15, 23, 42, 0.7); border: 1px solid rgba(59, 130, 246, 0.3); border-radius: 10px; padding: 12px 18px; margin-bottom: 15px;">
+                <div style="display: flex; justify-content: space-between; align-items: center;">
+                    <div>
+                        <span style="font-size: 0.75rem; font-weight: 700; color: #38bdf8; letter-spacing: 0.05em; text-transform: uppercase;">CONNECTED ACCOUNTS</span>
+                        <div style="font-size: 1.05rem; color: #f8fafc; font-weight: 600; margin-top: 2px;">
+                            {email_active} Email Senders • {wa_active} WhatsApp Business Lines
+                        </div>
+                    </div>
+                    <span style="font-size: 0.8rem; font-weight: 600; color: {'#10b981' if all_healthy else '#f59e0b'}; background: {'rgba(16, 185, 129, 0.15)' if all_healthy else 'rgba(245, 158, 11, 0.15)'}; padding: 4px 10px; border-radius: 9999px;">
+                        {'● All systems healthy' if all_healthy else '▲ Action Required'}
+                    </span>
+                </div>
+            </div>
+        """, unsafe_allow_html=True)
+    with col_acc_btn:
+        if st.button("🔗 Manage Accounts", key="exec_manage_acc_btn", use_container_width=True):
+            st.session_state["premium_menu_default"] = "🔗 Connected Accounts Center"
+            st.rerun()
+
     st.markdown("---")
 
     col_left, col_right = st.columns([3, 2])
     with col_left:
         st.subheader("⚡ High-Velocity Quick Launchpad")
-        q1, q2, q3 = st.columns(3)
+        q1, q2, q3, q4 = st.columns(4)
         with q1:
             if st.button("🚀 Run Ultra Search", use_container_width=True):
                 st.session_state["premium_menu_default"] = "🔎 Ultra Search Orchestrator"
@@ -103,6 +136,10 @@ def render_executive_command_center(workspace_id: int):
         with q3:
             if st.button("💬 WhatsApp Inbox", use_container_width=True):
                 st.session_state["premium_menu_default"] = "💬 WhatsApp Business Cloud API"
+                st.rerun()
+        with q4:
+            if st.button("🔗 Connected Accounts", use_container_width=True):
+                st.session_state["premium_menu_default"] = "🔗 Connected Accounts Center"
                 st.rerun()
 
         st.markdown("#### 📊 Real-Time Deal Pipeline Distribution")
@@ -286,7 +323,19 @@ def render_cold_email_command_center(workspace_id: int):
         st.markdown("#### 📢 Create Cold Email Campaign & 5-Step Sequence")
         with st.form("create_campaign_form"):
             name = st.text_input("Campaign Name", value="High-Intent B2B Founders Q4")
+            
+            # Multi-Account Sender Selection (Sections 10 & 36)
+            conn_email_accs = AccountRepository.get_accounts(workspace_id=workspace_id, account_type="email")
+            healthy_email_accs = [a for a in conn_email_accs if a["status"] == "CONNECTED"]
+            sender_options = ["Auto Select (Round Robin)", "Auto Select (Lowest Daily Usage)"]
+            if healthy_email_accs:
+                sender_options += [f"{a['display_name']} ({a['external_identity']}) [ID: {a['id']}]" for a in healthy_email_accs]
+            else:
+                sender_options.append("⚠️ No CONNECTED accounts (Connect in Tab 5 or Settings)")
+
+            chosen_sender = st.selectbox("Sending Account", sender_options)
             daily_lim = st.slider("Daily Send Limit", 10, 300, 50)
+
             st.markdown("##### Sequence Step 1 (Initial Email)")
             subj_1 = st.text_input("Step 1 Subject", value="Quick question regarding {{business_name}}'s sales operations")
             body_1 = st.text_area("Step 1 Body Template", value="Hi {{first_name}},\n\nI was reviewing {{business_name}} and noticed {{observed_signal}}.\n\nWe recently helped similar firms solve {{pain_point}} through automated intelligence.\n\n{{custom_cta}}\n\nBest regards,\nUsman Team", height=130)
@@ -302,14 +351,27 @@ def render_cold_email_command_center(workspace_id: int):
                 {"step_type": "Initial", "delay_days": 0, "subject": subj_1, "body": body_1},
                 {"step_type": "Followup_1", "delay_days": 3, "subject": subj_2, "body": body_2}
             ]
+
+            # Resolve sender account ID
+            selected_acc_id = 1
+            if "[ID: " in chosen_sender:
+                try:
+                    selected_acc_id = int(chosen_sender.split("[ID: ")[1].replace("]", ""))
+                except Exception:
+                    selected_acc_id = 1
+            elif healthy_email_accs:
+                strat = AccountRoutingStrategy.LOWEST_USAGE if "Lowest" in chosen_sender else AccountRoutingStrategy.ROUND_ROBIN
+                best = AccountOrchestrationService.select_sender_account(workspace_id, "email", strat)
+                selected_acc_id = best["id"] if best else 1
+
             camp_id = EnterpriseEmailEngine.create_campaign_with_sequence(
                 workspace_id=workspace_id,
                 name=name,
-                sender_account_id=1,
+                sender_account_id=selected_acc_id,
                 steps=steps,
                 daily_limit=daily_lim
             )
-            st.success(f"Campaign #{camp_id} ('{name}') and 2 sequence steps created successfully!")
+            st.success(f"Campaign #{camp_id} ('{name}') configured with Sender Account #{selected_acc_id} and 2 sequence steps!")
 
         st.markdown("---")
         st.markdown("#### 👥 Existing Campaigns")
@@ -366,25 +428,10 @@ def render_cold_email_command_center(workspace_id: int):
             st.json(diag)
 
     with tab5:
-        st.markdown("#### ⚙️ Outbound Email Accounts (Gmail / Outlook / SMTP)")
-        with st.form("smtp_form"):
-            c1, c2 = st.columns(2)
-            with c1:
-                acc_name = st.text_input("Account Label", value="Primary Outbound SMTP")
-                s_email = st.text_input("Sender Email", value="outreach@company.com")
-                host = st.text_input("SMTP Host", value="smtp.gmail.com")
-            with c2:
-                port = st.number_input("SMTP Port", value=587)
-                user = st.text_input("Username / Email", value="outreach@company.com")
-                pw = st.text_input("Password / App Token", type="password")
+        st.markdown("#### ⚙️ Outbound Email Accounts (Gmail OAuth 2.0 / Outlook / SMTP)")
+        st.markdown("Manage all connected senders with official OAuth 2.0 and authenticated SMTP protocols.")
+        render_connected_accounts_page(workspace_id)
 
-            t_btn = st.form_submit_button("Test Connection & Save Account")
-        if t_btn:
-            res = EnterpriseEmailEngine.test_smtp_connection(host, int(port), user, pw)
-            if res["success"]:
-                st.success(res["message"])
-            else:
-                st.error(res["message"])
 
 def render_whatsapp_command_center(workspace_id: int):
     st.subheader("💬 Official WhatsApp Business Cloud API Command Center")
@@ -457,22 +504,9 @@ def render_whatsapp_command_center(workspace_id: int):
 
     with tab4:
         st.markdown("#### ⚙️ Official Meta WhatsApp Business Account Settings")
-        with st.form("meta_wa_form"):
-            w_name = st.text_input("Account Name", value="Usman Data Analytics Production")
-            waba_id = st.text_input("WhatsApp Business Account ID (WABA)", value="109283746592837")
-            phone_id = st.text_input("Phone Number ID", value="109283746592838")
-            disp_phone = st.text_input("Display Phone Number", value="+1 (555) 019-2834")
-            token = st.text_input("Meta System User Permanent Access Token", type="password")
-            test_sub = st.form_submit_button("Test Meta API Connection & Save")
+        st.markdown("Manage all verified Meta WhatsApp Cloud API lines and permanent System User credentials.")
+        render_connected_accounts_page(workspace_id)
 
-        if test_sub:
-            client = WhatsAppCloudAPIClient(phone_id, token, waba_id)
-            res = client.test_connection()
-            if res["success"]:
-                EnterpriseWhatsAppManager.save_account(workspace_id, w_name, waba_id, phone_id, disp_phone, token)
-                st.success(res["message"])
-            else:
-                st.error(f"{res['status']}: {res['message']}")
 
 def render_enterprise_crm(workspace_id: int):
     st.subheader("👥 Enterprise CRM & Visual Kanban Pipeline")
