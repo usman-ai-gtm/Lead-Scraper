@@ -1,0 +1,14 @@
+app.py
+*.py
+backend/
+database/
+docs/
+enterprise_core/
+components/
+services/
+data/
+*.bat
+*.ps1
+*.db
+*.sqlite
+*.log
