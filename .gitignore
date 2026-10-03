@@ -8,9 +8,21 @@ venv/
 env/
 .env
 .env.*
+!.env.example
 
 # Streamlit specific
 .streamlit/secrets.toml
+
+# Frontend dependencies & Next.js build outputs
+frontend/node_modules/
+node_modules/
+frontend/.next/
+.next/
+frontend/out/
+out/
+build/
+dist/
+*.tsbuildinfo
 
 # Databases & local persistent storage
 *.db
@@ -24,6 +36,9 @@ enterprise_gtm.db
 credentials.json
 token.json
 client_secret*.json
+*.key
+*.pem
+*.cert
 
 # Logs & temp files
 *.log
