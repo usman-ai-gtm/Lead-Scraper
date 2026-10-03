@@ -1,11 +1,12 @@
 {
-  "name": "usman-ai-gtm",
+  "name": "usman-ai-gtm-frontend",
   "version": "3.0.0",
   "private": true,
   "scripts": {
-    "dev": "npm run dev --prefix frontend",
-    "build": "cd frontend && npm run build",
-    "start": "npm run start --prefix frontend"
+    "dev": "next dev -p 3000",
+    "build": "next build",
+    "start": "next start -p 3000",
+    "lint": "next lint"
   },
   "dependencies": {
     "clsx": "^2.1.1",
