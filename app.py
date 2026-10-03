@@ -17702,3 +17702,13 @@ elif menu == "📤 Import / Export":
 # -------------------------------------------------------------------------
 elif menu == "⚙️ Settings & Workspaces":
     render_settings_page()
+
+# Vercel Serverless Function entrypoint compatibility
+try:
+    from backend.app.main import app as app
+    handler = app
+    application = app
+except Exception:
+    app = None
+    handler = None
+    application = None
