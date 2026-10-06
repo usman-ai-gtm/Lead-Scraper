@@ -1,9 +1,9 @@
 /**
  * USMAN AI GTM - Production Unified API Client
- * Seamlessly interfaces with FastAPI backend with JWT tokens and error handling.
+ * Seamlessly interfaces with API / serverless functions with JWT tokens and error handling.
  */
 
-const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || "http://127.0.0.1:8000/api";
+const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || "/api";
 
 class ApiClient {
   private getHeaders(): HeadersInit {
@@ -26,7 +26,11 @@ class ApiClient {
   }
 
   async request<T>(endpoint: string, options: RequestInit = {}): Promise<T> {
-    const url = endpoint.startsWith("http") ? endpoint : `${API_BASE_URL}${endpoint.startsWith("/") ? "" : "/"}${endpoint}`;
+    let url = endpoint;
+    if (!url.startsWith("http")) {
+      const cleanEndpoint = endpoint.startsWith("/") ? endpoint : `/${endpoint}`;
+      url = `${API_BASE_URL}${cleanEndpoint}`;
+    }
     
     const config: RequestInit = {
       ...options,
@@ -40,8 +44,8 @@ class ApiClient {
       const res = await fetch(url, config);
 
       if (res.status === 401 && typeof window !== "undefined") {
-        // Redirect to login if unauthenticated on dashboard
-        if (window.location.pathname.startsWith("/app")) {
+        const localUser = localStorage.getItem("usman_gtm_user");
+        if (!localUser && window.location.pathname.startsWith("/app")) {
           localStorage.removeItem("usman_gtm_token");
           window.location.href = "/login?session_expired=true";
         }
