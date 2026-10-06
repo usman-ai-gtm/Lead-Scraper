@@ -82,7 +82,7 @@ export default function AIAgentsWorkforcePage() {
           status: "ACTIVE",
           success_rate: 99.0,
           execution_count: 3480,
-          requires_human_approval: True,
+          requires_human_approval: true,
           last_run: "8 mins ago",
         }
       ]);
