@@ -42,20 +42,59 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
     return () => window.removeEventListener("keydown", handleKeyDown);
   }, []);
 
+  const DEFAULT_ACTIONS = [
+    { title: "Find Dentists in Lahore", subtitle: "Target local dental practices with public contact extraction", url: "/app/leads?q=dentists+in+lahore", badge: "LEAD DISCOVERY" },
+    { title: "Create Cold Email Campaign", subtitle: "Launch 11-step personalized cold outreach wizard", url: "/app/outreach/campaigns/new", badge: "OUTREACH" },
+    { title: "Connect Google / Gmail Account", subtitle: "Authorize multiple Gmail accounts via official OAuth", url: "/app/outreach/accounts", badge: "ACCOUNTS" },
+    { title: "Deep Company Research", subtitle: "Synthesize firmographic, financial & tech evidence", url: "/app/research", badge: "RESEARCH" },
+    { title: "Show Hot High-Intent Leads", subtitle: "Filter leads with score >= 85 and buying signals", url: "/app/leads?filter=hot", badge: "CRM" },
+    { title: "Run Buying Intent Radar", subtitle: "Feature #19 / #201: Multi-signal buyer intent detection", url: "/app/features?id=19", badge: "INTENT" },
+    { title: "Buying Committee Mapper", subtitle: "Feature #111: Identify C-level buyers, champions & blockers", url: "/app/features?id=111", badge: "BUYER INTEL" },
+    { title: "Predictive Win Probability Model", subtitle: "Feature #501: Calculate mathematical close probability", url: "/app/features?id=501", badge: "REVENUE" },
+    { title: "Outreach Inbox & AI Reply Analysis", subtitle: "Review prospect responses & approve AI replies", url: "/app/outreach/inbox", badge: "OUTREACH" },
+    { title: "Deliverability & DNS Health", subtitle: "Verify SPF, DKIM, DMARC & suppression lists", url: "/app/outreach/deliverability", badge: "SECURITY" },
+    { title: "Open 600+ Feature Library", subtitle: "Browse all enterprise capabilities by business intent", url: "/app/features", badge: "CAPABILITIES" }
+  ];
+
   // Universal Search query execution
   useEffect(() => {
     if (!searchQuery.trim()) {
-      setSearchResults([]);
+      setSearchResults(DEFAULT_ACTIONS.slice(0, 6));
       return;
     }
+
+    const q = searchQuery.toLowerCase();
+    const matchedStatic = DEFAULT_ACTIONS.filter(
+      (a) =>
+        a.title.toLowerCase().includes(q) ||
+        a.subtitle.toLowerCase().includes(q) ||
+        a.badge.toLowerCase().includes(q)
+    );
+
+    // Dynamic numeric feature jump (e.g. "501" or "feature 111")
+    const numMatch = q.match(/\d+/);
+    if (numMatch) {
+      const fid = parseInt(numMatch[0], 10);
+      if (fid >= 1 && fid <= 600) {
+        matchedStatic.unshift({
+          title: `Open Feature #${fid}`,
+          subtitle: `Launch Feature #${fid} in Universal Execution Studio`,
+          url: `/app/features?id=${fid}`,
+          badge: `FEATURE #${fid}`
+        });
+      }
+    }
+
     const timer = setTimeout(async () => {
       try {
         const res = await api.get<any[]>("/copilot/search", { q: searchQuery });
-        setSearchResults(res || []);
+        const combined = [...matchedStatic, ...(res || [])];
+        setSearchResults(combined);
       } catch {
-        setSearchResults([]);
+        setSearchResults(matchedStatic);
       }
-    }, 200);
+    }, 150);
+
     return () => clearTimeout(timer);
   }, [searchQuery]);
 
@@ -66,12 +105,12 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
   }
 
   const mainNav: NavItem[] = [
-    { name: "Command Center", href: "/app", icon: LayoutDashboard },
+    { name: "Home", href: "/app", icon: LayoutDashboard },
     { name: "Find Leads", href: "/app/leads", icon: Search },
     { name: "Research", href: "/app/research", icon: Bot },
-    { name: "Outreach", href: "/app/outreach", icon: Mail },
     { name: "CRM", href: "/app/crm", icon: Database },
-    { name: "Workflows", href: "/app/workflows", icon: Workflow },
+    { name: "Outreach", href: "/app/outreach", icon: Mail },
+    { name: "Automation", href: "/app/workflows", icon: Workflow },
     { name: "Revenue", href: "/app/revenue", icon: LineChart },
     { name: "Customers", href: "/app/customers", icon: Users2 },
     { name: "Analytics", href: "/app/analytics", icon: BarChart3 },
@@ -79,13 +118,12 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
   ];
 
   const moreNav: NavItem[] = [
-    { name: "Feature Catalog (1–600)", href: "/app/features", icon: Terminal },
-    { name: "AI Agent Workforce", href: "/app/ai-agents", icon: Bot },
-    { name: "Integration Hub", href: "/app/integrations", icon: Plug },
-    { name: "WhatsApp Cloud API", href: "/app/whatsapp", icon: MessageSquare },
-    { name: "Connected Accounts", href: "/app/accounts", icon: Mail },
     { name: "ABM Studio", href: "/app/abm", icon: Target },
-    { name: "29-API Provider Health", href: "/app/providers", icon: SlidersHorizontal },
+    { name: "Sales Enablement", href: "/app/ai-agents", icon: Bot },
+    { name: "Partners / Channel", href: "/app/integrations", icon: Plug },
+    { name: "Integrations Hub", href: "/app/integrations", icon: Plug },
+    { name: "Feature Library (600+)", href: "/app/features", icon: Terminal },
+    { name: "Sending Accounts", href: "/app/outreach/accounts", icon: Mail },
     { name: "Admin Center", href: "/app/admin", icon: Shield },
   ];
 

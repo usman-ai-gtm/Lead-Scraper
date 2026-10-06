@@ -60,23 +60,36 @@ export interface Deal {
 export interface Campaign {
   id: number;
   name: string;
+  channel?: string;
   status: "Draft" | "Active" | "Paused" | "Completed";
-  total_recipients: number;
+  total_recipients?: number;
+  total_leads?: number;
+  sender_email?: string;
   sent_count: number;
-  delivered_count: number;
-  opened_count: number;
-  replied_count: number;
+  delivered_count?: number;
+  opened_count?: number;
+  open_count?: number;
+  replied_count?: number;
+  reply_count?: number;
+  daily_limit?: number;
+  positive_replies?: number;
+  meetings_booked?: number;
   created_at: string;
 }
 
 export interface ConnectedAccount {
   id: number;
   account_type: "email" | "whatsapp";
-  provider: "gmail" | "smtp" | "meta_whatsapp";
-  display_name: string;
-  external_identity: string;
+  provider?: "gmail" | "smtp" | "meta_whatsapp";
+  display_name?: string;
+  external_identity?: string;
+  identifier?: string;
   status: "CONNECTED" | "DISCONNECTED" | "ACTION REQUIRED" | "ERROR";
-  is_default: boolean;
+  is_default?: boolean;
+  daily_limit?: number;
+  sent_today?: number;
+  workspace_id?: number;
+  is_active?: boolean;
   usage?: {
     today_sent: number;
     total_sent: number;

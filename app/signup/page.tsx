@@ -4,6 +4,7 @@ import React, { useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useAuth } from "@/lib/auth-context";
+import GoogleSignInButton from "@/components/auth/GoogleSignInButton";
 import { Sparkles, Lock, Mail, User, Building, ArrowRight, AlertCircle } from "lucide-react";
 
 export default function SignupPage() {
@@ -73,6 +74,20 @@ export default function SignupPage() {
             </div>
           )}
 
+          {/* Primary Action 1: Google Sign-In */}
+          <div className="mb-5">
+            <GoogleSignInButton label="Sign Up with Google" />
+          </div>
+
+          {/* Divider */}
+          <div className="relative flex items-center justify-center mb-5">
+            <div className="border-t border-white/10 w-full" />
+            <span className="bg-[#0c1017] px-3 text-[11px] font-medium uppercase tracking-wider text-slate-500 shrink-0">
+              or register with email
+            </span>
+            <div className="border-t border-white/10 w-full" />
+          </div>
+
           <form onSubmit={handleSubmit} className="space-y-3.5">
             <div>
               <label className="block text-xs font-semibold text-slate-300 mb-1">Full Name</label>
@@ -84,7 +99,7 @@ export default function SignupPage() {
                   value={form.fullName}
                   onChange={(e) => setForm({ ...form, fullName: e.target.value })}
                   className="w-full rounded-xl border border-white/10 bg-white/[0.03] pl-10 pr-4 py-2.5 text-sm text-white placeholder-slate-500 focus:border-blue-500 focus:outline-none"
-                  placeholder="Alexander Vance"
+                  placeholder="Muhammad Usman"
                 />
               </div>
             </div>
@@ -99,7 +114,7 @@ export default function SignupPage() {
                   value={form.email}
                   onChange={(e) => setForm({ ...form, email: e.target.value })}
                   className="w-full rounded-xl border border-white/10 bg-white/[0.03] pl-10 pr-4 py-2.5 text-sm text-white placeholder-slate-500 focus:border-blue-500 focus:outline-none"
-                  placeholder="vance@apexglobal.tech"
+                  placeholder="name@company.com"
                 />
               </div>
             </div>
@@ -114,8 +129,8 @@ export default function SignupPage() {
                     required
                     value={form.company}
                     onChange={(e) => setForm({ ...form, company: e.target.value })}
-                    className="w-full rounded-xl border border-white/10 bg-white/[0.03] pl-10 pr-4 py-2.5 text-sm text-white placeholder-slate-500 focus:border-blue-500 focus:outline-none"
-                    placeholder="Apex Global"
+                    className="w-full rounded-xl border border-white/10 bg-white/[0.03] pl-10 pr-3 py-2.5 text-sm text-white placeholder-slate-500 focus:border-blue-500 focus:outline-none"
+                    placeholder="Usman CPN"
                   />
                 </div>
               </div>
@@ -127,7 +142,7 @@ export default function SignupPage() {
                   value={form.workspaceName}
                   onChange={(e) => setForm({ ...form, workspaceName: e.target.value })}
                   className="w-full rounded-xl border border-white/10 bg-white/[0.03] px-3.5 py-2.5 text-sm text-white placeholder-slate-500 focus:border-blue-500 focus:outline-none"
-                  placeholder="Sales Ops"
+                  placeholder="SALES MANAGER"
                 />
               </div>
             </div>
@@ -150,9 +165,9 @@ export default function SignupPage() {
             <button
               type="submit"
               disabled={loading}
-              className="w-full mt-2 py-3 rounded-xl bg-gradient-to-r from-blue-600 via-indigo-600 to-purple-600 text-white font-bold text-sm shadow-glow-sm hover:scale-[1.01] transition-all flex items-center justify-center gap-2 disabled:opacity-50"
+              className="w-full mt-2 py-3 rounded-xl bg-gradient-to-r from-blue-600 via-indigo-600 to-purple-600 text-white font-bold text-sm shadow-glow-sm hover:opacity-95 transition-all flex items-center justify-center gap-2 disabled:opacity-50"
             >
-              <span>{loading ? "Creating Workspace..." : "Create Account & Continue"}</span>
+              <span>{loading ? "Creating Enterprise Workspace..." : "Create Account & Continue"}</span>
               <ArrowRight className="h-4 w-4" />
             </button>
           </form>

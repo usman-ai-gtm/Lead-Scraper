@@ -1,18 +1,51 @@
 "use client";
 
-import React, { useState } from "react";
+import React, { useState, useEffect, Suspense } from "react";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { useAuth } from "@/lib/auth-context";
+import GoogleSignInButton from "@/components/auth/GoogleSignInButton";
 import { Sparkles, Lock, Mail, ArrowRight, ShieldCheck, AlertCircle } from "lucide-react";
 
-export default function LoginPage() {
+function LoginForm() {
   const router = useRouter();
+  const searchParams = useSearchParams();
   const { login } = useAuth();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  // Handle Google OAuth callback redirect parameter
+  useEffect(() => {
+    const googleSession = searchParams.get("google_session");
+    if (googleSession) {
+      try {
+        const payload = JSON.parse(decodeURIComponent(googleSession));
+        if (payload.token) {
+          localStorage.setItem("usman_gtm_token", payload.token);
+          localStorage.setItem("usman_gtm_workspace_id", String(payload.workspace_id || 1));
+          localStorage.setItem("usman_gtm_user", JSON.stringify({
+            id: 1,
+            email: payload.email,
+            full_name: payload.full_name,
+            company: "Usman CPN",
+            role: "ADMIN",
+            workspace_id: 1,
+            tenant_id: 1,
+          }));
+          router.push("/app");
+        }
+      } catch (e) {
+        console.error("Failed to parse Google session payload", e);
+      }
+    }
+
+    const errParam = searchParams.get("error");
+    if (errParam) {
+      setError(decodeURIComponent(errParam));
+    }
+  }, [searchParams, router]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -49,7 +82,7 @@ export default function LoginPage() {
                 USMAN <span className="text-blue-500 font-extrabold">AI GTM</span>
               </div>
               <div className="text-[10px] font-medium uppercase tracking-widest text-slate-400">
-                Enterprise Platform Login
+                Find. Engage. Convert. Grow.
               </div>
             </div>
           </Link>
@@ -57,7 +90,7 @@ export default function LoginPage() {
 
         {/* Card */}
         <div className="rounded-2xl border border-white/[0.08] bg-[#0c1017]/90 p-8 shadow-glass backdrop-blur-xl">
-          <h1 className="text-2xl font-bold text-white mb-2 text-center">Welcome Back</h1>
+          <h1 className="text-2xl font-bold text-white mb-1.5 text-center">Welcome Back</h1>
           <p className="text-xs text-slate-400 text-center mb-6">
             Sign in to access your enterprise revenue operations command center
           </p>
@@ -69,6 +102,21 @@ export default function LoginPage() {
             </div>
           )}
 
+          {/* Primary Action 1: Google Sign-In */}
+          <div className="mb-5">
+            <GoogleSignInButton label="Continue with Google" />
+          </div>
+
+          {/* Divider */}
+          <div className="relative flex items-center justify-center mb-5">
+            <div className="border-t border-white/10 w-full" />
+            <span className="bg-[#0c1017] px-3 text-[11px] font-medium uppercase tracking-wider text-slate-500 shrink-0">
+              or continue with email
+            </span>
+            <div className="border-t border-white/10 w-full" />
+          </div>
+
+          {/* Primary Action 2: Email Sign-In */}
           <form onSubmit={handleSubmit} className="space-y-4">
             <div>
               <label className="block text-xs font-semibold text-slate-300 mb-1.5">Work Email</label>
@@ -116,7 +164,7 @@ export default function LoginPage() {
           </form>
 
           {/* Quick Demo Pre-fill */}
-          <div className="mt-6 pt-6 border-t border-white/[0.08] text-center">
+          <div className="mt-6 pt-5 border-t border-white/[0.08] text-center">
             <button
               type="button"
               onClick={handleDemoLogin}
@@ -136,5 +184,13 @@ export default function LoginPage() {
         </p>
       </div>
     </div>
+  );
+}
+
+export default function LoginPage() {
+  return (
+    <Suspense fallback={<div className="min-h-screen bg-[#07090e] flex items-center justify-center text-white text-xs">Loading...</div>}>
+      <LoginForm />
+    </Suspense>
   );
 }

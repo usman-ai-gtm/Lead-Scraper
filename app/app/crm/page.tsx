@@ -1,11 +1,12 @@
 "use client";
 
 import React, { useState, useEffect } from "react";
+import Link from "next/link";
 import { api } from "@/lib/api";
 import { Deal } from "@/lib/types";
 import {
   Database, Plus, DollarSign, Calendar, TrendingUp, CheckCircle2,
-  Building2, Users, ArrowRight, RefreshCw, Layers, ListFilter
+  Building2, Users, ArrowRight, RefreshCw, Layers, ListFilter, Send
 } from "lucide-react";
 
 export default function CRMPage() {
@@ -278,10 +279,20 @@ export default function CRMPage() {
           <h3 className="text-sm font-bold text-white mb-3">Decision Makers & Key Contacts</h3>
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
             {contacts.map((ct) => (
-              <div key={ct.id} className="p-4 rounded-xl border border-white/[0.06] bg-white/[0.02]">
-                <div className="font-bold text-white text-sm mb-1">{ct.first_name} {ct.last_name || ""}</div>
-                <div className="text-xs text-blue-400 mb-1">{ct.title || "Executive"}</div>
-                <div className="text-[11px] text-slate-400">{ct.email || "No email"}</div>
+              <div key={ct.id} className="p-4 rounded-xl border border-white/[0.06] bg-white/[0.02] flex flex-col justify-between">
+                <div>
+                  <div className="font-bold text-white text-sm mb-1">{ct.first_name} {ct.last_name || ""}</div>
+                  <div className="text-xs text-blue-400 mb-1">{ct.title || "Executive"}</div>
+                  <div className="text-[11px] text-slate-400">{ct.email || "No email"}</div>
+                </div>
+                <div className="pt-3 mt-3 border-t border-white/[0.04]">
+                  <Link
+                    href={`/app/outreach/campaigns/new?contact_email=${encodeURIComponent(ct.email || "")}&contact_name=${encodeURIComponent(ct.first_name || "")}`}
+                    className="inline-flex items-center gap-1.5 text-xs font-bold text-blue-400 hover:text-blue-300 transition-colors"
+                  >
+                    <Send className="h-3 w-3" /> Add to Campaign
+                  </Link>
+                </div>
               </div>
             ))}
           </div>

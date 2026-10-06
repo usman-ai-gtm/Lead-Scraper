@@ -267,6 +267,12 @@ export default function LeadsPage() {
         <div className="rounded-xl border border-blue-500/30 bg-blue-500/10 px-4 py-2.5 flex items-center justify-between text-xs text-white">
           <span className="font-semibold">{selectedIds.length} leads selected</span>
           <div className="flex items-center gap-2">
+            <Link
+              href={`/app/outreach/campaigns/new?lead_ids=${selectedIds.join(",")}`}
+              className="px-3 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white font-bold flex items-center gap-1.5"
+            >
+              <Send className="h-3 w-3" /> Add to Campaign
+            </Link>
             <button
               onClick={() => handleBulkAction("score")}
               className="px-3 py-1.5 rounded-lg bg-blue-600 hover:bg-blue-500 text-white font-bold"

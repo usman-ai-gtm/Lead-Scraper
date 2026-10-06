@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useState, useEffect } from "react";
+import Link from "next/link";
 import { api } from "@/lib/api";
 import {
   Shield, Users, Activity, Lock, Database, RefreshCw,
@@ -57,13 +58,29 @@ export default function AdminPage() {
           </p>
         </div>
 
-        <button
-          onClick={fetchAdminData}
-          className="flex items-center gap-1.5 px-3 py-2 text-xs font-semibold text-slate-300 bg-white/[0.04] hover:bg-white/[0.08] border border-white/10 rounded-xl transition-all"
-        >
-          <RefreshCw className="h-3.5 w-3.5" />
-          <span>Refresh Telemetry</span>
-        </button>
+        <div className="flex items-center gap-2 flex-wrap">
+          <Link
+            href="/app/admin/integrations/google"
+            className="flex items-center gap-1.5 px-3.5 py-2 text-xs font-bold text-white bg-blue-600 hover:bg-blue-500 rounded-xl shadow-glow-sm transition-all"
+          >
+            <Key className="h-3.5 w-3.5" />
+            <span>Google & Gmail OAuth</span>
+          </Link>
+          <Link
+            href="/app/features-lab"
+            className="flex items-center gap-1.5 px-3 py-2 text-xs font-semibold text-slate-300 bg-white/[0.04] hover:bg-white/[0.08] border border-white/10 rounded-xl transition-all"
+          >
+            <Terminal className="h-3.5 w-3.5 text-purple-400" />
+            <span>Feature Lab (1–600)</span>
+          </Link>
+          <button
+            onClick={fetchAdminData}
+            className="flex items-center gap-1.5 px-3 py-2 text-xs font-semibold text-slate-300 bg-white/[0.04] hover:bg-white/[0.08] border border-white/10 rounded-xl transition-all"
+          >
+            <RefreshCw className="h-3.5 w-3.5" />
+            <span>Refresh</span>
+          </button>
+        </div>
       </div>
 
       {/* ADMIN OVERVIEW STRIP */}
