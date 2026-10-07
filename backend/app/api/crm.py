@@ -47,3 +47,8 @@ def list_companies(current_user: Dict[str, Any] = Depends(get_current_user)):
 def list_contacts(current_user: Dict[str, Any] = Depends(get_current_user)):
     ws_id = current_user.get("workspace_id") or 1
     return CRMService.get_contacts(workspace_id=ws_id)
+
+@router.get("/deals")
+def list_deals(current_user: Dict[str, Any] = Depends(get_current_user)):
+    ws_id = current_user.get("workspace_id") or 1
+    return CRMService.get_deals(workspace_id=ws_id)

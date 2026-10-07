@@ -144,3 +144,17 @@ class CRMService:
         ''', (workspace_id,)).fetchall()
         conn.close()
         return [dict(r) for r in rows]
+
+    @classmethod
+    def get_deals(cls, workspace_id: int = 1) -> List[Dict[str, Any]]:
+        conn = get_db_connection()
+        rows = conn.execute('''
+            SELECT d.*, c.name as company_name, COALESCE(ct.full_name, ct.first_name || ' ' || COALESCE(ct.last_name, '')) as contact_name
+            FROM crm_deals d
+            LEFT JOIN companies c ON d.company_id = c.id
+            LEFT JOIN contacts ct ON d.contact_id = ct.id
+            WHERE d.workspace_id = ?
+            ORDER BY d.id DESC
+        ''', (workspace_id,)).fetchall()
+        conn.close()
+        return [dict(r) for r in rows]

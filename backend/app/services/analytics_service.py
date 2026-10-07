@@ -24,12 +24,12 @@ class AnalyticsService:
                 SUM(amount) as pipeline_val,
                 SUM(CASE WHEN stage = 'WON' THEN amount ELSE 0 END) as won_val,
                 SUM(CASE WHEN stage = 'MEETING' THEN 1 ELSE 0 END) as meetings
-            FROM deals WHERE workspace_id = ?
+            FROM crm_deals WHERE workspace_id = ?
         ''', (workspace_id,)).fetchone()
 
-        pipeline_val = float(deals_stats["pipeline_val"] or 0.0)
-        won_val = float(deals_stats["won_val"] or 0.0)
-        meetings = int(deals_stats["meetings"] or 0)
+        pipeline_val = float(deals_stats["pipeline_val"] or 0.0) if deals_stats else 0.0
+        won_val = float(deals_stats["won_val"] or 0.0) if deals_stats else 0.0
+        meetings = int(deals_stats["meetings"] or 0) if deals_stats else 0
 
         # 3. Campaigns stats
         camp_stats = conn.execute('''
@@ -41,9 +41,9 @@ class AnalyticsService:
             FROM email_campaigns WHERE workspace_id = ?
         ''', (workspace_id,)).fetchone()
 
-        total_sent = int(camp_stats["total_sent"] or 0)
-        total_opened = int(camp_stats["total_opened"] or 0)
-        total_replied = int(camp_stats["total_replied"] or 0)
+        total_sent = int(camp_stats["total_sent"] or 0) if camp_stats else 0
+        total_opened = int(camp_stats["total_opened"] or 0) if camp_stats else 0
+        total_replied = int(camp_stats["total_replied"] or 0) if camp_stats else 0
 
         open_rate = round((total_opened / total_sent * 100), 1) if total_sent > 0 else 46.2
         reply_rate = round((total_replied / total_sent * 100), 1) if total_sent > 0 else 18.4
@@ -52,7 +52,7 @@ class AnalyticsService:
         # 4. Pipeline by stage
         stages_raw = conn.execute('''
             SELECT stage, COUNT(*) as count, SUM(amount) as value
-            FROM deals WHERE workspace_id = ?
+            FROM crm_deals WHERE workspace_id = ?
             GROUP BY stage
         ''', (workspace_id,)).fetchall()
         pipeline_by_stage = [{"stage": r["stage"], "count": r["count"], "value": float(r["value"] or 0.0)} for r in stages_raw]
