@@ -28,6 +28,10 @@ export const Footer: React.FC = () => {
                 <Lock className="h-4 w-4 text-blue-400" /> GDPR & CCPA
               </span>
             </div>
+            <div className="mt-4 pt-4 border-t border-white/[0.06] text-xs text-slate-400 space-y-1">
+              <div>Email: <a href="mailto:telegramtiktokn1@gmail.com" className="text-slate-300 hover:text-white transition-colors">telegramtiktokn1@gmail.com</a></div>
+              <div>Phone: <a href="tel:+923304580601" className="text-slate-300 hover:text-white transition-colors">+923304580601</a></div>
+            </div>
           </div>
 
           {/* Platform Links */}

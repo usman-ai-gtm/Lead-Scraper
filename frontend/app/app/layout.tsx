@@ -129,8 +129,8 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
 
   return (
     <div className="min-h-screen bg-[#07090e] text-slate-100 flex flex-col md:flex-row antialiased">
-      {/* SIDEBAR (Desktop) */}
-      <aside className="hidden md:flex w-64 flex-col justify-between border-r border-white/[0.08] bg-[#090d16] p-4 shrink-0">
+      {/* SIDEBAR (Desktop) - Independent Scroll Container */}
+      <aside className="hidden md:flex w-64 flex-col justify-between border-r border-white/[0.08] bg-[#090d16] p-4 shrink-0 h-screen sticky top-0 overflow-y-auto select-none">
         <div>
           {/* Brand Logo */}
           <Link href="/app" className="flex items-center gap-3 px-2 py-3 mb-6 group">

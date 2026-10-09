@@ -167,14 +167,56 @@ def init_app_database():
         )
     ''')
 
-    # Insert sample onboarding notifications if empty
-    cur.execute("SELECT COUNT(*) FROM system_notifications")
-    notif_count = cur.fetchone()[0]
-    if notif_count == 0:
-        cur.execute('''
-            INSERT INTO system_notifications (workspace_id, title, message, type, category, is_read, link, created_at)
-            VALUES (1, 'Welcome to USMAN AI GTM', 'Your enterprise revenue operations workspace is initialized and ready.', 'success', 'system', 0, '/app', ?)
-        ''', (now_iso,))
+    # 6. Leads table migration for additive columns
+    cur.execute("PRAGMA table_info(leads)")
+    lead_cols = {r[1] for r in cur.fetchall()}
+    for col, ctype in [
+        ("fit_score", "INTEGER DEFAULT 50"),
+        ("phone_status", "TEXT DEFAULT 'Unverified'"),
+        ("source_url", "TEXT"),
+        ("search_keyword", "TEXT"),
+        ("search_location", "TEXT"),
+        ("date_discovered", "TEXT"),
+    ]:
+        if col not in lead_cols:
+            try:
+                cur.execute(f"ALTER TABLE leads ADD COLUMN {col} {ctype}")
+            except Exception as e:
+                pass
+
+    # 7. Password Resets table
+    cur.execute('''
+        CREATE TABLE IF NOT EXISTS password_resets (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id INTEGER NOT NULL,
+            email TEXT NOT NULL,
+            token TEXT UNIQUE NOT NULL,
+            expires_at TEXT NOT NULL,
+            used INTEGER DEFAULT 0,
+            used_at TEXT,
+            created_at TEXT NOT NULL
+        )
+    ''')
+    cur.execute("CREATE INDEX IF NOT EXISTS idx_pw_reset_token ON password_resets(token)")
+
+    # 7. Ideal Customer Profiles (My Business & Ideal Customers)
+    cur.execute('''
+        CREATE TABLE IF NOT EXISTS ideal_customer_profiles (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            workspace_id INTEGER NOT NULL UNIQUE,
+            business_name TEXT,
+            offering TEXT,
+            website TEXT,
+            target_industries TEXT,
+            target_company_sizes TEXT,
+            target_locations TEXT,
+            target_roles TEXT,
+            problems_solved TEXT,
+            excluded_industries TEXT,
+            additional_instructions TEXT,
+            updated_at TEXT NOT NULL
+        )
+    ''')
 
     conn.commit()
     conn.close()

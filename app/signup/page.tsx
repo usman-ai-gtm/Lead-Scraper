@@ -5,7 +5,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useAuth } from "@/lib/auth-context";
 import GoogleSignInButton from "@/components/auth/GoogleSignInButton";
-import { Sparkles, Lock, Mail, User, Building, ArrowRight, AlertCircle } from "lucide-react";
+import { Sparkles, Lock, Mail, User, Building2, ArrowRight, AlertCircle, CheckSquare, Square } from "lucide-react";
 
 export default function SignupPage() {
   const router = useRouter();
@@ -13,28 +13,44 @@ export default function SignupPage() {
   const [form, setForm] = useState({
     fullName: "",
     email: "",
-    company: "",
     workspaceName: "",
     password: "",
+    confirmPassword: "",
   });
+  const [termsAgreed, setTermsAgreed] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    setLoading(true);
     setError(null);
+
+    if (form.password.length < 8) {
+      setError("Password must be at least 8 characters long");
+      return;
+    }
+
+    if (form.password !== form.confirmPassword) {
+      setError("Passwords do not match. Please verify your password confirmation.");
+      return;
+    }
+
+    if (!termsAgreed) {
+      setError("Please agree to the Terms of Service and Privacy Policy to create your account.");
+      return;
+    }
+
+    setLoading(true);
     try {
       await signup({
-        fullName: form.fullName,
-        email: form.email,
-        company: form.company,
-        workspaceName: form.workspaceName || `${form.company || form.fullName}'s Workspace`,
+        fullName: form.fullName.trim(),
+        email: form.email.trim().toLowerCase(),
+        workspaceName: form.workspaceName.trim() || `${form.fullName.trim()}'s Workspace`,
         pass: form.password,
       });
-      router.push("/onboarding");
+      router.push("/app");
     } catch (err: any) {
-      setError(err.message || "Failed to create account");
+      setError(err.message || "Failed to create account. Please try again.");
     } finally {
       setLoading(false);
     }
@@ -55,16 +71,16 @@ export default function SignupPage() {
                 USMAN <span className="text-blue-500 font-extrabold">AI GTM</span>
               </div>
               <div className="text-[10px] font-medium uppercase tracking-widest text-slate-400">
-                Create Enterprise Workspace
+                Enterprise Revenue Operations
               </div>
             </div>
           </Link>
         </div>
 
         <div className="rounded-2xl border border-white/[0.08] bg-[#0c1017]/90 p-8 shadow-glass backdrop-blur-xl">
-          <h1 className="text-2xl font-bold text-white mb-2 text-center">Start Free Trial</h1>
+          <h1 className="text-2xl font-bold text-white mb-2 text-center">Create an account</h1>
           <p className="text-xs text-slate-400 text-center mb-6">
-            Instant access to verified leads, multi-channel outreach, and AI research
+            Instant access to verified leads, multi-channel outreach, and AI intelligence
           </p>
 
           {error && (
@@ -74,9 +90,9 @@ export default function SignupPage() {
             </div>
           )}
 
-          {/* Primary Action 1: Google Sign-In */}
+          {/* Google Sign-In */}
           <div className="mb-5">
-            <GoogleSignInButton label="Sign Up with Google" />
+            <GoogleSignInButton label="Continue with Google" />
           </div>
 
           {/* Divider */}
@@ -119,30 +135,16 @@ export default function SignupPage() {
               </div>
             </div>
 
-            <div className="grid grid-cols-2 gap-3">
-              <div>
-                <label className="block text-xs font-semibold text-slate-300 mb-1">Company</label>
-                <div className="relative">
-                  <Building className="absolute left-3.5 top-3 h-4 w-4 text-slate-500" />
-                  <input
-                    type="text"
-                    required
-                    value={form.company}
-                    onChange={(e) => setForm({ ...form, company: e.target.value })}
-                    className="w-full rounded-xl border border-white/10 bg-white/[0.03] pl-10 pr-3 py-2.5 text-sm text-white placeholder-slate-500 focus:border-blue-500 focus:outline-none"
-                    placeholder="Usman CPN"
-                  />
-                </div>
-              </div>
-
-              <div>
-                <label className="block text-xs font-semibold text-slate-300 mb-1">Workspace</label>
+            <div>
+              <label className="block text-xs font-semibold text-slate-300 mb-1">Workspace Name</label>
+              <div className="relative">
+                <Building2 className="absolute left-3.5 top-3 h-4 w-4 text-slate-500" />
                 <input
                   type="text"
                   value={form.workspaceName}
                   onChange={(e) => setForm({ ...form, workspaceName: e.target.value })}
-                  className="w-full rounded-xl border border-white/10 bg-white/[0.03] px-3.5 py-2.5 text-sm text-white placeholder-slate-500 focus:border-blue-500 focus:outline-none"
-                  placeholder="SALES MANAGER"
+                  className="w-full rounded-xl border border-white/10 bg-white/[0.03] pl-10 pr-3.5 py-2.5 text-sm text-white placeholder-slate-500 focus:border-blue-500 focus:outline-none"
+                  placeholder="My Sales Workspace"
                 />
               </div>
             </div>
@@ -157,9 +159,47 @@ export default function SignupPage() {
                   value={form.password}
                   onChange={(e) => setForm({ ...form, password: e.target.value })}
                   className="w-full rounded-xl border border-white/10 bg-white/[0.03] pl-10 pr-4 py-2.5 text-sm text-white placeholder-slate-500 focus:border-blue-500 focus:outline-none"
-                  placeholder="••••••••••••"
+                  placeholder="Minimum 8 characters"
                 />
               </div>
+            </div>
+
+            <div>
+              <label className="block text-xs font-semibold text-slate-300 mb-1">Confirm Password</label>
+              <div className="relative">
+                <Lock className="absolute left-3.5 top-3 h-4 w-4 text-slate-500" />
+                <input
+                  type="password"
+                  required
+                  value={form.confirmPassword}
+                  onChange={(e) => setForm({ ...form, confirmPassword: e.target.value })}
+                  className="w-full rounded-xl border border-white/10 bg-white/[0.03] pl-10 pr-4 py-2.5 text-sm text-white placeholder-slate-500 focus:border-blue-500 focus:outline-none"
+                  placeholder="Repeat your password"
+                />
+              </div>
+            </div>
+
+            {/* Terms and Privacy Consent Checkbox */}
+            <div className="pt-1">
+              <label className="flex items-start gap-2.5 cursor-pointer text-xs text-slate-400">
+                <input
+                  type="checkbox"
+                  checked={termsAgreed}
+                  onChange={(e) => setTermsAgreed(e.target.checked)}
+                  className="mt-0.5 h-4 w-4 rounded border-white/20 bg-white/5 text-blue-600 focus:ring-0 focus:outline-none cursor-pointer"
+                />
+                <span className="leading-tight">
+                  I agree to the{" "}
+                  <Link href="/about#terms" className="text-blue-400 hover:text-blue-300 underline" target="_blank">
+                    Terms of Service
+                  </Link>{" "}
+                  and{" "}
+                  <Link href="/about#privacy" className="text-blue-400 hover:text-blue-300 underline" target="_blank">
+                    Privacy Policy
+                  </Link>
+                  .
+                </span>
+              </label>
             </div>
 
             <button
@@ -167,7 +207,7 @@ export default function SignupPage() {
               disabled={loading}
               className="w-full mt-2 py-3 rounded-xl bg-gradient-to-r from-blue-600 via-indigo-600 to-purple-600 text-white font-bold text-sm shadow-glow-sm hover:opacity-95 transition-all flex items-center justify-center gap-2 disabled:opacity-50"
             >
-              <span>{loading ? "Creating Enterprise Workspace..." : "Create Account & Continue"}</span>
+              <span>{loading ? "Creating your workspace..." : "Create Account"}</span>
               <ArrowRight className="h-4 w-4" />
             </button>
           </form>

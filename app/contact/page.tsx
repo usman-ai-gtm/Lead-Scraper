@@ -54,7 +54,7 @@ export default function ContactPage() {
                   <Mail className="h-6 w-6 text-blue-400" />
                   <div>
                     <div className="text-xs text-slate-400">Enterprise Inquiries</div>
-                    <div className="text-sm font-semibold text-white">enterprise@usmanai.com</div>
+                    <div className="text-sm font-semibold text-white">telegramtiktokn1@gmail.com</div>
                   </div>
                 </div>
 
@@ -62,7 +62,7 @@ export default function ContactPage() {
                   <Phone className="h-6 w-6 text-emerald-400" />
                   <div>
                     <div className="text-xs text-slate-400">Direct Phone / WhatsApp</div>
-                    <div className="text-sm font-semibold text-white">+1 (800) 876-2624</div>
+                    <div className="text-sm font-semibold text-white">+923304580601</div>
                   </div>
                 </div>
 
@@ -70,7 +70,7 @@ export default function ContactPage() {
                   <MapPin className="h-6 w-6 text-purple-400" />
                   <div>
                     <div className="text-xs text-slate-400">Headquarters</div>
-                    <div className="text-sm font-semibold text-white">New York, NY • Global Remote Support</div>
+                    <div className="text-sm font-semibold text-white">Lahore, PK • Global Remote Operations</div>
                   </div>
                 </div>
               </div>

@@ -37,28 +37,7 @@ class CampaignService:
                     pass
             campaigns.append(c)
 
-        if not campaigns:
-            cls.seed_sample_campaigns(workspace_id)
-            return cls.get_campaigns(workspace_id)
-
         return campaigns
-
-    @classmethod
-    def seed_sample_campaigns(cls, workspace_id: int = 1):
-        samples = [
-            ("Q4 Enterprise AI RevOps Launch", "Active", 120, 98, 85, 42, 18),
-            ("Healthcare SaaS Decision Makers", "Active", 75, 70, 61, 28, 9),
-            ("Logistics & Supply Chain Outbound", "Paused", 45, 45, 38, 12, 4),
-            ("Fintech VP of Sales Nurture", "Draft", 0, 0, 0, 0, 0)
-        ]
-        now_iso = datetime.now(timezone.utc).isoformat()
-        for name, status, tot, sent, opened, rep, won in samples:
-            execute_write('''
-                INSERT INTO email_campaigns (
-                    workspace_id, name, status, total_recipients, sent_count,
-                    delivered_count, opened_count, replied_count, created_at, updated_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            ''', (workspace_id, name, status, tot, sent, sent - 2, opened, rep, now_iso, now_iso))
 
     @classmethod
     def create_campaign(cls, data: Dict[str, Any], workspace_id: int = 1) -> int:
@@ -92,32 +71,12 @@ class CampaignService:
     @classmethod
     def get_connected_accounts(cls, workspace_id: int = 1) -> List[Dict[str, Any]]:
         """
-        Fetches connected accounts via AccountRepository with sanitized credentials.
+        Fetches genuine connected accounts via AccountRepository with sanitized credentials.
+        Never seeds fake or simulated connected accounts.
         """
         accounts = AccountRepository.get_accounts(workspace_id=workspace_id)
         if not accounts:
-            # Seed default system accounts if fresh workspace
-            AccountRepository.create_or_update_account(
-                workspace_id=workspace_id,
-                account_type="email",
-                provider="smtp",
-                display_name="Corporate Outbound SMTP",
-                external_identity="outreach@usmanai.com",
-                status="CONNECTED",
-                extra_config={"host": "smtp.gmail.com", "port": 587, "tls": True},
-                is_default=True
-            )
-            AccountRepository.create_or_update_account(
-                workspace_id=workspace_id,
-                account_type="whatsapp",
-                provider="meta_whatsapp",
-                display_name="Enterprise Meta WhatsApp Cloud API",
-                external_identity="+14155238886",
-                status="CONNECTED",
-                extra_config={"phone_number_id": "104928192841029", "waba_id": "928371928471928"},
-                is_default=True
-            )
-            return AccountRepository.get_accounts(workspace_id=workspace_id)
+            return []
 
         # Attach telemetry usage summary
         for acc in accounts:

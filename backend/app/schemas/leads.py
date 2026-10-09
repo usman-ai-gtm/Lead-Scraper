@@ -89,3 +89,6 @@ class AIResearchResponse(BaseModel):
     suggested_whatsapp: str
     intent_score: int
     data_sources: List[str]
+    facts: Optional[List[Dict[str, str]]] = []
+    assumptions: Optional[List[str]] = []
+    missing_information: Optional[List[str]] = []

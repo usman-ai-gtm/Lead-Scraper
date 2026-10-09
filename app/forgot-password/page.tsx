@@ -2,15 +2,33 @@
 
 import React, { useState } from "react";
 import Link from "next/link";
-import { Sparkles, Mail, ArrowRight, CheckCircle2 } from "lucide-react";
+import { api } from "@/lib/api";
+import { Sparkles, Mail, ArrowRight, CheckCircle2, AlertCircle } from "lucide-react";
 
 export default function ForgotPasswordPage() {
   const [email, setEmail] = useState("");
+  const [loading, setLoading] = useState(false);
   const [submitted, setSubmitted] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [testToken, setTestToken] = useState<string | null>(null);
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    setSubmitted(true);
+    setLoading(true);
+    setError(null);
+    try {
+      const res = await api.post<{ status: string; message: string; token_available_for_local_test?: string }>("/auth/forgot-password", {
+        email: email.trim().toLowerCase(),
+      });
+      setSubmitted(true);
+      if (res.token_available_for_local_test) {
+        setTestToken(res.token_available_for_local_test);
+      }
+    } catch (err: any) {
+      setError(err.message || "Failed to submit password reset request.");
+    } finally {
+      setLoading(false);
+    }
   };
 
   return (
@@ -30,19 +48,39 @@ export default function ForgotPasswordPage() {
         <div className="rounded-2xl border border-white/[0.08] bg-[#0c1017]/90 p-8 shadow-glass backdrop-blur-xl">
           <h1 className="text-2xl font-bold text-white mb-2 text-center">Reset Password</h1>
           <p className="text-xs text-slate-400 text-center mb-6">
-            Enter your work email address to receive password reset instructions
+            Enter your work email address to receive secure password recovery instructions
           </p>
+
+          {error && (
+            <div className="mb-6 p-3 rounded-xl bg-rose-500/10 border border-rose-500/20 text-rose-400 text-xs flex items-center gap-2">
+              <AlertCircle className="h-4 w-4 shrink-0" />
+              <span>{error}</span>
+            </div>
+          )}
 
           {submitted ? (
             <div className="text-center py-6">
               <CheckCircle2 className="h-12 w-12 text-emerald-400 mx-auto mb-3" />
               <h3 className="text-lg font-bold text-white mb-1">Check Your Inbox</h3>
-              <p className="text-xs text-slate-400 mb-6">
-                If an account exists for <span className="text-white font-medium">{email}</span>, we have sent a secure recovery link.
+              <p className="text-xs text-slate-400 mb-6 leading-relaxed">
+                If an account exists for <span className="text-white font-medium">{email}</span>, we have dispatched a single-use recovery link valid for 60 minutes.
               </p>
+
+              {testToken && (
+                <div className="mb-6 p-3 rounded-xl bg-blue-500/10 border border-blue-500/20 text-left">
+                  <div className="text-[11px] font-bold text-blue-400 mb-1">Local Diagnostic Recovery Link:</div>
+                  <Link
+                    href={`/reset-password?token=${testToken}`}
+                    className="text-xs text-blue-300 underline break-all hover:text-white"
+                  >
+                    Open Password Reset Form →
+                  </Link>
+                </div>
+              )}
+
               <Link
                 href="/login"
-                className="inline-block w-full py-2.5 rounded-xl bg-white/10 hover:bg-white/15 text-white font-bold text-xs"
+                className="inline-block w-full py-2.5 rounded-xl bg-white/10 hover:bg-white/15 text-white font-bold text-xs transition-colors"
               >
                 Back to Sign In
               </Link>
@@ -66,9 +104,10 @@ export default function ForgotPasswordPage() {
 
               <button
                 type="submit"
-                className="w-full py-3 rounded-xl bg-blue-600 hover:bg-blue-500 text-white font-bold text-sm shadow-glow-sm transition-all"
+                disabled={loading}
+                className="w-full py-3 rounded-xl bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-500 hover:to-indigo-500 text-white font-bold text-sm shadow-glow-sm transition-all disabled:opacity-50"
               >
-                Send Reset Link
+                {loading ? "Generating Recovery Link..." : "Send Reset Link"}
               </button>
             </form>
           )}

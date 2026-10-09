@@ -45,9 +45,9 @@ class AnalyticsService:
         total_opened = int(camp_stats["total_opened"] or 0) if camp_stats else 0
         total_replied = int(camp_stats["total_replied"] or 0) if camp_stats else 0
 
-        open_rate = round((total_opened / total_sent * 100), 1) if total_sent > 0 else 46.2
-        reply_rate = round((total_replied / total_sent * 100), 1) if total_sent > 0 else 18.4
-        conversion_rate = round((won_val / (pipeline_val or 1) * 100), 1) if pipeline_val > 0 else 24.5
+        open_rate = round((total_opened / total_sent * 100), 1) if total_sent > 0 else 0.0
+        reply_rate = round((total_replied / total_sent * 100), 1) if total_sent > 0 else 0.0
+        conversion_rate = round((won_val / pipeline_val * 100), 1) if pipeline_val > 0 else 0.0
 
         # 4. Pipeline by stage
         stages_raw = conn.execute('''
@@ -57,13 +57,16 @@ class AnalyticsService:
         ''', (workspace_id,)).fetchall()
         pipeline_by_stage = [{"stage": r["stage"], "count": r["count"], "value": float(r["value"] or 0.0)} for r in stages_raw]
 
-        # 5. Lead growth series (weekly)
-        lead_growth = [
-            {"date": "Week 1", "discovered": max(total_leads // 4, 12), "qualified": max(verified_leads // 4, 8)},
-            {"date": "Week 2", "discovered": max(total_leads // 3, 24), "qualified": max(verified_leads // 3, 16)},
-            {"date": "Week 3", "discovered": max(total_leads // 2, 42), "qualified": max(verified_leads // 2, 30)},
-            {"date": "Week 4", "discovered": total_leads, "qualified": verified_leads}
-        ]
+        # 5. Lead growth series (weekly) - based strictly on actual counts
+        if total_leads > 0:
+            lead_growth = [
+                {"date": "Week 1", "discovered": total_leads // 4, "qualified": verified_leads // 4},
+                {"date": "Week 2", "discovered": total_leads // 2, "qualified": verified_leads // 2},
+                {"date": "Week 3", "discovered": (total_leads * 3) // 4, "qualified": (verified_leads * 3) // 4},
+                {"date": "Week 4", "discovered": total_leads, "qualified": verified_leads}
+            ]
+        else:
+            lead_growth = []
 
         # 6. Campaign performance series
         camps_raw = conn.execute('''
@@ -73,29 +76,62 @@ class AnalyticsService:
         ''', (workspace_id,)).fetchall()
         campaign_perf = [dict(c) for c in camps_raw]
 
-        # 7. Recent activities
-        recent_activities = [
-            {"type": "enrichment", "text": "Enriched 25 Enterprise Leads in United States", "time": "12m ago"},
-            {"type": "email", "text": "Outbound campaign delivered 42 emails with 0 bounces", "time": "35m ago"},
-            {"type": "crm", "text": "Deal 'Apex Global Tech' moved to Proposal stage ($45,000)", "time": "1h ago"},
-            {"type": "copilot", "text": "AI Copilot synthesized prospect analysis for 12 accounts", "time": "2h ago"}
-        ]
+        # 7. Real recent activities queried from actual database records
+        recent_activities = []
+        try:
+            # Recent leads
+            recent_leads = conn.execute('''
+                SELECT business_name, created_at FROM leads 
+                WHERE workspace_id = ? ORDER BY id DESC LIMIT 3
+            ''', (workspace_id,)).fetchall()
+            for rl in recent_leads:
+                recent_activities.append({
+                    "type": "lead",
+                    "text": f"Discovered lead: {rl['business_name']}",
+                    "time": rl["created_at"] or "Recently"
+                })
+
+            # Recent campaigns
+            recent_camps = conn.execute('''
+                SELECT name, status, created_at FROM email_campaigns 
+                WHERE workspace_id = ? ORDER BY id DESC LIMIT 2
+            ''', (workspace_id,)).fetchall()
+            for rc in recent_camps:
+                recent_activities.append({
+                    "type": "campaign",
+                    "text": f"Campaign '{rc['name']}' status: {rc['status']}",
+                    "time": rc["created_at"] or "Recently"
+                })
+
+            # Recent deals
+            recent_deals = conn.execute('''
+                SELECT title, stage, amount, created_at FROM crm_deals 
+                WHERE workspace_id = ? ORDER BY id DESC LIMIT 2
+            ''', (workspace_id,)).fetchall()
+            for rd in recent_deals:
+                recent_activities.append({
+                    "type": "crm",
+                    "text": f"Deal '{rd['title']}' at {rd['stage']} (${rd['amount']:,.0f})",
+                    "time": rd["created_at"] or "Recently"
+                })
+        except Exception:
+            pass
 
         conn.close()
 
         return {
-            "total_leads": total_leads or 184,
-            "verified_leads": verified_leads or 142,
-            "high_intent_leads": high_intent_leads or 58,
-            "active_campaigns": int(camp_stats["active_camps"] or 3),
-            "total_emails_sent": total_sent or 420,
+            "total_leads": total_leads,
+            "verified_leads": verified_leads,
+            "high_intent_leads": high_intent_leads,
+            "active_campaigns": int(camp_stats["active_camps"] or 0) if camp_stats else 0,
+            "total_emails_sent": total_sent,
             "open_rate": open_rate,
             "reply_rate": reply_rate,
-            "meetings_booked": meetings or 14,
-            "pipeline_value": pipeline_val or 286500.0,
-            "won_revenue": won_val or 74000.0,
+            "meetings_booked": meetings,
+            "pipeline_value": pipeline_val,
+            "won_revenue": won_val,
             "conversion_rate": conversion_rate,
-            "health_score": 98,
+            "health_score": 100 if total_leads > 0 or total_sent > 0 else 0,
             "lead_growth_series": lead_growth,
             "pipeline_by_stage": pipeline_by_stage,
             "campaign_performance": campaign_perf,

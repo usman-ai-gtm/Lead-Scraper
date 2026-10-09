@@ -59,7 +59,7 @@ export const Header: React.FC = () => {
             href="/signup"
             className="group relative inline-flex items-center gap-2 overflow-hidden rounded-xl bg-gradient-to-r from-blue-600 via-indigo-600 to-purple-600 px-5 py-2.5 text-sm font-semibold text-white shadow-glow-sm transition-all hover:scale-[1.02] hover:shadow-glow-md"
           >
-            <span>Start Free</span>
+            <span>Create an account</span>
             <ArrowRight className="h-4 w-4 transition-transform group-hover:translate-x-1" />
           </Link>
         </div>
@@ -134,7 +134,7 @@ export const Header: React.FC = () => {
               onClick={() => setMobileMenuOpen(false)}
               className="w-full text-center py-2.5 text-sm font-semibold text-white bg-blue-600 rounded-xl"
             >
-              Start Free Trial
+              Create an account
             </Link>
           </div>
         </div>

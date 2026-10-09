@@ -24,17 +24,18 @@ function LoginForm() {
         const payload = JSON.parse(decodeURIComponent(googleSession));
         if (payload.token) {
           localStorage.setItem("usman_gtm_token", payload.token);
-          localStorage.setItem("usman_gtm_workspace_id", String(payload.workspace_id || 1));
-          localStorage.setItem("usman_gtm_user", JSON.stringify({
-            id: 1,
+          const userObj = payload.user || {
+            id: payload.id || 1,
             email: payload.email,
             full_name: payload.full_name,
-            company: "Usman CPN",
-            role: "ADMIN",
-            workspace_id: 1,
+            company: payload.company || "",
+            role: payload.role || "ADMIN",
+            workspace_id: payload.workspace_id || 1,
             tenant_id: 1,
-          }));
-          router.push("/app");
+          };
+          localStorage.setItem("usman_gtm_workspace_id", String(userObj.workspace_id || 1));
+          localStorage.setItem("usman_gtm_user", JSON.stringify(userObj));
+          window.location.href = "/app";
         }
       } catch (e) {
         console.error("Failed to parse Google session payload", e);
@@ -59,11 +60,6 @@ function LoginForm() {
     } finally {
       setLoading(false);
     }
-  };
-
-  const handleDemoLogin = () => {
-    setEmail("admin@usmanai.com");
-    setPassword("UsmanGTM@2026!");
   };
 
   return (
@@ -162,24 +158,13 @@ function LoginForm() {
               <ArrowRight className="h-4 w-4" />
             </button>
           </form>
-
-          {/* Quick Demo Pre-fill */}
-          <div className="mt-6 pt-5 border-t border-white/[0.08] text-center">
-            <button
-              type="button"
-              onClick={handleDemoLogin}
-              className="w-full py-2.5 text-xs font-semibold text-blue-400 bg-blue-500/10 hover:bg-blue-500/20 border border-blue-500/20 rounded-xl transition-all"
-            >
-              ⚡ Fill Administrator Demo Credentials
-            </button>
-          </div>
         </div>
 
         {/* Footer Link */}
         <p className="text-center text-xs text-slate-400 mt-6">
           Don't have an account?{" "}
           <Link href="/signup" className="text-blue-400 font-semibold hover:text-blue-300">
-            Start Free Trial
+            Create an account
           </Link>
         </p>
       </div>

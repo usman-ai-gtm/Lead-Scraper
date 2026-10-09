@@ -41,12 +41,20 @@ export async function proxyToBackend(
     const res = await fetch(url, init);
     clearTimeout(timeout);
 
-    if (res.ok) {
-      const data = await res.json().catch(() => null);
-      if (data !== null) return NextResponse.json(data);
+    const data = await res.json().catch(() => null);
+    if (data !== null) {
+      return NextResponse.json(data, { status: res.status });
     }
+    return new Response(null, { status: res.status });
   } catch {
-    // Backend offline or timeout -> proceed to resilient fallback
+    // Backend offline or timeout -> proceed to fallback for read requests only
+  }
+
+  if (req.method !== "GET" && req.method !== "HEAD") {
+    return NextResponse.json(
+      { detail: "Backend API service is temporarily unreachable. Please ensure the backend server is running." },
+      { status: 503 }
+    );
   }
 
   if (typeof fallbackData === "function") {

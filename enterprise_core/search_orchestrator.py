@@ -178,10 +178,17 @@ class DeepWebsiteIntelligence:
                 if soup.title:
                     result["page_title"] = soup.title.string.strip() if soup.title.string else ""
 
-                # Extract emails
-                email_pattern = r'[a-zA-Z0-9_.+-]+@[a-zA-Z0-9-]+\.[a-zA-Z0-9-.]+'
+                # Extract valid corporate/business emails with proper alphabetic TLD
+                email_pattern = r'[a-zA-Z0-9_.+-]+@[a-zA-Z0-9-]+(?:\.[a-zA-Z0-9-]+)*\.[a-zA-Z]{2,12}'
                 raw_emails = set(re.findall(email_pattern, html))
-                clean_emails = [e for e in raw_emails if not any(x in e.lower() for x in ['.png', '.jpg', '.jpeg', '.svg', '.gif', 'wixpress', 'sentry', 'example'])]
+                noise_substrings = [
+                    '.png', '.jpg', '.jpeg', '.svg', '.gif', '.webp', 'wixpress', 'sentry', 'example',
+                    'wght@', 'algolia', 'schema.org', 'wordpress', 'cdn', 'polyfill', 'license', 'github'
+                ]
+                clean_emails = [
+                    e.strip().lower() for e in raw_emails 
+                    if not any(x in e.lower() for x in noise_substrings) and '..' not in e and not e.split('@')[0].isdigit()
+                ]
                 result["emails_found"] = clean_emails[:5]
 
                 # Extract phones

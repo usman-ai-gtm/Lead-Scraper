@@ -50,29 +50,14 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
             localStorage.setItem("usman_gtm_workspace_id", String(targetWs.id));
           }
         } catch (e) {
-          console.warn("API profile fetch failed, restoring enterprise cloud session from storage");
-          try {
-            const rawUser = localStorage.getItem("usman_gtm_user");
-            const rawWs = localStorage.getItem("usman_gtm_workspaces");
-            if (rawUser) {
-              const u: User = JSON.parse(rawUser);
-              setUser(u);
-              const wList: Workspace[] = rawWs
-                ? JSON.parse(rawWs)
-                : [
-                    {
-                      id: 1,
-                      name: "Enterprise Workspace",
-                      plan: "ENTERPRISE",
-                      ai_credits: 50000,
-                      search_credits: 25000,
-                      created_at: new Date().toISOString(),
-                    },
-                  ];
-              setWorkspaces(wList);
-              setActiveWorkspace(wList[0]);
-            }
-          } catch {}
+          console.warn("Session expired or invalid, clearing local session");
+          localStorage.removeItem("usman_gtm_token");
+          localStorage.removeItem("usman_gtm_workspace_id");
+          localStorage.removeItem("usman_gtm_user");
+          localStorage.removeItem("usman_gtm_workspaces");
+          setUser(null);
+          setWorkspaces([]);
+          setActiveWorkspace(null);
         }
       }
       setLoading(false);
@@ -82,74 +67,33 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   }, []);
 
   const login = async (email: string, pass: string) => {
+    const res = await api.post<{ access_token: string; user: User }>("/auth/login", {
+      email,
+      password: pass,
+    });
+    localStorage.setItem("usman_gtm_token", res.access_token);
+    localStorage.setItem("usman_gtm_workspace_id", String(res.user.workspace_id));
+    localStorage.setItem("usman_gtm_user", JSON.stringify(res.user));
+    setUser(res.user);
+
     try {
-      const res = await api.post<{ access_token: string; user: User }>("/auth/login", {
-        email,
-        password: pass,
-      });
-      localStorage.setItem("usman_gtm_token", res.access_token);
-      localStorage.setItem("usman_gtm_workspace_id", String(res.user.workspace_id));
-      localStorage.setItem("usman_gtm_user", JSON.stringify(res.user));
-      setUser(res.user);
-
-      try {
-        const wsList = await api.get<Workspace[]>("/auth/workspaces");
-        setWorkspaces(wsList);
-        const targetWs = wsList.find((w) => w.id === res.user.workspace_id) || wsList[0];
-        setActiveWorkspace(targetWs);
-        localStorage.setItem("usman_gtm_workspaces", JSON.stringify(wsList));
-      } catch {
-        const defaultWs: Workspace = {
-          id: res.user.workspace_id || 1,
-          name: "Enterprise Workspace",
-          plan: "ENTERPRISE",
-          ai_credits: 50000,
-          search_credits: 25000,
-          created_at: new Date().toISOString(),
-        };
-        setWorkspaces([defaultWs]);
-        setActiveWorkspace(defaultWs);
-        localStorage.setItem("usman_gtm_workspaces", JSON.stringify([defaultWs]));
-      }
-    } catch (err) {
-      console.warn("Backend API unavailable, activating client cloud session:", err);
-      let existingUser: User | null = null;
-      try {
-        const raw = localStorage.getItem("usman_gtm_user");
-        if (raw) existingUser = JSON.parse(raw);
-      } catch {}
-
-      const activeUser: User =
-        existingUser && existingUser.email.toLowerCase() === email.toLowerCase()
-          ? existingUser
-          : {
-              id: 1,
-              email: email || "admin@usmanai.com",
-              full_name: email ? email.split("@")[0].replace(/[._-]/g, " ").toUpperCase() : "Muhammad Usman",
-              company: "Usman CPN",
-              role: "ADMIN",
-              workspace_id: 1,
-              tenant_id: 1,
-            };
-
-      const activeWs: Workspace = {
-        id: 1,
-        name: "SALES MANAGER Workspace",
+      const wsList = await api.get<Workspace[]>("/auth/workspaces");
+      setWorkspaces(wsList);
+      const targetWs = wsList.find((w) => w.id === res.user.workspace_id) || wsList[0];
+      setActiveWorkspace(targetWs);
+      localStorage.setItem("usman_gtm_workspaces", JSON.stringify(wsList));
+    } catch {
+      const defaultWs: Workspace = {
+        id: res.user.workspace_id || 1,
+        name: "Enterprise Workspace",
         plan: "ENTERPRISE",
         ai_credits: 50000,
         search_credits: 25000,
         created_at: new Date().toISOString(),
       };
-
-      const token = `usman_jwt_${activeUser.id}_${Date.now()}`;
-      localStorage.setItem("usman_gtm_token", token);
-      localStorage.setItem("usman_gtm_workspace_id", "1");
-      localStorage.setItem("usman_gtm_user", JSON.stringify(activeUser));
-      localStorage.setItem("usman_gtm_workspaces", JSON.stringify([activeWs]));
-
-      setUser(activeUser);
-      setWorkspaces([activeWs]);
-      setActiveWorkspace(activeWs);
+      setWorkspaces([defaultWs]);
+      setActiveWorkspace(defaultWs);
+      localStorage.setItem("usman_gtm_workspaces", JSON.stringify([defaultWs]));
     }
   };
 
@@ -160,63 +104,31 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     company?: string;
     workspaceName?: string;
   }) => {
-    try {
-      const res = await api.post<{ access_token: string; user: User; workspace?: Workspace }>("/auth/signup", {
-        email: data.email,
-        password: data.pass,
-        full_name: data.fullName,
-        company: data.company,
-        workspace_name: data.workspaceName,
-      });
+    const res = await api.post<{ access_token: string; user: User; workspace?: Workspace }>("/auth/signup", {
+      email: data.email,
+      password: data.pass,
+      full_name: data.fullName,
+      company: data.company,
+      workspace_name: data.workspaceName,
+    });
 
-      localStorage.setItem("usman_gtm_token", res.access_token);
-      localStorage.setItem("usman_gtm_workspace_id", String(res.user.workspace_id));
-      localStorage.setItem("usman_gtm_user", JSON.stringify(res.user));
-      setUser(res.user);
+    localStorage.setItem("usman_gtm_token", res.access_token);
+    localStorage.setItem("usman_gtm_workspace_id", String(res.user.workspace_id));
+    localStorage.setItem("usman_gtm_user", JSON.stringify(res.user));
+    setUser(res.user);
 
-      const newWs: Workspace = res.workspace || {
-        id: res.user.workspace_id || 1,
-        name: data.workspaceName || `${data.company || data.fullName}'s Workspace`,
-        plan: "ENTERPRISE",
-        ai_credits: 50000,
-        search_credits: 25000,
-        created_at: new Date().toISOString(),
-      };
+    const newWs: Workspace = res.workspace || {
+      id: res.user.workspace_id || 1,
+      name: data.workspaceName || `${data.company || data.fullName}'s Workspace`,
+      plan: "ENTERPRISE",
+      ai_credits: 50000,
+      search_credits: 25000,
+      created_at: new Date().toISOString(),
+    };
 
-      setWorkspaces([newWs]);
-      setActiveWorkspace(newWs);
-      localStorage.setItem("usman_gtm_workspaces", JSON.stringify([newWs]));
-    } catch (err) {
-      console.warn("Backend API unavailable, activating enterprise cloud workspace session:", err);
-      const fallbackUser: User = {
-        id: Math.floor(Math.random() * 10000) + 1,
-        email: data.email,
-        full_name: data.fullName || "Muhammad Usman",
-        company: data.company || "Usman CPN",
-        role: "ADMIN",
-        workspace_id: 1,
-        tenant_id: 1,
-      };
-
-      const fallbackWs: Workspace = {
-        id: 1,
-        name: data.workspaceName || `${data.company || data.fullName}'s Workspace`,
-        plan: "ENTERPRISE",
-        ai_credits: 50000,
-        search_credits: 25000,
-        created_at: new Date().toISOString(),
-      };
-
-      const token = `usman_jwt_${fallbackUser.id}_${Date.now()}`;
-      localStorage.setItem("usman_gtm_token", token);
-      localStorage.setItem("usman_gtm_workspace_id", "1");
-      localStorage.setItem("usman_gtm_user", JSON.stringify(fallbackUser));
-      localStorage.setItem("usman_gtm_workspaces", JSON.stringify([fallbackWs]));
-
-      setUser(fallbackUser);
-      setWorkspaces([fallbackWs]);
-      setActiveWorkspace(fallbackWs);
-    }
+    setWorkspaces([newWs]);
+    setActiveWorkspace(newWs);
+    localStorage.setItem("usman_gtm_workspaces", JSON.stringify([newWs]));
   };
 
   const logout = () => {

@@ -14,15 +14,14 @@ from backend.app.core.database import get_db_connection, execute_query, execute_
 logger = logging.getLogger("USMAN_CRM_SERVICE")
 
 CRM_STAGES = [
-    "NEW",
-    "QUALIFIED",
-    "CONTACTED",
-    "REPLIED",
-    "MEETING",
-    "PROPOSAL",
-    "NEGOTIATION",
-    "WON",
-    "LOST"
+    "New Lead",
+    "Qualified",
+    "Contacted",
+    "Replied",
+    "Meeting",
+    "Opportunity",
+    "Won",
+    "Lost"
 ]
 
 class CRMService:
@@ -31,6 +30,7 @@ class CRMService:
     def get_pipeline(cls, workspace_id: int = 1) -> Dict[str, Any]:
         """
         Returns full Kanban pipeline with grouped deals by stage.
+        Strictly honest: never seeds synthetic deals.
         """
         conn = get_db_connection()
         deals_raw = conn.execute('''
@@ -43,25 +43,21 @@ class CRMService:
         ''', (workspace_id,)).fetchall()
         conn.close()
 
+        # Map canonical stage names case-insensitively
+        stage_map = {s.upper(): s for s in CRM_STAGES}
         kanban: Dict[str, List[Dict[str, Any]]] = {stage: [] for stage in CRM_STAGES}
         total_value = 0.0
         won_value = 0.0
 
         for r in deals_raw:
             d = dict(r)
-            stage = d.get("stage", "NEW").upper()
-            if stage not in kanban:
-                stage = "NEW"
-            kanban[stage].append(d)
+            raw_stage = (d.get("stage") or "New Lead").upper()
+            canonical_stage = stage_map.get(raw_stage, "New Lead")
+            kanban[canonical_stage].append(d)
             amt = float(d.get("amount") or 0.0)
             total_value += amt
-            if stage == "WON":
+            if canonical_stage == "Won":
                 won_value += amt
-
-        # If zero deals exist in workspace, seed realistic enterprise pipeline deals
-        if not any(kanban.values()):
-            cls.seed_sample_deals(workspace_id)
-            return cls.get_pipeline(workspace_id)
 
         return {
             "stages": CRM_STAGES,
@@ -70,25 +66,6 @@ class CRMService:
             "pipeline_value": total_value,
             "won_revenue": won_value
         }
-
-    @classmethod
-    def seed_sample_deals(cls, workspace_id: int = 1):
-        sample_deals = [
-            ("Apex Global - Enterprise Platform License", "QUALIFIED", 45000.0, 65, "Apex Global Tech", "Johnathan Vance"),
-            ("Nexus Logistics - Multi-Tenant Automation", "PROPOSAL", 28000.0, 80, "Nexus Logistics Co", "Sarah Chen"),
-            ("Vanguard Health - AI Intelligence Engine", "NEGOTIATION", 95000.0, 90, "Vanguard Health Systems", "Dr. David Miller"),
-            ("BlueStone Capital - GTM Ops Deployment", "WON", 52000.0, 100, "BlueStone Financial", "Elena Rostova"),
-            ("OmniCommerce Solutions - Pilot Contract", "MEETING", 18500.0, 50, "OmniCommerce Group", "Marcus Brody"),
-            ("TechNova Labs - Custom Scraping Adapter", "CONTACTED", 12000.0, 40, "TechNova AI", "Farhan Malik"),
-            ("CloudPeak Systems - Enterprise Retainer", "NEW", 35000.0, 30, "CloudPeak SaaS", "Jessica Taylor")
-        ]
-        now_iso = datetime.now(timezone.utc).isoformat()
-        for title, stage, amt, win_p, comp, contact in sample_deals:
-            exp_val = round(amt * (win_p / 100.0), 2)
-            execute_write('''
-                INSERT INTO crm_deals (workspace_id, title, stage, amount, currency, probability, expected_value, expected_close_date, created_at, updated_at)
-                VALUES (?, ?, ?, ?, 'USD', ?, ?, ?, ?, ?)
-            ''', (workspace_id, title, stage, amt, win_p, exp_val, "2026-11-30", now_iso, now_iso))
 
     @classmethod
     def create_deal(cls, data: Dict[str, Any], workspace_id: int = 1) -> int:

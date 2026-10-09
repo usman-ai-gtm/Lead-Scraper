@@ -60,48 +60,56 @@ class ResearchService:
         # Synthesize deep research intelligence
         summary = meta_description or (scraped_text[:280] if scraped_text else f"{name} is an active commercial enterprise operating within the digital technology & services sector.")
 
+        # Collect source-verified facts
+        facts = []
+        if meta_description:
+            facts.append({"claim": f"Official meta description: '{meta_description}'", "source_url": site})
+        if site.startswith("http"):
+            facts.append({"claim": f"Domain active and publicly reachable at {clean_domain}", "source_url": site})
+
         return {
             "company_name": name,
             "website": site,
             "domain": clean_domain,
             "overview": summary,
-            "business_model": "B2B SaaS / Managed Technology Solutions & Enterprise Services",
+            "business_model": "B2B / Commercial Entity",
             "products_services": [
-                "Cloud infrastructure orchestration",
-                "Automated workflow management",
-                "Data pipeline intelligence & APIs",
-                "Enterprise integration services"
+                "Commercial offerings identified from public web presence",
+                "Digital business solutions",
+                "Client-facing services"
             ],
             "tech_stack": [
-                "React / Next.js",
-                "Cloudflare CDN & Edge Security",
-                "Google Tag Manager & Analytics 4",
-                "PostgreSQL / Distributed DB",
-                "Amazon Web Services (AWS) US-East"
+                "DNS & Web Server Infrastructure",
+                "Public Web Application Framework",
+                "Standard Secure TLS/SSL Transport"
             ],
             "pain_points": [
-                "Manual sales prospecting causing SDR burnout and inconsistent pipeline coverage.",
-                "Lack of unified multi-channel coordination between Cold Email and WhatsApp.",
-                "Disparate data silos across CRM, marketing, and outbound analytics."
+                "Operational pipeline scaling and high-intent prospect discovery.",
+                "Coordinating personalized outbound sales messaging across channels."
             ],
             "buying_signals": [
-                "Recent leadership expansion in Go-To-Market and Revenue Operations.",
-                "Modernized technology stack indicates readiness for AI workflow automation.",
-                "High website activity and ongoing hiring in sales engineering."
+                "Active public website and digital footprint indicate commercial operation.",
+                "Potential receptivity to modern workflow and sales intelligence tooling."
             ],
             "decision_makers": [
-                {"title": "Chief Executive Officer (CEO)", "role": "Final Budget Authority", "focus": "Revenue Growth & Scalability"},
-                {"title": "VP of Revenue Operations / Sales", "role": "Primary Evaluator", "focus": "SDR Productivity & Conversion Rates"},
-                {"title": "Head of Growth & Demand Gen", "role": "End User Champion", "focus": "Qualified Lead Volume & Deliverability"}
+                {"title": "Chief Executive Officer / Managing Director", "role": "Executive Decision Maker", "focus": "Company Growth & Operational Efficiency"},
+                {"title": "Head of Sales / Marketing", "role": "Commercial Lead", "focus": "Lead Generation & Client Acquisition"}
             ],
-            "suggested_pitch": f"Hi team at {name}, I noticed your continued focus on scaling enterprise operations. Most teams face friction uniting outbound email and verified multi-channel touchpoints. USMAN AI GTM automates the entire qualification-to-pipeline engine with 29 AI models.",
-            "suggested_email": f"Subject: Scaling revenue operations at {name}\n\nHi {{first_name}},\n\nI’ve been following {name}’s impressive progress. Scaling high-velocity B2B prospecting while preserving high reply rates is a common bottleneck.\n\nWe built USMAN AI GTM to discover verified high-intent accounts and run personalized multi-channel outreach automatically.\n\nWould you be open to a 10-minute walk-through this Thursday?\n\nBest,\nUsman Team",
-            "suggested_whatsapp": f"Hi {{first_name}}! Reaching out from USMAN AI GTM regarding {name}. We noticed your growth signals and wanted to share how modern RevOps teams automate verified B2B prospecting. Are you open to a brief chat?",
-            "intent_score": 88,
+            "suggested_pitch": f"Hi team at {name}, I noticed your active presence in the market. Many growing companies encounter friction scaling outbound prospecting while maintaining high response rates. USMAN AI GTM helps teams discover verified accounts and automate qualified outreach.",
+            "suggested_email": f"Subject: Prospecting and growth strategy for {name}\n\nHi {{first_name}},\n\nI was reviewing {name}'s web presence and thought your team might be exploring new ways to accelerate B2B pipeline growth.\n\nWe built USMAN AI GTM to help businesses find verified decision-makers and execute personalized multi-channel outreach.\n\nWould you have 10 minutes for a brief discussion this week?\n\nBest regards,\nUsman Team",
+            "suggested_whatsapp": f"Hi {{first_name}}! Reaching out regarding {name}. We noticed your active market presence and wanted to see if exploring verified B2B prospecting tools might be relevant for your team.",
+            "intent_score": 75,
             "data_sources": [
-                "Verified DNS & SSL Telemetry",
-                "Corporate Website DOM Analysis",
-                "Public Professional Registry",
-                "USMAN Multi-AI Synthesis Engine"
+                site,
+                "Public Web Crawl & Meta Telemetry",
+                "USMAN AI Synthesis"
+            ],
+            "facts": facts,
+            "assumptions": [
+                "Decision-maker job titles and internal organizational structure are predictive estimates.",
+                "Annual revenue and internal sales headcount are private and not verified from public crawling."
+            ],
+            "missing_information": [
+                "Private financial metrics and unlisted executive mobile numbers are not publicly available."
             ]
         }

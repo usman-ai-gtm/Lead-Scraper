@@ -51,14 +51,29 @@ export async function GET(request: Request) {
     const fullName = profile.name || email.split("@")[0];
     const picture = profile.picture || "";
 
-    // 3. Redirect back to login/app with verified token payload
-    const authPayload = encodeURIComponent(
-      JSON.stringify({
+    // 3. Verify and provision account through real FastAPI backend
+    const backendUrl = process.env.BACKEND_URL || "http://127.0.0.1:8000";
+    const verifyRes = await fetch(`${backendUrl}/api/auth/google-verify`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
         email,
         full_name: fullName,
         picture,
-        token: `google_jwt_${Date.now()}`,
-        workspace_id: 1,
+      }),
+    });
+
+    if (!verifyRes.ok) {
+      console.error("[Google OAuth] Backend verification error:", await verifyRes.text());
+      return NextResponse.redirect(`${origin}/login?error=Failed+to+provision+Google+account`);
+    }
+
+    const authData = await verifyRes.json();
+    const authPayload = encodeURIComponent(
+      JSON.stringify({
+        token: authData.access_token,
+        user: authData.user,
+        workspace_id: authData.user.workspace_id,
       })
     );
 

@@ -150,8 +150,8 @@ export default function CommandCenterPage() {
             <div className="text-2xl font-extrabold text-white">
               {loading ? "..." : (metrics?.total_leads || 0).toLocaleString()}
             </div>
-            <div className="text-[10px] text-emerald-400 mt-1 flex items-center gap-1">
-              <TrendingUp className="h-3 w-3" /> +14.2% this month
+            <div className="text-[10px] text-slate-400 mt-1">
+              {metrics?.total_leads ? "Stored in workspace" : "Zero leads recorded"}
             </div>
           </div>
         </div>
@@ -223,10 +223,10 @@ export default function CommandCenterPage() {
           </div>
           <div>
             <div className="text-2xl font-extrabold text-emerald-400">
-              {loading ? "..." : `${metrics?.reply_rate || 18.6}%`}
+              {loading ? "..." : `${metrics?.reply_rate ? metrics.reply_rate : 0}%`}
             </div>
             <div className="text-[10px] text-slate-400 mt-1">
-              4.1x industry average
+              {metrics?.reply_rate ? "Live campaign replies" : "No replies recorded yet"}
             </div>
           </div>
         </div>
@@ -256,7 +256,7 @@ export default function CommandCenterPage() {
               ${loading ? "..." : (metrics?.pipeline_value || 0).toLocaleString(undefined, { maximumFractionDigits: 0 })}
             </div>
             <div className="text-[10px] text-slate-400 mt-1">
-              Active CRM stages
+              {metrics?.pipeline_value ? "Active CRM stages" : "No active deals"}
             </div>
           </div>
         </div>
@@ -271,7 +271,7 @@ export default function CommandCenterPage() {
               ${loading ? "..." : (metrics?.won_revenue || 0).toLocaleString(undefined, { maximumFractionDigits: 0 })}
             </div>
             <div className="text-[10px] text-emerald-400/80 mt-1 font-semibold">
-              Closed contracts
+              {metrics?.won_revenue ? "Closed contracts" : "No recorded revenue"}
             </div>
           </div>
         </div>
@@ -283,10 +283,10 @@ export default function CommandCenterPage() {
           </div>
           <div>
             <div className="text-2xl font-extrabold text-white">
-              {loading ? "..." : `${metrics?.conversion_rate || 24.5}%`}
+              {loading ? "..." : `${metrics?.conversion_rate ? metrics.conversion_rate : 0}%`}
             </div>
             <div className="text-[10px] text-blue-400 mt-1">
-              Pipeline conversion
+              {metrics?.conversion_rate ? "Pipeline conversion" : "No deals converted"}
             </div>
           </div>
         </div>
@@ -376,39 +376,59 @@ export default function CommandCenterPage() {
           </div>
 
           <div className="space-y-3">
-            {[
-              {
-                title: "Launch Outreach Cadence for 235 Hot Leads",
-                desc: "235 leads in SaaS & Cloud have high intent scores >= 80 and validated MX records.",
-                action: "Create Campaign",
-                link: "/app/outreach/campaigns/new"
-              },
-              {
-                title: "Run Buying Intent Radar across 20 Accounts",
-                desc: "Detect decision-maker tech stack expansions and executive hiring trends.",
-                action: "Run Feature #19",
-                link: "/app/features?id=19"
-              },
-              {
-                title: "Connect Secondary Sending Gmail Account",
-                desc: "Distribute cold email volume across 2+ authorized senders for optimal deliverability.",
-                action: "Connect Account",
-                link: "/app/outreach/accounts"
-              }
-            ].map((rec, rIdx) => (
-              <div key={rIdx} className="p-4 rounded-xl border border-white/[0.06] bg-white/[0.02] flex items-center justify-between gap-4">
+            {metrics?.total_leads === 0 ? (
+              <div className="p-4 rounded-xl border border-white/[0.06] bg-white/[0.02] flex items-center justify-between gap-4">
                 <div className="space-y-0.5">
-                  <div className="text-xs font-bold text-white">{rec.title}</div>
-                  <div className="text-[11px] text-slate-400">{rec.desc}</div>
+                  <div className="text-xs font-bold text-white">Discover Your First B2B Leads</div>
+                  <div className="text-[11px] text-slate-400">Launch live web discovery via Serper to find target companies and verified contacts.</div>
                 </div>
                 <Link
-                  href={rec.link}
+                  href="/app/leads"
                   className="px-3.5 py-1.5 rounded-lg bg-blue-600/10 hover:bg-blue-600/20 text-blue-400 border border-blue-500/20 text-xs font-bold transition-all shrink-0"
                 >
-                  {rec.action}
+                  Find Leads
                 </Link>
               </div>
-            ))}
+            ) : (
+              <div className="p-4 rounded-xl border border-white/[0.06] bg-white/[0.02] flex items-center justify-between gap-4">
+                <div className="space-y-0.5">
+                  <div className="text-xs font-bold text-white">Review {metrics?.total_leads} Discovered Leads</div>
+                  <div className="text-[11px] text-slate-400">{metrics?.verified_leads || 0} leads have verified contact channels ready for outreach.</div>
+                </div>
+                <Link
+                  href="/app/leads"
+                  className="px-3.5 py-1.5 rounded-lg bg-blue-600/10 hover:bg-blue-600/20 text-blue-400 border border-blue-500/20 text-xs font-bold transition-all shrink-0"
+                >
+                  View Leads
+                </Link>
+              </div>
+            )}
+
+            <div className="p-4 rounded-xl border border-white/[0.06] bg-white/[0.02] flex items-center justify-between gap-4">
+              <div className="space-y-0.5">
+                <div className="text-xs font-bold text-white">Configure Ideal Customer Profile (ICP)</div>
+                <div className="text-[11px] text-slate-400">Define what you sell and your target buyer criteria for personalized lead fit scoring.</div>
+              </div>
+              <Link
+                href="/app/settings"
+                className="px-3.5 py-1.5 rounded-lg bg-purple-600/10 hover:bg-purple-600/20 text-purple-400 border border-purple-500/20 text-xs font-bold transition-all shrink-0"
+              >
+                Set ICP
+              </Link>
+            </div>
+
+            <div className="p-4 rounded-xl border border-white/[0.06] bg-white/[0.02] flex items-center justify-between gap-4">
+              <div className="space-y-0.5">
+                <div className="text-xs font-bold text-white">Connect Authorized Gmail / SMTP Account</div>
+                <div className="text-[11px] text-slate-400">Authorize your sending account for high-deliverability personalized outreach.</div>
+              </div>
+              <Link
+                href="/app/outreach/accounts"
+                className="px-3.5 py-1.5 rounded-lg bg-emerald-600/10 hover:bg-emerald-600/20 text-emerald-400 border border-emerald-500/20 text-xs font-bold transition-all shrink-0"
+              >
+                Connect Account
+              </Link>
+            </div>
           </div>
         </div>
 
@@ -423,17 +443,18 @@ export default function CommandCenterPage() {
             </div>
 
             <div className="space-y-3">
-              {(metrics?.recent_activities || [
-                { type: "enrichment", text: "Enriched 25 Enterprise Leads in United States", time: "12m ago" },
-                { type: "email", text: "Outbound campaign delivered 42 emails with 0 bounces", time: "35m ago" },
-                { type: "crm", text: "Deal 'Apex Global Tech' moved to Proposal stage ($45,000)", time: "1h ago" },
-                { type: "copilot", text: "AI Copilot synthesized prospect analysis for 12 accounts", time: "2h ago" }
-              ]).map((act, aIdx) => (
-                <div key={aIdx} className="p-3 rounded-xl bg-white/[0.02] border border-white/[0.04] text-xs">
-                  <p className="text-slate-200 mb-1">{act.text}</p>
-                  <span className="text-[10px] text-slate-500 font-mono">{act.time}</span>
+              {(!metrics?.recent_activities || metrics.recent_activities.length === 0) ? (
+                <div className="p-4 rounded-xl bg-white/[0.02] border border-white/[0.04] text-xs text-slate-500 text-center">
+                  No recent activities recorded yet. Start by discovering leads or creating a campaign.
                 </div>
-              ))}
+              ) : (
+                metrics.recent_activities.map((act, aIdx) => (
+                  <div key={aIdx} className="p-3 rounded-xl bg-white/[0.02] border border-white/[0.04] text-xs">
+                    <p className="text-slate-200 mb-1">{act.text}</p>
+                    <span className="text-[10px] text-slate-500 font-mono">{act.time}</span>
+                  </div>
+                ))
+              )}
             </div>
           </div>
 
