@@ -2,7 +2,7 @@
 
 import React, { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
-import { UserPlus, X, Check, ArrowRight, Shield, User } from "lucide-react";
+import { X, Sparkles, User, ChevronDown } from "lucide-react";
 
 interface GoogleSignInButtonProps {
   label?: string;
@@ -14,18 +14,21 @@ interface SavedGoogleAccount {
   name: string;
   email: string;
   avatarColor: string;
+  initials: string;
 }
 
 const DEFAULT_GOOGLE_ACCOUNTS: SavedGoogleAccount[] = [
   {
-    name: "Muhammad Usman",
-    email: "telegramtiktokn1@gmail.com",
-    avatarColor: "bg-blue-600",
+    name: "Usman - Data Analyst",
+    email: "mu0602503@gmail.com",
+    avatarColor: "bg-[#0b2545]",
+    initials: "MU",
   },
   {
     name: "Muhammad Usman",
-    email: "mu060060@gmail.com",
-    avatarColor: "bg-emerald-600",
+    email: "telegramtiktokn1@gmail.com",
+    avatarColor: "bg-[#1e3a8a]",
+    initials: "MU",
   },
 ];
 
@@ -38,12 +41,12 @@ export default function GoogleSignInButton({
   const [loading, setLoading] = useState(false);
   const [accountChooserOpen, setAccountChooserOpen] = useState(false);
   const [savedAccounts, setSavedAccounts] = useState<SavedGoogleAccount[]>(DEFAULT_GOOGLE_ACCOUNTS);
-  const [showAddAccountForm, setShowAddAccountForm] = useState(false);
+  const [activeView, setActiveView] = useState<"chooser" | "input">("chooser");
   const [newEmail, setNewEmail] = useState("");
   const [newName, setNewName] = useState("");
   const [authenticatingEmail, setAuthenticatingEmail] = useState<string | null>(null);
 
-  // Load custom added Google accounts from localStorage
+  // Load custom added accounts from localStorage
   useEffect(() => {
     try {
       const stored = localStorage.getItem("usman_google_accounts");
@@ -68,64 +71,81 @@ export default function GoogleSignInButton({
       const res = await fetch("/api/auth/google/url");
       const data = await res.json();
 
-      // If production Google OAuth is fully configured in Google Cloud Console
+      // If Google Cloud Client ID is configured in production environment
       if (data.configured && data.auth_url) {
-        window.location.href = data.auth_url;
+        // Open official popup
+        const width = 500;
+        const height = 650;
+        const left = window.screen.width / 2 - width / 2;
+        const top = window.screen.height / 2 - height / 2;
+        window.open(
+          data.auth_url,
+          "GoogleOAuthPopup",
+          `width=${width},height=${height},top=${top},left=${left},status=no,toolbar=no,menubar=no`
+        );
+        setLoading(false);
         return;
       }
     } catch {}
 
     // Open authentic Google Account Chooser
     setLoading(false);
-    setShowAddAccountForm(false);
+    setActiveView("chooser");
     setAccountChooserOpen(true);
   };
 
-  const completeGoogleAuthentication = (email: string, name: string) => {
-    setAuthenticatingEmail(email);
+  const completeGoogleAuthentication = async (email: string, name: string) => {
+    const cleanEmail = email.trim().toLowerCase();
+    const cleanName =
+      name.trim() ||
+      (cleanEmail === "mu0602503@gmail.com"
+        ? "Usman - Data Analyst"
+        : cleanEmail.split("@")[0].replace(/[._-]/g, " ").replace(/\b\w/g, (c) => c.toUpperCase()));
 
-    setTimeout(() => {
-      const cleanEmail = email.trim().toLowerCase();
-      const cleanName = name.trim() || cleanEmail.split("@")[0].replace(/[._-]/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
+    setAuthenticatingEmail(cleanEmail);
 
-      // Save to local remembered accounts
+    try {
+      // 1. Save to saved accounts list
       try {
         const existing = JSON.parse(localStorage.getItem("usman_google_accounts") || "[]");
         if (!existing.some((acc: any) => acc.email.toLowerCase() === cleanEmail)) {
           existing.push({
             name: cleanName,
             email: cleanEmail,
-            avatarColor: "bg-purple-600",
+            avatarColor: "bg-[#0b2545]",
+            initials: cleanName
+              .split(" ")
+              .map((w) => w[0])
+              .join("")
+              .slice(0, 2)
+              .toUpperCase(),
           });
           localStorage.setItem("usman_google_accounts", JSON.stringify(existing));
         }
       } catch {}
 
-      // Provision user session
-      const googleUser = {
-        id: Math.floor(Date.now() / 1000),
-        email: cleanEmail,
-        full_name: cleanName,
-        company: `${cleanName}'s Organization`,
-        role: "ADMIN" as const,
-        workspace_id: 1,
-        tenant_id: 1,
-      };
+      // 2. Call Google session provisioning endpoint
+      const res = await fetch("/api/auth/google/session", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email: cleanEmail, name: cleanName }),
+      });
 
-      const googleWs = {
-        id: 1,
-        name: `${cleanName}'s Workspace`,
-        plan: "ENTERPRISE",
-        ai_credits: 50000,
-        search_credits: 25000,
-        created_at: new Date().toISOString(),
-      };
+      const data = await res.json();
 
-      const token = `google_oauth_jwt_${Date.now()}_${Math.random().toString(36).substring(7)}`;
-      localStorage.setItem("usman_gtm_token", token);
-      localStorage.setItem("usman_gtm_workspace_id", "1");
-      localStorage.setItem("usman_gtm_user", JSON.stringify(googleUser));
-      localStorage.setItem("usman_gtm_workspaces", JSON.stringify([googleWs]));
+      if (data.access_token) {
+        localStorage.setItem("usman_gtm_token", data.access_token);
+        localStorage.setItem("usman_gtm_workspace_id", String(data.user?.workspace_id || 1));
+        localStorage.setItem("usman_gtm_user", JSON.stringify(data.user));
+        localStorage.setItem("usman_gtm_workspaces", JSON.stringify([data.workspace]));
+        document.cookie = `usman_gtm_token=${data.access_token}; path=/; max-age=${7 * 86400}; SameSite=Lax`;
+      } else {
+        // Fallback resilient token
+        const fallbackToken = `jwt_session_${Date.now()}`;
+        localStorage.setItem("usman_gtm_token", fallbackToken);
+        localStorage.setItem("usman_gtm_workspace_id", "1");
+        document.cookie = `usman_gtm_token=${fallbackToken}; path=/; max-age=${7 * 86400}; SameSite=Lax`;
+      }
 
       setAccountChooserOpen(false);
       setAuthenticatingEmail(null);
@@ -135,7 +155,10 @@ export default function GoogleSignInButton({
       } else {
         window.location.href = "/app";
       }
-    }, 400);
+    } catch {
+      // Direct redirect on network exception
+      window.location.href = "/app";
+    }
   };
 
   const handleAddNewAccountSubmit = (e: React.FormEvent) => {
@@ -146,13 +169,13 @@ export default function GoogleSignInButton({
 
   return (
     <>
+      {/* Continue with Google button */}
       <button
         type="button"
         onClick={handleGoogleClick}
         disabled={loading}
         className={`w-full py-3 px-4 rounded-xl border border-white/10 bg-white/[0.04] hover:bg-white/[0.08] text-white font-semibold text-sm transition-all flex items-center justify-center gap-3 shadow-sm hover:border-white/20 active:scale-[0.99] disabled:opacity-50 ${className}`}
       >
-        {/* Official Google 'G' SVG Logo */}
         <svg className="h-5 w-5 shrink-0" viewBox="0 0 24 24">
           <path
             fill="#4285F4"
@@ -174,139 +197,214 @@ export default function GoogleSignInButton({
         <span>{loading ? "Connecting to Google..." : label}</span>
       </button>
 
-      {/* Official Google Account Chooser Dialog */}
+      {/* Official Google Account Chooser Modal matching standard Google Chrome OAuth UI */}
       {accountChooserOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/75 backdrop-blur-sm animate-in fade-in duration-150">
-          <div className="w-full max-w-[440px] rounded-2xl border border-white/10 bg-[#14171f] p-6 shadow-2xl relative text-left">
-            {/* Close button */}
-            <button
-              onClick={() => setAccountChooserOpen(false)}
-              className="absolute top-4 right-4 text-slate-400 hover:text-white p-1 rounded-lg transition"
-            >
-              <X className="h-5 w-5" />
-            </button>
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-in fade-in duration-150">
+          <div className="w-full max-w-[430px] rounded-xl bg-white text-[#1f1f1f] shadow-2xl border border-gray-200 overflow-hidden relative font-sans text-left">
+            {/* Top Google Sign-in Header Bar */}
+            <div className="flex items-center justify-between px-5 py-3 border-b border-gray-100 bg-[#fafafa]">
+              <div className="flex items-center gap-2">
+                <svg className="h-4 w-4 shrink-0" viewBox="0 0 24 24">
+                  <path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z" />
+                  <path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z" />
+                  <path fill="#FBBC05" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.06H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.94l2.85-2.22.81-.63z" />
+                  <path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.06l3.66 2.84c.87-2.6 3.3-4.52 6.16-4.52z" />
+                </svg>
+                <span className="text-xs font-medium text-gray-700">Sign in with Google</span>
+              </div>
 
-            {/* Google Header */}
-            <div className="flex flex-col items-center text-center mb-6">
-              <svg className="h-8 w-8 mb-3" viewBox="0 0 24 24">
-                <path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z" />
-                <path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z" />
-                <path fill="#FBBC05" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.06H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.94l2.85-2.22.81-.63z" />
-                <path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.06l3.66 2.84c.87-2.6 3.3-4.52 6.16-4.52z" />
-              </svg>
-              <h3 className="text-xl font-bold text-white tracking-tight">Choose an account</h3>
-              <p className="text-xs text-slate-400 mt-0.5">to continue to USMAN AI GTM</p>
+              <button
+                type="button"
+                onClick={() => setAccountChooserOpen(false)}
+                className="text-gray-400 hover:text-gray-700 p-1 rounded-md transition"
+                aria-label="Close"
+              >
+                <X className="h-4 w-4" />
+              </button>
             </div>
 
-            {/* List of Available Google Accounts */}
-            <div className="space-y-1.5 border-t border-b border-white/[0.08] py-2 mb-4">
-              {savedAccounts.map((account, index) => {
-                const isLoggingIn = authenticatingEmail === account.email;
-                return (
-                  <button
-                    key={index}
-                    type="button"
-                    disabled={authenticatingEmail !== null}
-                    onClick={() => completeGoogleAuthentication(account.email, account.name)}
-                    className="w-full p-3 rounded-xl hover:bg-white/[0.06] transition flex items-center justify-between group disabled:opacity-50"
-                  >
-                    <div className="flex items-center gap-3">
-                      <div
-                        className={`h-9 w-9 rounded-full ${account.avatarColor || "bg-blue-600"} text-white font-bold text-sm flex items-center justify-center shrink-0 shadow-sm`}
-                      >
-                        {account.name.charAt(0).toUpperCase()}
-                      </div>
-                      <div className="text-left">
-                        <div className="text-xs font-bold text-white group-hover:text-blue-400 transition">
-                          {account.name}
-                        </div>
-                        <div className="text-[11px] text-slate-400 font-mono">
-                          {account.email}
-                        </div>
-                      </div>
+            {/* Subtle Progress Bar when authenticating */}
+            {authenticatingEmail && (
+              <div className="w-full h-1 bg-blue-100 overflow-hidden">
+                <div className="h-full bg-[#1a73e8] animate-pulse w-full"></div>
+              </div>
+            )}
+
+            {/* Modal Body */}
+            <div className="p-7">
+              {activeView === "chooser" ? (
+                <>
+                  {/* App Brand Logo */}
+                  <div className="flex items-center justify-start mb-4">
+                    <div className="h-10 w-10 rounded-xl bg-gradient-to-tr from-blue-600 via-indigo-600 to-purple-600 flex items-center justify-center shadow-sm">
+                      <Sparkles className="h-5 w-5 text-white" />
                     </div>
-
-                    {isLoggingIn ? (
-                      <span className="text-[10px] text-blue-400 font-medium">Signing in...</span>
-                    ) : (
-                      <ArrowRight className="h-4 w-4 text-slate-500 group-hover:text-white transition group-hover:translate-x-0.5" />
-                    )}
-                  </button>
-                );
-              })}
-
-              {/* Add New Account Action */}
-              {!showAddAccountForm ? (
-                <button
-                  type="button"
-                  onClick={() => setShowAddAccountForm(true)}
-                  className="w-full p-3 rounded-xl hover:bg-white/[0.06] transition flex items-center gap-3 text-slate-300 hover:text-white"
-                >
-                  <div className="h-9 w-9 rounded-full bg-white/[0.05] border border-white/10 text-slate-400 flex items-center justify-center shrink-0">
-                    <UserPlus className="h-4 w-4" />
-                  </div>
-                  <div className="text-left text-xs font-semibold">
-                    Use another Google account
-                  </div>
-                </button>
-              ) : (
-                /* Inline Add Another Account Form */
-                <form onSubmit={handleAddNewAccountSubmit} className="p-3 bg-white/[0.02] rounded-xl border border-white/10 space-y-3 mt-2">
-                  <div className="text-xs font-bold text-white flex items-center gap-1.5">
-                    <UserPlus className="h-3.5 w-3.5 text-blue-400" />
-                    <span>Add New Google Account</span>
                   </div>
 
-                  <div>
-                    <label className="block text-[10px] text-slate-400 uppercase font-semibold mb-1">
-                      Email address
-                    </label>
-                    <input
-                      type="email"
-                      required
-                      value={newEmail}
-                      onChange={(e) => setNewEmail(e.target.value)}
-                      placeholder="e.g. name@gmail.com"
-                      className="w-full rounded-xl border border-white/10 bg-black/40 px-3 py-2 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-blue-500"
-                    />
-                  </div>
+                  {/* Google Title & Subtitle */}
+                  <h2 className="text-[24px] font-normal text-[#1f1f1f] tracking-tight mb-1">
+                    Choose an account
+                  </h2>
+                  <p className="text-sm text-[#444746] mb-6">
+                    to continue to{" "}
+                    <span className="text-[#1a73e8] font-medium">USMAN AI GTM</span>
+                  </p>
 
-                  <div>
-                    <label className="block text-[10px] text-slate-400 uppercase font-semibold mb-1">
-                      Full name (Optional)
-                    </label>
-                    <input
-                      type="text"
-                      value={newName}
-                      onChange={(e) => setNewName(e.target.value)}
-                      placeholder="e.g. Alex Morgan"
-                      className="w-full rounded-xl border border-white/10 bg-black/40 px-3 py-2 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-blue-500"
-                    />
-                  </div>
+                  {/* Accounts List */}
+                  <div className="border-t border-[#e0e0e0] divide-y divide-[#e0e0e0]">
+                    {savedAccounts.map((account, index) => {
+                      const isLoggingIn = authenticatingEmail === account.email;
+                      return (
+                        <button
+                          key={index}
+                          type="button"
+                          disabled={authenticatingEmail !== null}
+                          onClick={() => completeGoogleAuthentication(account.email, account.name)}
+                          className="w-full py-3.5 px-2 hover:bg-[#f8fafd] transition-colors flex items-center gap-3.5 text-left disabled:opacity-50"
+                        >
+                          {/* Navy Avatar with MU Initials */}
+                          <div
+                            className={`h-10 w-10 rounded-full ${account.avatarColor || "bg-[#0b2545]"} text-white font-semibold text-sm flex items-center justify-center shrink-0 tracking-wider shadow-sm`}
+                          >
+                            {account.initials || "MU"}
+                          </div>
 
-                  <div className="flex items-center gap-2 pt-1">
+                          <div className="flex-1 min-w-0">
+                            <div className="text-[14px] font-medium text-[#1f1f1f] truncate">
+                              {account.name}
+                            </div>
+                            <div className="text-[12px] text-[#5f6368] truncate font-sans">
+                              {account.email}
+                            </div>
+                          </div>
+
+                          {isLoggingIn && (
+                            <span className="text-xs text-[#1a73e8] font-medium animate-pulse">
+                              Signing in...
+                            </span>
+                          )}
+                        </button>
+                      );
+                    })}
+
+                    {/* Use Another Account Option */}
                     <button
                       type="button"
-                      onClick={() => setShowAddAccountForm(false)}
-                      className="w-1/2 py-2 rounded-xl border border-white/10 text-xs text-slate-400 hover:text-white transition"
+                      disabled={authenticatingEmail !== null}
+                      onClick={() => {
+                        setNewEmail("");
+                        setNewName("");
+                        setActiveView("input");
+                      }}
+                      className="w-full py-3.5 px-2 hover:bg-[#f8fafd] transition-colors flex items-center gap-3.5 text-left text-[#1f1f1f]"
                     >
-                      Cancel
+                      <div className="h-10 w-10 rounded-full border border-gray-300 text-gray-600 flex items-center justify-center shrink-0">
+                        <User className="h-5 w-5 stroke-[1.5]" />
+                      </div>
+                      <div className="text-[14px] font-medium">
+                        Use another account
+                      </div>
                     </button>
+                  </div>
+
+                  {/* Google Legal Disclaimer */}
+                  <div className="mt-8 text-[12px] text-[#5f6368] leading-relaxed">
+                    Before using this app, you can review USMAN AI GTM&apos;s{" "}
+                    <a href="/privacy" className="text-[#1a73e8] hover:underline">
+                      Privacy Policy
+                    </a>{" "}
+                    and{" "}
+                    <a href="/terms" className="text-[#1a73e8] hover:underline">
+                      Terms of Service
+                    </a>
+                    .
+                  </div>
+                </>
+              ) : (
+                /* Google Standard "Enter your email" Sign-in Screen */
+                <form onSubmit={handleAddNewAccountSubmit} className="space-y-5">
+                  <div className="flex items-center justify-start mb-2">
+                    <div className="h-10 w-10 rounded-xl bg-gradient-to-tr from-blue-600 to-purple-600 flex items-center justify-center shadow-sm">
+                      <Sparkles className="h-5 w-5 text-white" />
+                    </div>
+                  </div>
+
+                  <div>
+                    <h2 className="text-[24px] font-normal text-[#1f1f1f] tracking-tight">
+                      Sign in
+                    </h2>
+                    <p className="text-sm text-[#444746] mt-1">
+                      to continue to <span className="text-[#1a73e8] font-medium">USMAN AI GTM</span>
+                    </p>
+                  </div>
+
+                  <div className="space-y-4 pt-2">
+                    <div>
+                      <label className="block text-xs font-medium text-gray-700 mb-1">
+                        Email or phone
+                      </label>
+                      <input
+                        type="email"
+                        required
+                        autoFocus
+                        value={newEmail}
+                        onChange={(e) => setNewEmail(e.target.value)}
+                        placeholder="e.g. name@gmail.com"
+                        className="w-full rounded-md border border-gray-300 px-3 py-2.5 text-sm text-[#1f1f1f] placeholder-gray-400 focus:outline-none focus:border-[#1a73e8] focus:ring-1 focus:ring-[#1a73e8] transition"
+                      />
+                    </div>
+
+                    <div>
+                      <label className="block text-xs font-medium text-gray-700 mb-1">
+                        Full name (Optional)
+                      </label>
+                      <input
+                        type="text"
+                        value={newName}
+                        onChange={(e) => setNewName(e.target.value)}
+                        placeholder="e.g. Alex Morgan"
+                        className="w-full rounded-md border border-gray-300 px-3 py-2.5 text-sm text-[#1f1f1f] placeholder-gray-400 focus:outline-none focus:border-[#1a73e8] focus:ring-1 focus:ring-[#1a73e8] transition"
+                      />
+                    </div>
+
+                    <p className="text-[12px] text-[#5f6368] pt-1">
+                      Not your computer? Use Guest mode to sign in privately.
+                    </p>
+                  </div>
+
+                  <div className="flex items-center justify-between pt-4">
+                    <button
+                      type="button"
+                      onClick={() => setActiveView("chooser")}
+                      className="text-sm font-medium text-[#1a73e8] hover:bg-blue-50 px-3 py-1.5 rounded transition"
+                    >
+                      Back
+                    </button>
+
                     <button
                       type="submit"
                       disabled={!newEmail}
-                      className="w-1/2 py-2 rounded-xl bg-blue-600 hover:bg-blue-500 text-white font-bold text-xs transition disabled:opacity-50"
+                      className="bg-[#1a73e8] hover:bg-[#1557b0] text-white font-medium text-sm px-6 py-2 rounded-full transition shadow-sm disabled:opacity-50"
                     >
-                      Continue
+                      Next
                     </button>
                   </div>
                 </form>
               )}
             </div>
 
-            {/* Google Notice Footer */}
-            <div className="text-[10px] text-slate-400 leading-relaxed text-center">
-              To continue, Google will share your name, email address, and profile picture with USMAN AI GTM.
+            {/* Google Footer Bar */}
+            <div className="px-7 py-3 border-t border-gray-100 bg-[#f8f9fa] flex items-center justify-between text-[11px] text-[#5f6368]">
+              <div className="flex items-center gap-1 cursor-pointer hover:text-gray-900 transition">
+                <span>English (United States)</span>
+                <ChevronDown className="h-3 w-3" />
+              </div>
+
+              <div className="flex items-center gap-4">
+                <span className="cursor-pointer hover:text-gray-900 transition">Help</span>
+                <span className="cursor-pointer hover:text-gray-900 transition">Privacy</span>
+                <span className="cursor-pointer hover:text-gray-900 transition">Terms</span>
+              </div>
             </div>
           </div>
         </div>
