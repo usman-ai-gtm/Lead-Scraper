@@ -27,6 +27,7 @@ export interface Lead {
   state?: string;
   country?: string;
   phone?: string;
+  phone_status?: string;
   website?: string;
   email?: string;
   email_status?: string;
@@ -41,6 +42,7 @@ export interface Lead {
   lead_temperature?: "HOT" | "WARM" | "COLD";
   crm_stage: string;
   source?: string;
+  source_url?: string;
   created_at?: string;
   updated_at?: string;
 }
