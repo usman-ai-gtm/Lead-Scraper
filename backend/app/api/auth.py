@@ -86,12 +86,19 @@ def signup(req: SignupRequest):
     now_iso = datetime.now(timezone.utc).isoformat()
     hashed_pwd = hash_password(req.password)
 
-    # 1. Create Workspace for user
+    # 1. Create Workspace for user with conflict protection
+    base_ws_name = req.workspace_name or f"{req.full_name}'s Workspace"
     cur = conn.cursor()
+    # Check if workspace name exists, ensure uniqueness
+    ws_name = base_ws_name
+    ws_exists = cur.execute("SELECT id FROM workspaces WHERE name = ?", (ws_name,)).fetchone()
+    if ws_exists:
+        ws_name = f"{base_ws_name} ({secrets.token_hex(2)})"
+    
     cur.execute('''
         INSERT INTO workspaces (tenant_id, name, description, created_at)
         VALUES (1, ?, 'Personal Workspace', ?)
-    ''', (req.workspace_name or f"{req.full_name}'s Workspace", now_iso))
+    ''', (ws_name, now_iso))
     ws_id = cur.lastrowid
 
     # 2. Create User
@@ -144,12 +151,18 @@ def verify_google_oauth_identity(req: GoogleVerifyRequest):
         full_name = user.get("full_name") or req.full_name or "Google User"
         execute_write("UPDATE users SET last_login = ?, updated_at = ? WHERE id = ?", (now_iso, now_iso, user_id))
     else:
-        # Create user & workspace
+        # Create user & workspace with unique workspace name
         cur = conn.cursor()
+        base_ws_name = f"{req.full_name or clean_email.split('@')[0]}'s Workspace"
+        ws_name = base_ws_name
+        ws_exists = cur.execute("SELECT id FROM workspaces WHERE name = ?", (ws_name,)).fetchone()
+        if ws_exists:
+            ws_name = f"{base_ws_name} ({secrets.token_hex(2)})"
+
         cur.execute('''
             INSERT INTO workspaces (tenant_id, name, description, created_at)
             VALUES (1, ?, 'Google Workspace', ?)
-        ''', (f"{req.full_name or clean_email.split('@')[0]}'s Workspace", now_iso))
+        ''', (ws_name, now_iso))
         ws_id = cur.lastrowid
 
         random_sec_pwd = hash_password(secrets.token_urlsafe(32))
