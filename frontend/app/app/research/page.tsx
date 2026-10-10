@@ -149,7 +149,7 @@ function ResearchContent() {
         title: `${result.company_name} — High Value Account`,
         company_name: result.company_name,
         deal_value: 4500,
-        stage: "Prospect Qualified",
+        stage: "Qualified",
         probability: result.intent_score || 85,
         created_at: new Date().toISOString()
       });
@@ -174,10 +174,10 @@ function ResearchContent() {
               <span className="text-[11px] text-slate-400 font-mono">1-Click Client Closer</span>
             </div>
             <h1 className="text-2xl sm:text-3xl font-extrabold text-white">
-              AI Research & Sales Pitch Studio
+              AI Prospect Intelligence & Pitch Studio
             </h1>
             <p className="text-sm text-slate-300 mt-1 max-w-3xl">
-              Kisi bhi company ka naam ya website likhein — AI unka business analyze karega, unke challenges (Pain Points) pehchanega, aur aapko unhein bhejne ke liye <strong>ready-to-send Cold Email</strong> aur <strong>WhatsApp Pitch</strong> bana kar dega!
+              Enter any prospect company name or domain. AI deep-analyzes their business operations, discovers commercial pain points, and synthesizes <strong>ready-to-send Cold Email</strong> and <strong>WhatsApp Sales Pitches</strong> tailored to their decision-makers.
             </p>
           </div>
 
@@ -192,15 +192,15 @@ function ResearchContent() {
           </div>
         </div>
 
-        {/* 3 Value Pillars (Asaan Faiday) */}
+        {/* 3 Value Pillars */}
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 mt-5 pt-5 border-t border-white/[0.06]">
           <div className="flex items-start gap-3 p-3 rounded-xl bg-white/[0.02] border border-white/[0.04]">
             <div className="p-2 rounded-lg bg-blue-500/10 text-blue-400 shrink-0">
               <Search className="h-4 w-4" />
             </div>
             <div>
-              <div className="text-xs font-bold text-white">1. Business Ki Mukammal Janch</div>
-              <div className="text-[11px] text-slate-400 mt-0.5">Company kya karti hai, kis sector mein hai, aur unka business model kya hai.</div>
+              <div className="text-xs font-bold text-white">1. Deep Company Analysis</div>
+              <div className="text-[11px] text-slate-400 mt-0.5">Understand what they do, their industry sector, and their core business model.</div>
             </div>
           </div>
 
@@ -209,8 +209,8 @@ function ResearchContent() {
               <ShieldAlert className="h-4 w-4" />
             </div>
             <div>
-              <div className="text-xs font-bold text-white">2. Kamzoriyan & Maslay (Pain Points)</div>
-              <div className="text-[11px] text-slate-400 mt-0.5">Unke business mein kya kami hai taake aap unhein apna solution bech sakein.</div>
+              <div className="text-xs font-bold text-white">2. Commercial Pain Points</div>
+              <div className="text-[11px] text-slate-400 mt-0.5">Identify operational gaps and challenges so you can pitch targeted, high-value solutions.</div>
             </div>
           </div>
 
@@ -219,8 +219,8 @@ function ResearchContent() {
               <Zap className="h-4 w-4" />
             </div>
             <div>
-              <div className="text-xs font-bold text-white">3. Ready-Made Sales Pitches</div>
-              <div className="text-[11px] text-slate-400 mt-0.5">Tayyar Email aur WhatsApp pitch with 1-Click Copy taake foran client ko bhej sakein.</div>
+              <div className="text-xs font-bold text-white">3. Ready-to-Send Pitches</div>
+              <div className="text-[11px] text-slate-400 mt-0.5">Get personalized Cold Email and WhatsApp pitches with 1-click copy to start closing deals immediately.</div>
             </div>
           </div>
         </div>
@@ -337,9 +337,9 @@ function ResearchContent() {
             <Target className="h-8 w-8" />
           </div>
           <div className="max-w-md mx-auto space-y-2">
-            <h3 className="text-lg font-bold text-white">Koi bhi Company Search Karein</h3>
+            <h3 className="text-lg font-bold text-white">Search Any Target Company</h3>
             <p className="text-xs text-slate-400 leading-relaxed">
-              Upar diye gaye input box mein kisi bhi target business ya client ka naam likhein ya <strong>Quick Samples</strong> mein se kisi par click karein. AI unka mukammal commercial breakdown aur ready-to-send pitches generate karega.
+              Enter any prospect company name or domain above, or click one of the quick samples. The AI will generate a comprehensive commercial breakdown, identify pain points, and synthesize ready-to-send outreach pitches.
             </p>
           </div>
           <div className="flex items-center justify-center gap-3">
@@ -436,7 +436,7 @@ function ResearchContent() {
             <div className="bg-white/[0.02] p-4 rounded-xl border border-white/[0.04]">
               <div className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-1 flex items-center gap-1.5">
                 <Award className="h-3.5 w-3.5 text-amber-400" />
-                <span>Business Summary (Ye Company Kya Karti Hai)</span>
+                <span>Executive Business Overview</span>
               </div>
               <p className="text-xs sm:text-sm text-slate-200 leading-relaxed">
                 {result.overview}
@@ -446,14 +446,14 @@ function ResearchContent() {
 
           {/* 3 Pillars Grid: Pain Points, Buying Signals, Tech Stack */}
           <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-            {/* 1. Pain Points (Masle / Kamzoriyan) */}
+            {/* 1. Pain Points */}
             <div className="rounded-2xl border border-rose-500/20 bg-gradient-to-b from-[#160d12] to-[#0c1017] p-5 shadow-lg">
               <div className="flex items-center gap-2 text-xs font-bold uppercase tracking-wider text-rose-400 mb-1.5">
                 <ShieldAlert className="h-4 w-4" />
                 <span>Identified Pain Points</span>
               </div>
               <p className="text-[11px] text-slate-400 mb-3">
-                Inke business mein ye kamzoriyan hain jin par aap pitch kar sakte hain:
+                Key operational challenges and gaps you can address in your outreach:
               </p>
               <ul className="space-y-2.5">
                 {result.pain_points?.map((p: string, i: number) => (
@@ -472,7 +472,7 @@ function ResearchContent() {
                 <span>Verified Buying Signals</span>
               </div>
               <p className="text-[11px] text-slate-400 mb-3">
-                Isharay jo show karte hain ke ye client services khareedne ke liye ready hai:
+                Commercial signals indicating active market presence and purchasing intent:
               </p>
               <ul className="space-y-2.5">
                 {result.buying_signals?.map((s: string, i: number) => (
@@ -491,7 +491,7 @@ function ResearchContent() {
                 <span>Detected Tech Stack</span>
               </div>
               <p className="text-[11px] text-slate-400 mb-3">
-                Ye tools aur technologies inki website/system use kar raha hai:
+                Tools, web infrastructure, and frameworks detected on their public web presence:
               </p>
               <div className="flex flex-wrap gap-2">
                 {result.tech_stack?.map((t: string, i: number) => (
@@ -507,15 +507,15 @@ function ResearchContent() {
             </div>
           </div>
 
-          {/* Decision Makers (Kisse Rabta Karein) */}
+          {/* Decision Makers */}
           <div className="rounded-2xl border border-white/[0.08] bg-[#0c1017] p-5 shadow-lg">
             <div className="flex items-center justify-between mb-3">
               <div>
                 <h3 className="text-xs font-bold uppercase tracking-wider text-slate-300 flex items-center gap-2">
                   <Users className="h-4 w-4 text-cyan-400" />
-                  <span>Target Decision Makers (Inse Direct Rabta Karein)</span>
+                  <span>Target Buying Committee & Decision Makers</span>
                 </h3>
-                <p className="text-[11px] text-slate-500 mt-0.5">Company mein in key logon ko message karein taake deal jaldi close ho sake.</p>
+                <p className="text-[11px] text-slate-500 mt-0.5">Key executive contacts to reach out to for faster deal qualification and closing.</p>
               </div>
             </div>
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
@@ -531,7 +531,7 @@ function ResearchContent() {
             </div>
           </div>
 
-          {/* ACTIONABLE READY-TO-SEND PITCHES (The Core Value!) */}
+          {/* ACTIONABLE READY-TO-SEND PITCHES */}
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
             {/* 1. Ready Cold Email Pitch */}
             <div className="rounded-2xl border border-purple-500/20 bg-[#0c1017] p-5 shadow-xl flex flex-col justify-between">
