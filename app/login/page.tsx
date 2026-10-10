@@ -5,7 +5,7 @@ import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useAuth } from "@/lib/auth-context";
 import GoogleSignInButton from "@/components/auth/GoogleSignInButton";
-import { Sparkles, Lock, Mail, ArrowRight, ShieldCheck, AlertCircle } from "lucide-react";
+import { Sparkles, Lock, Mail, ArrowRight, ShieldCheck, AlertCircle, X } from "lucide-react";
 
 function LoginForm() {
   const router = useRouter();
@@ -92,9 +92,18 @@ function LoginForm() {
           </p>
 
           {error && (
-            <div className="mb-6 p-3 rounded-xl bg-rose-500/10 border border-rose-500/20 text-rose-400 text-xs flex items-center gap-2">
-              <AlertCircle className="h-4 w-4 shrink-0" />
-              <span>{error}</span>
+            <div className="mb-6 p-3 rounded-xl bg-rose-500/10 border border-rose-500/20 text-rose-400 text-xs flex items-center justify-between gap-2">
+              <div className="flex items-center gap-2">
+                <AlertCircle className="h-4 w-4 shrink-0" />
+                <span>{error}</span>
+              </div>
+              <button
+                type="button"
+                onClick={() => setError(null)}
+                className="text-rose-400 hover:text-white p-0.5 rounded transition"
+              >
+                <X className="h-3.5 w-3.5" />
+              </button>
             </div>
           )}
 
