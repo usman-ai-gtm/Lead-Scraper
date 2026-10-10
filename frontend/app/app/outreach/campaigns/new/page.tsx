@@ -1,8 +1,9 @@
 "use client";
 
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import Link from "next/link";
 import OutreachNav from "@/components/outreach/OutreachNav";
+import { useAuth } from "@/lib/auth-context";
 import {
   Sparkles, CheckCircle2, AlertTriangle, ShieldCheck, Mail,
   Send, Users, Eye, Smartphone, Monitor, ArrowLeft, ArrowRight,
@@ -50,17 +51,59 @@ const STEPS = [
 ];
 
 export default function NewOutreachCampaignPage() {
+  const { user } = useAuth();
   const [currentStep, setCurrentStep] = useState<number>(1);
 
+  // Dynamic Sender Accounts list
+  const [availableAccounts, setAvailableAccounts] = useState<Array<{ email: string; status: string; limit: string; auth: string }>>([]);
+
   // Form State
-  const [senderAccount, setSenderAccount] = useState<string>("sales@company.com");
-  const [senderName, setSenderName] = useState<string>("Usman Khan");
-  const [replyTo, setReplyTo] = useState<string>("sales@company.com");
+  const [senderAccount, setSenderAccount] = useState<string>("");
+  const [senderName, setSenderName] = useState<string>("");
+  const [replyTo, setReplyTo] = useState<string>("");
   const [dailyLimit, setDailyLimit] = useState<number>(50);
   const [rampUp, setRampUp] = useState<boolean>(true);
+
+  // Initialize sender accounts from user session & localStorage
+  useEffect(() => {
+    try {
+      const stored = localStorage.getItem("usman_connected_sending_accounts");
+      const list: any[] = stored ? JSON.parse(stored) : [];
+      const combined: Array<{ email: string; status: string; limit: string; auth: string }> = [];
+
+      if (user?.email) {
+        combined.push({
+          email: user.email,
+          status: "Verified Account",
+          limit: "50/day",
+          auth: "Primary User Session"
+        });
+      }
+
+      list.forEach((acc) => {
+        if (!combined.some((c) => c.email.toLowerCase() === acc.identifier.toLowerCase())) {
+          combined.push({
+            email: acc.identifier,
+            status: "Connected SMTP",
+            limit: `${acc.daily_limit || 50}/day`,
+            auth: "Google Workspace / Gmail"
+          });
+        }
+      });
+
+      setAvailableAccounts(combined);
+      if (combined.length > 0) {
+        setSenderAccount(combined[0].email);
+        setReplyTo(combined[0].email);
+      }
+      if (user?.full_name) {
+        setSenderName(user.full_name);
+      }
+    } catch {}
+  }, [user]);
   
   const [signature, setSignature] = useState<string>(
-    "Best regards,\nUsman Khan\nFounder & Head of Growth, USMAN AI GTM\nhttps://usman-ai-gtm.com | Schedule a Demo: cal.com/usman-gtm"
+    `Best regards,\n${user?.full_name || "Founder & Growth Lead"}\nUSMAN AI GTM\nhttps://usman-ai-gtm.com`
   );
   
   const [includeUnsubscribe, setIncludeUnsubscribe] = useState<boolean>(true);
@@ -68,7 +111,7 @@ export default function NewOutreachCampaignPage() {
     "If you prefer not to receive future insights, reply 'STOP' or click here to unsubscribe."
   );
 
-  const [campaignName, setCampaignName] = useState<string>("Q4 Enterprise Cloud Decision Makers Cadence");
+  const [campaignName, setCampaignName] = useState<string>("Enterprise Outbound Cadence");
   const [goal, setGoal] = useState<string>("Book 15 qualified discovery meetings with VP/C-level leaders.");
   const [industryTarget, setIndustryTarget] = useState<string>("Enterprise SaaS / Cloud");
   const [minScore, setMinScore] = useState<number>(75);
@@ -103,36 +146,72 @@ export default function NewOutreachCampaignPage() {
   const [totalRecipients] = useState<number>(235);
   const [execStatus, setExecStatus] = useState<string>("Ready");
 
-  const handleSendTest = () => {
+  // Real Test Email Dispatch
+  const handleSendTest = async () => {
     if (!testEmailAddress) {
       alert("Please enter a valid test recipient email address.");
       return;
     }
     setIsSendingTest(true);
     setTestEmailStatus(null);
-    setTimeout(() => {
+
+    const savedPwd = localStorage.getItem(`app_pwd_${senderAccount.toLowerCase()}`) || "";
+
+    try {
+      const res = await fetch("/api/campaigns/test-send", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          from_email: senderAccount || user?.email || "outreach@usman-ai-gtm.com",
+          from_name: senderName || user?.full_name || "USMAN AI GTM",
+          to_email: testEmailAddress,
+          subject: resolved.subject,
+          body: resolved.body,
+          app_password: savedPwd,
+        }),
+      });
+
+      const data = await res.json();
+      if (!res.ok || data.status === "error") {
+        setTestEmailStatus(`❌ Delivery issue: ${data.error || data.detail || "Authentication required. Connect your Google App Password in Sending Accounts."}`);
+      } else {
+        setTestEmailStatus(`✅ Real email successfully delivered to ${testEmailAddress}! Check your inbox.`);
+      }
+    } catch (err: any) {
+      setTestEmailStatus(`❌ Delivery error: ${err?.message}`);
+    } finally {
       setIsSendingTest(false);
-      setTestEmailStatus(`Test email successfully delivered to ${testEmailAddress} via authorized Gmail account.`);
-    }, 1200);
+    }
   };
 
+  // Launch Campaign (Saves cleanly to user's real campaigns with 0 sent)
   const handleLaunchCampaign = () => {
     setIsLaunched(true);
-    setExecStatus("Dispatching queue to authorized Google Gmail API...");
-    let sent = 0;
-    const interval = setInterval(() => {
-      sent += Math.floor(Math.random() * 8) + 4;
-      if (sent >= 42) {
-        setSentProgress(42);
-        setExecStatus("42 sent, 1 failed, 0 skipped. Respecting safe daily volume limit (50/day). Background worker active.");
-        clearInterval(interval);
-      } else {
-        setSentProgress(sent);
-        setExecStatus(`Sending batch... ${sent} / ${totalRecipients}`);
-      }
-    }, 400);
+    setSentProgress(0);
+    setExecStatus("Campaign activated. Queue initialized at 0 sent. Ready for real delivery.");
+
+    const newCampaign = {
+      id: `camp-${Date.now()}`,
+      name: campaignName,
+      sender_email: senderAccount || user?.email || "Primary Account",
+      status: "ACTIVE",
+      audience_count: totalRecipients,
+      sent_count: 0,
+      replies_count: 0,
+      positive_replies: 0,
+      meetings_booked: 0,
+      created_at: new Date().toISOString().split("T")[0],
+      channel: "GMAIL"
+    };
+
+    try {
+      const existing = JSON.parse(localStorage.getItem("usman_user_campaigns") || "[]");
+      existing.unshift(newCampaign);
+      localStorage.setItem("usman_user_campaigns", JSON.stringify(existing));
+    } catch {}
   };
 
+  // Resolve template variables
   const renderResolvedEmail = () => {
     let rendered = bodyText
       .replace(/{{first_name}}/g, SAMPLE_LEAD.first_name)
@@ -208,42 +287,53 @@ export default function NewOutreachCampaignPage() {
             </div>
 
             <div className="space-y-3">
-              {[
-                { email: "sales@company.com", status: "Healthy", limit: "50/day", auth: "Google OAuth 2.0" },
-                { email: "usman.personal@gmail.com", status: "Healthy", limit: "50/day", auth: "Google OAuth 2.0" },
-                { email: "outreach@company.com", status: "Healthy", limit: "40/day", auth: "Google OAuth 2.0" }
-              ].map((acc) => (
-                <div
-                  key={acc.email}
-                  onClick={() => setSenderAccount(acc.email)}
-                  className={`p-4 rounded-xl border cursor-pointer transition-all flex items-center justify-between ${
-                    senderAccount === acc.email
-                      ? "border-blue-500 bg-blue-500/10 shadow-glow-sm"
-                      : "border-white/[0.08] bg-white/[0.02] hover:bg-white/[0.04]"
-                  }`}
-                >
-                  <div className="flex items-center gap-3">
-                    <div className="h-10 w-10 rounded-xl bg-blue-500/10 flex items-center justify-center text-blue-400 border border-blue-500/20">
-                      <Mail className="h-5 w-5" />
-                    </div>
-                    <div>
-                      <div className="text-sm font-bold text-white">{acc.email}</div>
-                      <div className="text-[11px] text-slate-400 flex items-center gap-2">
-                        <span>● {acc.auth}</span>
-                        <span>Daily Capacity: {acc.limit}</span>
+              {availableAccounts.length === 0 ? (
+                <div className="p-5 rounded-xl border border-white/10 bg-white/[0.02] text-center space-y-2">
+                  <div className="text-xs text-slate-300">No sending accounts detected in your workspace.</div>
+                  <Link
+                    href="/app/outreach/accounts"
+                    className="inline-flex items-center gap-1.5 text-xs font-bold text-blue-400 hover:underline"
+                  >
+                    <span>+ Connect a Gmail Account now</span>
+                  </Link>
+                </div>
+              ) : (
+                availableAccounts.map((acc) => (
+                  <div
+                    key={acc.email}
+                    onClick={() => {
+                      setSenderAccount(acc.email);
+                      setReplyTo(acc.email);
+                    }}
+                    className={`p-4 rounded-xl border cursor-pointer transition-all flex items-center justify-between ${
+                      senderAccount === acc.email
+                        ? "border-blue-500 bg-blue-500/10 shadow-glow-sm"
+                        : "border-white/[0.08] bg-white/[0.02] hover:bg-white/[0.04]"
+                    }`}
+                  >
+                    <div className="flex items-center gap-3">
+                      <div className="h-10 w-10 rounded-xl bg-blue-500/10 flex items-center justify-center text-blue-400 border border-blue-500/20">
+                        <Mail className="h-5 w-5" />
+                      </div>
+                      <div>
+                        <div className="text-sm font-bold text-white">{acc.email}</div>
+                        <div className="text-[11px] text-slate-400 flex items-center gap-2">
+                          <span>● {acc.auth}</span>
+                          <span>Daily Capacity: {acc.limit}</span>
+                        </div>
                       </div>
                     </div>
+                    <div className="flex items-center gap-2">
+                      <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
+                        ● {acc.status}
+                      </span>
+                      {senderAccount === acc.email && (
+                        <Check className="h-4 w-4 text-blue-400" />
+                      )}
+                    </div>
                   </div>
-                  <div className="flex items-center gap-2">
-                    <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
-                      ● {acc.status}
-                    </span>
-                    {senderAccount === acc.email && (
-                      <Check className="h-4 w-4 text-blue-400" />
-                    )}
-                  </div>
-                </div>
-              ))}
+                ))
+              )}
             </div>
 
             <div className="p-4 rounded-xl border border-blue-500/20 bg-blue-500/5 text-xs text-blue-300 flex items-start gap-3">
@@ -500,6 +590,7 @@ export default function NewOutreachCampaignPage() {
               </span>
             </div>
 
+            {/* Lead preview snippet */}
             <div className="p-4 rounded-xl border border-white/[0.06] bg-[#121824] space-y-2">
               <div className="text-xs font-bold text-slate-300">Sample Target Lead Profile</div>
               <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-xs">
@@ -562,6 +653,7 @@ export default function NewOutreachCampaignPage() {
                 </p>
               </div>
 
+              {/* Device Toggle */}
               <div className="flex items-center gap-1 p-1 rounded-lg bg-[#121824] border border-white/[0.08] self-start">
                 <button
                   type="button"
@@ -585,6 +677,7 @@ export default function NewOutreachCampaignPage() {
             </div>
 
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+              {/* Left Column: Editor */}
               <div className="space-y-4">
                 <div>
                   <label className="block text-xs font-semibold text-slate-300 mb-1.5">Subject Line</label>
@@ -610,6 +703,7 @@ export default function NewOutreachCampaignPage() {
                 </div>
               </div>
 
+              {/* Right Column: Rendered Live Preview */}
               <div className="flex justify-center">
                 <div
                   className={`border border-white/[0.1] bg-[#070a0f] rounded-2xl p-5 shadow-2xl transition-all ${
@@ -650,6 +744,7 @@ export default function NewOutreachCampaignPage() {
               </p>
             </div>
 
+            {/* Checklist */}
             <div className="space-y-2.5">
               {[
                 { label: "Google OAuth 2.0 Identity Authenticated", status: "VERIFIED" },
@@ -667,6 +762,7 @@ export default function NewOutreachCampaignPage() {
               ))}
             </div>
 
+            {/* Human approval safeguard */}
             <div className="p-4 rounded-xl border border-white/[0.08] bg-white/[0.02] flex items-center justify-between">
               <div>
                 <div className="text-xs font-bold text-white">Require Human Approval Queue</div>
@@ -682,6 +778,7 @@ export default function NewOutreachCampaignPage() {
               />
             </div>
 
+            {/* Send Test Email Section */}
             <div className="p-5 rounded-xl border border-blue-500/20 bg-blue-500/5 space-y-3">
               <div className="text-xs font-bold text-white flex items-center gap-2">
                 <Send className="h-3.5 w-3.5 text-blue-400" /> Send Test Email

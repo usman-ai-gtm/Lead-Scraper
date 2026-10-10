@@ -4,7 +4,8 @@ import React, { useState } from "react";
 import OutreachNav from "@/components/outreach/OutreachNav";
 import {
   Workflow, PlusCircle, Clock, ShieldCheck, Mail, Sparkles,
-  CheckCircle2, ArrowDown, Settings, AlertOctagon, Edit3, Trash2
+  CheckCircle2, ArrowDown, Settings, AlertOctagon, Edit3, Trash2,
+  HelpCircle, Check, ArrowRight
 } from "lucide-react";
 
 interface SequenceStep {
@@ -22,7 +23,7 @@ const INITIAL_STEPS: SequenceStep[] = [
     day: 1,
     type: "Initial Introduction",
     subject: "Streamlining {{company}}'s hybrid cloud latency",
-    preview: "Observation regarding infrastructure scale and tailored value hypothesis.",
+    preview: "First cold outreach message introducing your core value proposition.",
     ai_personalized: true
   },
   {
@@ -30,21 +31,21 @@ const INITIAL_STEPS: SequenceStep[] = [
     day: 3,
     type: "Tactical Follow-up",
     subject: "Re: Streamlining {{company}}'s hybrid cloud latency",
-    preview: "Sharing a 2-minute loom on how our peers reduced egress costs by 35%.",
+    preview: "Quick 2-minute reminder sharing benchmark metrics if no reply.",
     ai_personalized: true
   },
   {
     step: 3,
     day: 7,
-    type: "Value Proposition & Case Study",
+    type: "Case Study & Social Proof",
     subject: "Relevant benchmark for {{first_name}} at {{company}}",
-    preview: "Enterprise case study detailing benchmark metrics and architecture diagram.",
+    preview: "Sharing customer case study and ROI statistics.",
     ai_personalized: false
   },
   {
     step: 4,
     day: 12,
-    type: "Permission to Close / Breakup",
+    type: "Polite Breakup Email",
     subject: "Closing the loop for {{company}}",
     preview: "Polite check-in acknowledging priorities and offering future touchpoint.",
     ai_personalized: true
@@ -56,7 +57,6 @@ export default function OutreachSequencesPage() {
   const [stopOnReply, setStopOnReply] = useState<boolean>(true);
   const [stopOnUnsubscribe, setStopOnUnsubscribe] = useState<boolean>(true);
   const [stopOnMeeting, setStopOnMeeting] = useState<boolean>(true);
-  const [stopOnDealStage, setStopOnDealStage] = useState<boolean>(true);
   const [savedNotice, setSavedNotice] = useState<string | null>(null);
 
   const handleAddStep = () => {
@@ -92,9 +92,9 @@ export default function OutreachSequencesPage() {
       {/* Header */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
-          <h2 className="text-xl font-bold text-white tracking-tight">Multi-Touch Cadence Sequences</h2>
+          <h2 className="text-xl font-bold text-white tracking-tight">Automated Follow-Up Sequences</h2>
           <p className="text-xs text-slate-400">
-            Define multi-day automated follow-up cadences with enterprise stop-conditions.
+            Define multi-day automated follow-up cadences with automated stop conditions.
           </p>
         </div>
         <button
@@ -111,97 +111,149 @@ export default function OutreachSequencesPage() {
         </div>
       )}
 
+      {/* Educational Guide: What is an Email Sequence? */}
+      <div className="p-5 rounded-2xl border border-blue-500/20 bg-gradient-to-r from-blue-950/40 via-indigo-950/30 to-purple-950/40 space-y-3">
+        <div className="flex items-center gap-2 text-xs font-bold text-blue-300">
+          <HelpCircle className="h-4 w-4 text-blue-400" />
+          <span>What is an Email Sequence? (How Automated Follow-ups Work)</span>
+        </div>
+        <p className="text-xs text-slate-300 leading-relaxed max-w-3xl">
+          In B2B sales, over <strong>80% of replies happen after the 2nd or 3rd follow-up email</strong>. 
+          A sequence is an automated chain of emails: if the recipient does not reply to Email 1, the platform automatically waits 
+          a few days and sends Email 2, then Email 3.
+        </p>
+
+        {/* 4-Step Visual Flowchart */}
+        <div className="grid grid-cols-1 sm:grid-cols-4 gap-3 pt-2">
+          <div className="p-3 rounded-xl border border-white/10 bg-black/40 text-left space-y-1">
+            <span className="text-[10px] font-bold text-blue-400 uppercase">Step 1 • Day 1</span>
+            <div className="text-xs font-bold text-white">First Cold Email</div>
+            <p className="text-[11px] text-slate-400">Personalized initial pitch</p>
+          </div>
+          <div className="p-3 rounded-xl border border-white/10 bg-black/40 text-left space-y-1">
+            <span className="text-[10px] font-bold text-indigo-400 uppercase">Step 2 • Day 3</span>
+            <div className="text-xs font-bold text-white">Polite Follow-up</div>
+            <p className="text-[11px] text-slate-400">Sends only if no reply</p>
+          </div>
+          <div className="p-3 rounded-xl border border-white/10 bg-black/40 text-left space-y-1">
+            <span className="text-[10px] font-bold text-purple-400 uppercase">Step 3 • Day 7</span>
+            <div className="text-xs font-bold text-white">Case Study Proof</div>
+            <p className="text-[11px] text-slate-400">Shares evidence & ROI</p>
+          </div>
+          <div className="p-3 rounded-xl border border-emerald-500/30 bg-emerald-950/20 text-left space-y-1">
+            <span className="text-[10px] font-bold text-emerald-400 uppercase">Auto-Stop Trigger</span>
+            <div className="text-xs font-bold text-emerald-300">Prospect Replies!</div>
+            <p className="text-[11px] text-slate-400">Follow-ups stop immediately</p>
+          </div>
+        </div>
+      </div>
+
       {/* Main Grid: Steps & Stop Conditions */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        {/* Left 2 Cols: Step Pipeline */}
+        {/* Left Column (2 cols): Sequence Steps Timeline */}
         <div className="lg:col-span-2 space-y-4">
-          {steps.map((st, idx) => (
-            <React.Fragment key={st.step}>
-              <div className="p-5 rounded-2xl border border-white/[0.08] bg-[#0c1017] hover:border-white/[0.15] transition-all shadow-glow-sm">
-                <div className="flex items-start justify-between gap-4">
-                  <div className="flex items-start gap-3">
-                    <div className="h-10 w-10 rounded-xl bg-blue-500/10 border border-blue-500/20 flex flex-col items-center justify-center shrink-0">
-                      <span className="text-[9px] uppercase font-bold text-slate-400">Day</span>
-                      <span className="text-xs font-black text-blue-400">{st.day}</span>
+          <div className="text-xs font-bold uppercase tracking-wider text-slate-400 flex items-center gap-2">
+            <Workflow className="h-4 w-4 text-blue-400" />
+            <span>Cadence Timeline ({steps.length} Steps)</span>
+          </div>
+
+          <div className="space-y-4 relative">
+            {steps.map((st, idx) => (
+              <div key={st.step} className="relative">
+                <div className="p-4 rounded-2xl border border-white/[0.08] bg-[#0c1017] hover:border-white/20 transition-all space-y-2">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-2.5">
+                      <span className="flex h-6 w-6 items-center justify-center rounded-full bg-blue-600 text-white font-bold text-xs">
+                        {st.step}
+                      </span>
+                      <span className="text-sm font-bold text-white">{st.type}</span>
                     </div>
-                    <div className="space-y-1">
-                      <div className="flex items-center gap-2">
-                        <span className="text-xs font-bold text-white">Step {st.step}: {st.type}</span>
-                        {st.ai_personalized && (
-                          <span className="flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-bold bg-purple-500/10 text-purple-300 border border-purple-500/20">
-                            <Sparkles className="h-2.5 w-2.5" /> AI Personalization
-                          </span>
-                        )}
-                      </div>
-                      <div className="text-xs text-blue-300 font-mono font-medium">{st.subject}</div>
-                      <p className="text-xs text-slate-400">{st.preview}</p>
+
+                    <div className="flex items-center gap-2">
+                      <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-white/[0.05] border border-white/10 text-slate-300 flex items-center gap-1">
+                        <Clock className="h-3 w-3 text-blue-400" /> Day {st.day}
+                      </span>
+                      {steps.length > 1 && (
+                        <button
+                          onClick={() => handleRemoveStep(st.step)}
+                          className="p-1 rounded text-slate-500 hover:text-rose-400"
+                          title="Remove step"
+                        >
+                          <Trash2 className="h-3.5 w-3.5" />
+                        </button>
+                      )}
                     </div>
                   </div>
 
-                  <div className="flex items-center gap-2">
-                    <button
-                      onClick={() => handleRemoveStep(st.step)}
-                      className="p-1.5 rounded-lg text-slate-500 hover:text-rose-400 hover:bg-rose-500/10 transition-colors"
-                      title="Delete step"
-                    >
-                      <Trash2 className="h-4 w-4" />
-                    </button>
+                  <div className="text-xs font-semibold text-blue-300 font-mono">
+                    Subject: {st.subject}
                   </div>
+                  <p className="text-xs text-slate-400 leading-relaxed">{st.preview}</p>
                 </div>
+
+                {idx < steps.length - 1 && (
+                  <div className="flex justify-center my-1.5">
+                    <div className="p-1 rounded-full bg-white/[0.04] text-slate-500">
+                      <ArrowDown className="h-3.5 w-3.5" />
+                    </div>
+                  </div>
+                )}
               </div>
-
-              {idx < steps.length - 1 && (
-                <div className="flex items-center justify-center my-1 text-slate-600">
-                  <div className="flex items-center gap-2 px-3 py-1 rounded-full bg-white/[0.02] border border-white/[0.04] text-[11px] text-slate-500 font-mono">
-                    <Clock className="h-3 w-3 text-slate-500" /> Wait {steps[idx + 1].day - st.day} Days <ArrowDown className="h-3 w-3" />
-                  </div>
-                </div>
-              )}
-            </React.Fragment>
-          ))}
+            ))}
+          </div>
         </div>
 
-        {/* Right Col: Stop Conditions */}
+        {/* Right Column: Automated Stop Conditions */}
         <div className="space-y-4">
-          <div className="p-6 rounded-2xl border border-white/[0.08] bg-[#0c1017] shadow-glow-sm space-y-5">
-            <div>
-              <div className="flex items-center gap-2 text-xs font-bold uppercase tracking-wider text-amber-400 mb-1">
-                <AlertOctagon className="h-4 w-4" /> Safeguards
-              </div>
-              <h3 className="text-base font-bold text-white">Automated Stop Conditions</h3>
-              <p className="text-xs text-slate-400 mt-1">
-                Campaign cadence automatically halts immediately when any of these conditions are met.
-              </p>
-            </div>
+          <div className="text-xs font-bold uppercase tracking-wider text-slate-400 flex items-center gap-2">
+            <AlertOctagon className="h-4 w-4 text-emerald-400" />
+            <span>Safety Stop Conditions</span>
+          </div>
+
+          <div className="p-5 rounded-2xl border border-white/[0.08] bg-[#0c1017] space-y-4">
+            <p className="text-xs text-slate-400">
+              When any of the following events occur, the sequence will immediately stop sending further follow-ups to that contact:
+            </p>
 
             <div className="space-y-3">
-              {[
-                { title: "Stop on Prospect Reply", desc: "Halts follow-ups as soon as recipient responds.", val: stopOnReply, set: setStopOnReply },
-                { title: "Stop on Unsubscribe / Opt-Out", desc: "Instantly adds recipient to global suppression.", val: stopOnUnsubscribe, set: setStopOnUnsubscribe },
-                { title: "Stop on Meeting Scheduled", desc: "Detects calendar booking event and stops cadence.", val: stopOnMeeting, set: setStopOnMeeting },
-                { title: "Stop on CRM Opportunity / Deal", desc: "Halts cold outreach once lead moves to active sales stage.", val: stopOnDealStage, set: setStopOnDealStage }
-              ].map((cond, idx) => (
-                <div key={idx} className="p-3.5 rounded-xl border border-white/[0.06] bg-white/[0.02] flex items-start justify-between gap-3">
-                  <div>
-                    <div className="text-xs font-bold text-white">{cond.title}</div>
-                    <div className="text-[11px] text-slate-400 mt-0.5">{cond.desc}</div>
-                  </div>
-                  <input
-                    type="checkbox"
-                    checked={cond.val}
-                    onChange={(e) => {
-                      cond.set(e.target.checked);
-                      showNotice("Updated stop conditions.");
-                    }}
-                    className="h-4 w-4 accent-blue-600 rounded mt-0.5"
-                  />
+              <label className="flex items-start gap-3 p-3 rounded-xl border border-white/[0.06] bg-white/[0.02] cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={stopOnReply}
+                  onChange={(e) => setStopOnReply(e.target.checked)}
+                  className="mt-0.5 h-4 w-4 accent-blue-600 rounded"
+                />
+                <div>
+                  <div className="text-xs font-bold text-white">Stop on Prospect Reply</div>
+                  <div className="text-[11px] text-slate-400">Prevents embarrassing follow-ups after someone responds.</div>
                 </div>
-              ))}
-            </div>
+              </label>
 
-            <div className="p-3 rounded-xl border border-emerald-500/20 bg-emerald-500/5 text-xs text-emerald-300 flex items-center gap-2">
-              <CheckCircle2 className="h-4 w-4 shrink-0 text-emerald-400" />
-              <span>All stop conditions active and synchronizing with Gmail Webhook & CRM Timeline.</span>
+              <label className="flex items-start gap-3 p-3 rounded-xl border border-white/[0.06] bg-white/[0.02] cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={stopOnMeeting}
+                  onChange={(e) => setStopOnMeeting(e.target.checked)}
+                  className="mt-0.5 h-4 w-4 accent-blue-600 rounded"
+                />
+                <div>
+                  <div className="text-xs font-bold text-white">Stop on Meeting Booked</div>
+                  <div className="text-[11px] text-slate-400">Halts sequence immediately once a calendar demo is confirmed.</div>
+                </div>
+              </label>
+
+              <label className="flex items-start gap-3 p-3 rounded-xl border border-white/[0.06] bg-white/[0.02] cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={stopOnUnsubscribe}
+                  onChange={(e) => setStopOnUnsubscribe(e.target.checked)}
+                  className="mt-0.5 h-4 w-4 accent-blue-600 rounded"
+                />
+                <div>
+                  <div className="text-xs font-bold text-white">Stop on Opt-Out / STOP</div>
+                  <div className="text-[11px] text-slate-400">Complies with RFC-8058 global unsubscribe compliance.</div>
+                </div>
+              </label>
             </div>
           </div>
         </div>
