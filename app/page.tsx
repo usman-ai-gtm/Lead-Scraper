@@ -179,7 +179,7 @@ export default function HomePage() {
               <ArrowRight className="h-5 w-5" />
             </Link>
             <Link
-              href="/#platform"
+              href="/features"
               className="w-full sm:w-auto inline-flex items-center justify-center gap-2 rounded-xl border border-white/15 bg-white/[0.04] px-8 py-4 text-base font-semibold text-white backdrop-blur-md transition-all hover:bg-white/[0.08] hover:border-blue-500/40"
             >
               <span>EXPLORE PLATFORM</span>

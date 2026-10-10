@@ -16,7 +16,7 @@ import {
 export default function AppLayout({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
   const router = useRouter();
-  const { user, activeWorkspace, workspaces, switchWorkspace, logout } = useAuth();
+  const { user, loading, activeWorkspace, workspaces, switchWorkspace, logout } = useAuth();
   
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
   const [commandPaletteOpen, setCommandPaletteOpen] = useState(false);
@@ -29,6 +29,16 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
     { id: 3, title: "SOC 2 Audit Telemetry", message: "Automated daily security audit completed successfully.", time: "2h ago" }
   ]);
   const [moreMenuOpen, setMoreMenuOpen] = useState(false);
+
+  // Strict Protected Route Guard: Non-authenticated visitors CANNOT access the dashboard
+  useEffect(() => {
+    if (!loading && !user) {
+      const token = typeof window !== "undefined" ? localStorage.getItem("usman_gtm_token") : null;
+      if (!token) {
+        router.push("/signup");
+      }
+    }
+  }, [user, loading, router]);
 
   // Command palette keyboard shortcut (Ctrl+K or Cmd+K)
   useEffect(() => {
@@ -126,6 +136,24 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
     { name: "Sending Accounts", href: "/app/outreach/accounts", icon: Mail },
     { name: "Admin Center", href: "/app/admin", icon: Shield },
   ];
+
+  if (loading) {
+    return (
+      <div className="min-h-screen bg-[#07090e] flex flex-col items-center justify-center text-slate-300">
+        <div className="h-9 w-9 animate-spin rounded-full border-2 border-blue-500 border-t-transparent mb-4" />
+        <p className="text-xs font-semibold uppercase tracking-wider text-slate-400">Verifying secure session...</p>
+      </div>
+    );
+  }
+
+  if (!user && (typeof window !== "undefined" && !localStorage.getItem("usman_gtm_token"))) {
+    return (
+      <div className="min-h-screen bg-[#07090e] flex flex-col items-center justify-center text-slate-300">
+        <div className="h-9 w-9 animate-spin rounded-full border-2 border-purple-500 border-t-transparent mb-4" />
+        <p className="text-xs font-semibold uppercase tracking-wider text-slate-400">Redirecting to account creation...</p>
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen bg-[#07090e] text-slate-100 flex flex-col md:flex-row antialiased">
