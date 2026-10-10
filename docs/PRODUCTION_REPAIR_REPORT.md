@@ -144,6 +144,8 @@ All simulated behaviors, fake sample data seeding, and hardcoded fallbacks were 
 | **Test E** | CRM / Deals | Deal creation, stage transition, workspace isolation | **PASSED** | Canonical stages maintained, real amounts calculated, zero fake deals seeded. |
 | **Test F** | Outreach / Accounts | Connected accounts CRUD & audit logging | **PASSED** | Verified via `test_connected_accounts_suite.py` (7/7 tests passed in 0.687s). |
 | **Test G** | Backend End-to-End | 10 API suites via `test_backend_api.py` | **PASSED** | Health, Auth, Me, Leads, CRM, Campaigns, Providers, Catalog, Copilot, Admin all passed. |
+| **Test H** | Workspace Resilience | Workspace name collision handling on duplicate registration / OAuth | **PASSED** | Verified graceful unique name generation preventing SQLite UNIQUE constraint failure. |
+| **Test I** | Frontend Build | Next.js 14 production build (`npm run build`) | **PASSED** | 77 static routes and API endpoints compiled successfully with zero type or lint errors. |
 
 ---
 
