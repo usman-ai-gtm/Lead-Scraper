@@ -98,6 +98,10 @@ def init_whatsapp_companion_tables():
             created_at TEXT NOT NULL
         )
     ''')
+    try:
+        cur.execute("ALTER TABLE whatsapp_suppressions ADD COLUMN business_name TEXT")
+    except Exception:
+        pass
 
     # 4. Drafts & Lead-specific Outreach Status
     cur.execute('''
