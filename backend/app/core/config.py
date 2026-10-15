@@ -36,14 +36,24 @@ class Settings(BaseModel):
     )
     
     # CORS
-    CORS_ORIGINS: List[str] = [
-        "http://localhost:3000",
-        "http://127.0.0.1:3000",
-        "http://localhost:8000",
-        "http://127.0.0.1:8000",
-        "https://usmanai.com",
-        "https://app.usmanai.com"
-    ]
+    @property
+    def get_cors_origins(self) -> List[str]:
+        raw = os.getenv("ALLOWED_ORIGINS", "")
+        origins = [
+            "http://localhost:3000",
+            "http://127.0.0.1:3000",
+            "http://localhost:8000",
+            "http://127.0.0.1:8000",
+            "https://lead-scraper-mxs5.vercel.app",
+            "https://usmanai.com",
+            "https://app.usmanai.com"
+        ]
+        if raw:
+            for item in raw.split(","):
+                clean = item.strip().rstrip("/")
+                if clean and clean not in origins:
+                    origins.append(clean)
+        return origins
     
     # Default Workspace & User
     DEFAULT_WORKSPACE_ID: int = 1

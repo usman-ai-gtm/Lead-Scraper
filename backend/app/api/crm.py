@@ -51,4 +51,5 @@ def list_contacts(current_user: Dict[str, Any] = Depends(get_current_user)):
 @router.get("/deals")
 def list_deals(current_user: Dict[str, Any] = Depends(get_current_user)):
     ws_id = current_user.get("workspace_id") or 1
-    return CRMService.get_deals(workspace_id=ws_id)
+    deals = CRMService.get_deals(workspace_id=ws_id)
+    return {"status": "success", "deals": deals, "count": len(deals)}

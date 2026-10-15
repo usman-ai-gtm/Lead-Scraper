@@ -21,9 +21,13 @@ logger = logging.getLogger("USMAN_AUTH_API")
 
 router = APIRouter(prefix="/auth", tags=["Authentication"])
 
+from backend.app.core.rate_limit import auth_rate_limiter
+
 @router.post("/login", response_model=TokenResponse)
 def login(req: LoginRequest):
     clean_email = req.email.strip().lower()
+    # Rate limit by target account email to mitigate brute-force attempts
+    auth_rate_limiter.check(f"login_{clean_email}")
     conn = get_db_connection()
     user_row = conn.execute("SELECT * FROM users WHERE LOWER(email) = ?", (clean_email,)).fetchone()
     conn.close()

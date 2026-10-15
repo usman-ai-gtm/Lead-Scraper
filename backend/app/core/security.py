@@ -31,20 +31,30 @@ def hash_password(password: str) -> str:
 
 def verify_password(plain_password: str, hashed_password: str) -> bool:
     """
-    Verify a password against the stored PBKDF2 hash.
-    Also supports migration from legacy plain / sha256 hashes safely.
+    Verify a password against the stored PBKDF2 hash using constant-time comparison.
+    Eliminates unsafe plaintext fallbacks and prevents timing side-channels.
     """
+    if not plain_password or not hashed_password:
+        return False
     try:
         if hashed_password.startswith("pbkdf2_sha256$"):
-            _, iterations_str, salt_hex, key_hex = hashed_password.split("$")
+            parts = hashed_password.split("$")
+            if len(parts) != 4:
+                return False
+            _, iterations_str, salt_hex, key_hex = parts
             iterations = int(iterations_str)
-            salt = binascii.unhexlify(salt_hex.encode())
-            expected_key = binascii.unhexlify(key_hex.encode())
+            salt = binascii.unhexlify(salt_hex.encode("utf-8"))
+            expected_key = binascii.unhexlify(key_hex.encode("utf-8"))
             computed_key = hashlib.pbkdf2_hmac('sha256', plain_password.encode('utf-8'), salt, iterations)
             return hmac.compare_digest(expected_key, computed_key)
+        elif hashed_password.startswith("sha256$"):
+            # Legacy salted SHA-256 check
+            _, salt_str, hash_str = hashed_password.split("$")
+            computed = hashlib.sha256((salt_str + plain_password).encode("utf-8")).hexdigest()
+            return hmac.compare_digest(hash_str, computed)
         else:
-            # Fallback check for initial admin/test passwords if plain
-            return plain_password == hashed_password
+            # Unrecognized / non-cryptographic format - strictly reject
+            return False
     except Exception:
         return False
 

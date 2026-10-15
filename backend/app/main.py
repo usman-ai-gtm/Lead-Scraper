@@ -34,12 +34,12 @@ app = FastAPI(
     redoc_url="/redoc"
 )
 
-# CORS Middleware
+# CORS Middleware - Strictly validated origins allowlist (No wildcard credentials)
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"], # In production, lock down to settings.CORS_ORIGINS
+    allow_origins=settings.get_cors_origins,
     allow_credentials=True,
-    allow_methods=["*"],
+    allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS", "PATCH"],
     allow_headers=["*"],
 )
 

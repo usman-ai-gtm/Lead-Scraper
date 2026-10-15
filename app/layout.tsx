@@ -1,13 +1,18 @@
-import type { Metadata } from "next";
+import type { Metadata, Viewport } from "next";
 import "./globals.css";
 import { AuthProvider } from "@/lib/auth-context";
+
+export const viewport: Viewport = {
+  width: "device-width",
+  initialScale: 1,
+  maximumScale: 1,
+};
 
 export const metadata: Metadata = {
   title: "USMAN AI GTM — Find. Engage. Convert. Grow.",
   description: "Enterprise AI-powered B2B sales intelligence, prospecting, research, omnichannel outreach, CRM, and revenue automation.",
   keywords: ["B2B prospecting", "lead intelligence", "AI outreach", "CRM", "revenue operations", "WhatsApp Business", "Cold email"],
   authors: [{ name: "USMAN AI GTM" }],
-  viewport: "width=device-width, initial-scale=1, maximum-scale=1",
   icons: {
     icon: "/favicon.ico",
   },

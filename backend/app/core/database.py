@@ -5,6 +5,7 @@ and unified access across usman_data_analytics.db and connected modules.
 """
 
 import os
+import re
 import sqlite3
 import logging
 from typing import Dict, Any, List, Optional
@@ -118,9 +119,9 @@ def init_app_database():
         ("last_login", "TEXT"),
         ("updated_at", "TEXT"),
     ]:
-        if col not in user_cols:
+        if col not in user_cols and re.match(r'^[a-zA-Z0-9_]+$', col):
             try:
-                cur.execute(f"ALTER TABLE users ADD COLUMN {col} {ctype}")
+                cur.execute(f'ALTER TABLE users ADD COLUMN "{col}" {ctype}')
             except Exception as e:
                 logger.debug(f"Column {col} already exists or alter skipped: {e}")
 
@@ -178,9 +179,9 @@ def init_app_database():
         ("search_location", "TEXT"),
         ("date_discovered", "TEXT"),
     ]:
-        if col not in lead_cols:
+        if col not in lead_cols and re.match(r'^[a-zA-Z0-9_]+$', col):
             try:
-                cur.execute(f"ALTER TABLE leads ADD COLUMN {col} {ctype}")
+                cur.execute(f'ALTER TABLE leads ADD COLUMN "{col}" {ctype}')
             except Exception as e:
                 pass
 

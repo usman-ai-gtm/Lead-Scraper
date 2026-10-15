@@ -178,7 +178,8 @@ except Exception as e:
 print("\n--- TEST 4: CRM OPERATIONS & PIPELINE STAGES ---")
 try:
     crm_res = requests.get(f"{BACKEND_URL}/api/crm/deals", headers=auth_headers, timeout=10)
-    deals = crm_res.json() if crm_res.status_code == 200 else []
+    deals_raw = crm_res.json() if crm_res.status_code == 200 else []
+    deals = deals_raw.get("deals", deals_raw) if isinstance(deals_raw, dict) else deals_raw
     report_result("CRM Deals Pipeline Query", crm_res.status_code == 200, f"Retrieved {len(deals)} pipeline deals from SQLite")
 except Exception as e:
     report_result("CRM Deals Pipeline Query", False, str(e))

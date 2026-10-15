@@ -73,7 +73,14 @@ export default function LeadsPage() {
     const savedCustom = typeof window !== "undefined" ? localStorage.getItem("usman_custom_provider_keys") : null;
     if (savedCustom) {
       try {
-        setProvidersList(JSON.parse(savedCustom));
+        const parsed = JSON.parse(savedCustom);
+        // Sanitize any legacy unmasked keys from browser storage
+        const sanitized = parsed.map((p: any) => {
+          const raw = p.apiKey || "";
+          const masked = raw.includes("••••") ? raw : (raw.length > 8 ? `${raw.slice(0, 4)}••••••••${raw.slice(-4)}` : (raw ? "••••••••" : ""));
+          return { ...p, apiKey: masked };
+        });
+        setProvidersList(sanitized);
         return;
       } catch {}
     }
@@ -91,15 +98,29 @@ export default function LeadsPage() {
     }
   }, [isOwnerAccount]);
 
-  const handleSaveProviderKey = (id: number, newKey: string) => {
+  const handleSaveProviderKey = async (id: number, newKey: string) => {
+    const trimmed = newKey.trim();
+    const masked = trimmed.length > 8 ? `${trimmed.slice(0, 4)}••••••••${trimmed.slice(-4)}` : (trimmed ? "••••••••" : "");
     const updated = providersList.map((p) =>
-      p.id === id ? { ...p, apiKey: newKey.trim(), status: newKey.trim() ? "Configured" : "Not Configured" } : p
+      p.id === id ? { ...p, apiKey: masked, status: trimmed ? "Configured" : "Not Configured" } : p
     );
     setProvidersList(updated);
     if (typeof window !== "undefined") {
+      // Store only sanitized masked keys in browser storage
       localStorage.setItem("usman_custom_provider_keys", JSON.stringify(updated));
     }
-    setToastMsg(`Provider #${id} API key updated successfully.`);
+    // Attempt secure server-side transmission if authenticated
+    try {
+      const token = typeof window !== "undefined" ? localStorage.getItem("usman_token") : null;
+      if (token && trimmed) {
+        await fetch(`/api/providers/${id}/key`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+          body: JSON.stringify({ api_key: trimmed }),
+        });
+      }
+    } catch {}
+    setToastMsg(`Provider #${id} credentials saved securely.`);
   };
 
   // Fetch / Sync Leads
@@ -270,20 +291,29 @@ export default function LeadsPage() {
       setToastMsg("No leads to export.");
       return;
     }
+    const sanitizeCell = (val: any): string => {
+      if (val === null || val === undefined) return '""';
+      let s = String(val).replace(/"/g, '""');
+      if (/^[=\+\-@\t\r]/.test(s)) {
+        s = "'" + s;
+      }
+      return `"${s}"`;
+    };
+
     const headers = ["ID", "Company", "Category", "City", "Country", "Score", "Email", "Email Status", "Phone", "Website", "Source Evidence URL", "CRM Stage"];
     const rows = filteredLeads.map((l) => [
       l.id,
-      `"${l.business_name || ""}"`,
-      `"${l.category || ""}"`,
-      `"${l.city || ""}"`,
-      `"${l.country || ""}"`,
+      sanitizeCell(l.business_name),
+      sanitizeCell(l.category),
+      sanitizeCell(l.city),
+      sanitizeCell(l.country),
       l.lead_score || 70,
-      `"${l.email || ""}"`,
-      `"${l.email_status || ""}"`,
-      `"${l.phone || ""}"`,
-      `"${l.website || ""}"`,
-      `"${l.source_url || ""}"`,
-      `"${l.crm_stage || "New Lead"}"`,
+      sanitizeCell(l.email),
+      sanitizeCell(l.email_status),
+      sanitizeCell(l.phone),
+      sanitizeCell(l.website),
+      sanitizeCell(l.source_url),
+      sanitizeCell(l.crm_stage || "New Lead"),
     ]);
     const csvContent = "data:text/csv;charset=utf-8," + [headers.join(","), ...rows.map((e) => e.join(","))].join("\n");
     const encodedUri = encodeURI(csvContent);

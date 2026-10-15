@@ -47,12 +47,16 @@ def list_leads(
         page_size=page_size
     )
 
+from backend.app.core.rate_limit import search_rate_limiter
+
 @router.post("/search")
 def search_leads_live(
     req: LeadSearchRequest,
     current_user: Dict[str, Any] = Depends(get_current_user)
 ):
     ws_id = current_user.get("workspace_id") or req.workspace_id or 1
+    # Enforce sliding window rate limit per workspace
+    search_rate_limiter.check(f"ws_{ws_id}")
     results = LeadService.search_live(req.model_dump(), workspace_id=ws_id)
     return results
 

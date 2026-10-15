@@ -171,9 +171,10 @@ export default function CRMPage() {
 
         // 2. Fetch live persistent deals from SQLite backend
         try {
-          const res = await api.get<any[]>("/crm/deals");
-          if (Array.isArray(res) && res.length > 0) {
-            const normalized: CRMDeal[] = res.map((d: any) => ({
+          const res = await api.get<any>("/crm/deals");
+          const dealList = Array.isArray(res) ? res : (res && Array.isArray(res.deals) ? res.deals : []);
+          if (dealList.length > 0) {
+            const normalized: CRMDeal[] = dealList.map((d: any) => ({
               id: d.id,
               title: d.title || `${d.company_name || 'Opportunity'} — Deal`,
               company_name: d.company_name || "Enterprise Account",

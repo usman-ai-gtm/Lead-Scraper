@@ -8,7 +8,7 @@ export interface DefaultProvider {
 }
 
 export const USMAN_DEFAULT_29_PROVIDERS: DefaultProvider[] = [
-  { id: 1, name: "Serper API", type: "Search Engine", model: "google-search", apiKey: "2baa9b7d5907ecc3fe3fceebb8c4b9b7e30e3297", status: "Active" },
+  { id: 1, name: "Serper API", type: "Search Engine", model: "google-search", apiKey: "2baa9b7d...", status: "Active" },
   { id: 2, name: "Crawl4AI", type: "Scraper Engine", model: "crawl4ai-markdown", apiKey: "", status: "Standby" },
   { id: 3, name: "Gemini AI Studio", type: "Primary Researcher", model: "gemini-1.5-pro", apiKey: "AQ.Ab8RN6I...", status: "Active" },
   { id: 4, name: "Groq Cloud", type: "Primary Reasoner", model: "llama-3.3-70b-versatile", apiKey: "gsk_ThbJq7...", status: "Active" },
