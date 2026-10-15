@@ -7,7 +7,7 @@ import {
   Database, Plus, DollarSign, Calendar, TrendingUp, CheckCircle2,
   Building2, Users, ArrowRight, RefreshCw, Layers, ListFilter, Send,
   Trash2, Search, ExternalLink, Sparkles, Download, Check, Briefcase,
-  ChevronRight, Award, ShieldCheck
+  ChevronRight, Award, ShieldCheck, MessageSquare
 } from "lucide-react";
 
 export interface CRMDeal {
@@ -158,38 +158,65 @@ export default function CRMPage() {
 
   // Initialize and synchronize deals
   useEffect(() => {
-    try {
-      // Check stored discovered leads
-      const storedLeads = localStorage.getItem("usman_saved_leads");
-      if (storedLeads) {
-        const parsed = JSON.parse(storedLeads);
-        if (Array.isArray(parsed)) setSavedLeadsCount(parsed.length);
-      }
-
-      // Check stored CRM deals
-      const storedCrm = localStorage.getItem("usman_crm_deals");
-      if (storedCrm) {
-        const parsed = JSON.parse(storedCrm);
-        if (Array.isArray(parsed) && parsed.length > 0) {
-          // Normalize stages
-          const normalized = parsed.map((d: any) => ({
-            ...d,
-            stage: normalizeStage(d.stage)
-          }));
-          setDeals(normalized);
-          setLoading(false);
-          return;
+    async function loadDeals() {
+      try {
+        // 1. Check stored discovered leads count
+        const storedLeads = localStorage.getItem("usman_saved_leads");
+        if (storedLeads) {
+          try {
+            const parsed = JSON.parse(storedLeads);
+            if (Array.isArray(parsed)) setSavedLeadsCount(parsed.length);
+          } catch {}
         }
-      }
 
-      // If empty in localStorage, initialize with demo enterprise deals
-      setDeals(DEFAULT_DEMO_DEALS);
-      localStorage.setItem("usman_crm_deals", JSON.stringify(DEFAULT_DEMO_DEALS));
-    } catch {
-      setDeals(DEFAULT_DEMO_DEALS);
-    } finally {
-      setLoading(false);
+        // 2. Fetch live persistent deals from SQLite backend
+        try {
+          const res = await api.get<any[]>("/crm/deals");
+          if (Array.isArray(res) && res.length > 0) {
+            const normalized: CRMDeal[] = res.map((d: any) => ({
+              id: d.id,
+              title: d.title || `${d.company_name || 'Opportunity'} — Deal`,
+              company_name: d.company_name || "Enterprise Account",
+              amount: Number(d.amount) || 0,
+              stage: normalizeStage(d.stage),
+              win_probability: Number(d.probability) || 50,
+              contact_name: d.contact_name,
+              website: d.website,
+              expected_close_date: d.expected_close_date || ""
+            }));
+            setDeals(normalized);
+            setLoading(false);
+            return;
+          }
+        } catch {
+          // Backend offline or local fallback
+        }
+
+        // 3. Fallback to localStorage if any user-created offline deals
+        const storedCrm = localStorage.getItem("usman_crm_deals");
+        if (storedCrm) {
+          const parsed = JSON.parse(storedCrm);
+          if (Array.isArray(parsed) && parsed.length > 0) {
+            const normalized = parsed.map((d: any) => ({
+              ...d,
+              stage: normalizeStage(d.stage)
+            }));
+            setDeals(normalized);
+            setLoading(false);
+            return;
+          }
+        }
+
+        // If newly created workspace with zero deals, keep real empty state
+        setDeals([]);
+      } catch {
+        setDeals([]);
+      } finally {
+        setLoading(false);
+      }
     }
+
+    loadDeals();
   }, []);
 
   const normalizeStage = (stg: string): string => {
@@ -213,9 +240,14 @@ export default function CRMPage() {
     } catch {}
   };
 
-  const handleStageChange = (dealId: number, targetStage: string) => {
+  const handleStageChange = async (dealId: number, targetStage: string) => {
     const updated = deals.map((d) => (d.id === dealId ? { ...d, stage: targetStage } : d));
     saveDealsToStorage(updated);
+    try {
+      await api.put(`/crm/deals/${dealId}/stage`, { stage: targetStage });
+    } catch {
+      // Backend sync fallback
+    }
   };
 
   const advanceStage = (dealId: number) => {
@@ -235,15 +267,37 @@ export default function CRMPage() {
     saveDealsToStorage(updated);
   };
 
-  const handleCreateDeal = (e: React.FormEvent) => {
+  const handleCreateDeal = async (e: React.FormEvent) => {
     e.preventDefault();
     setIsCreating(true);
     try {
+      const dealTitle = newDealTitle.trim() || `${newDealCompany.trim()} — Opportunity`;
+      const company = newDealCompany.trim() || "Commercial Client";
+      const amt = Number(newDealAmount) || 0;
+      let createdId = Date.now();
+
+      try {
+        const res = await api.post<any>("/crm/deals", {
+          title: dealTitle,
+          company_name: company,
+          amount: amt,
+          stage: newDealStage,
+          win_probability: Number(newDealWinP) || 50,
+          contact_name: newDealContact.trim() || undefined,
+          website: newDealWebsite.trim() || undefined,
+        });
+        if (res && res.deal_id) {
+          createdId = res.deal_id;
+        }
+      } catch {
+        // Local fallback
+      }
+
       const newDeal: CRMDeal = {
-        id: Date.now(),
-        title: newDealTitle.trim() || `${newDealCompany.trim()} — Commercial Opportunity`,
-        company_name: newDealCompany.trim() || "Commercial Client",
-        amount: Number(newDealAmount) || 25000,
+        id: createdId,
+        title: dealTitle,
+        company_name: company,
+        amount: amt,
         stage: newDealStage,
         win_probability: Number(newDealWinP) || 50,
         contact_name: newDealContact.trim() || undefined,
@@ -283,14 +337,14 @@ export default function CRMPage() {
           id: Date.now() + i,
           title: `${name} — Outbound Opportunity`,
           company_name: name,
-          amount: Math.floor(Math.random() * 25000) + 15000,
-          stage: i % 3 === 0 ? "Qualified" : "New Lead",
-          win_probability: Math.min(Math.round(score * 0.8), 90),
+          amount: 0, // Genuine tracking: $0 until quote or contract value is established
+          stage: "New Lead",
+          win_probability: Math.min(Math.round(score * 0.7), 80),
           contact_name: l.contact_name || undefined,
           contact_email: l.email || undefined,
           contact_phone: l.phone || undefined,
           website: l.website || l.source_url || undefined,
-          expected_close_date: new Date(Date.now() + 45 * 86400000).toISOString().split("T")[0]
+          expected_close_date: new Date(Date.now() + 30 * 86400000).toISOString().split("T")[0]
         };
       });
 
@@ -300,7 +354,7 @@ export default function CRMPage() {
 
       const combined = [...uniqueImports, ...deals];
       saveDealsToStorage(combined);
-      setImportNotification(`Successfully imported ${uniqueImports.length} discovered leads into CRM!`);
+      setImportNotification(`Imported ${uniqueImports.length} discovered prospects into CRM (Amount: $0 until quoted).`);
       setTimeout(() => setImportNotification(""), 4000);
     } catch (err) {
       console.warn("Import error", err);
@@ -309,7 +363,7 @@ export default function CRMPage() {
 
   const handleResetDemoPipeline = () => {
     saveDealsToStorage(DEFAULT_DEMO_DEALS);
-    setImportNotification("Reset pipeline to benchmark enterprise opportunities.");
+    setImportNotification("Loaded benchmark sample test fixtures (Demonstration data).");
     setTimeout(() => setImportNotification(""), 3500);
   };
 
@@ -814,13 +868,25 @@ export default function CRMPage() {
                   <span className="text-[10px] uppercase font-bold px-2 py-0.5 rounded bg-white/[0.04] text-slate-400">
                     {ct.stage}
                   </span>
-                  <Link
-                    href={`/app/outreach/campaigns/new?contact_email=${encodeURIComponent(ct.email)}&company=${encodeURIComponent(ct.company)}`}
-                    className="inline-flex items-center gap-1.5 text-xs font-bold text-blue-400 hover:text-blue-300 transition"
-                  >
-                    <Send className="h-3 w-3" />
-                    <span>Send Outreach</span>
-                  </Link>
+                  <div className="flex items-center gap-2">
+                    {ct.phone && (
+                      <Link
+                        href={`/app/whatsapp?phone=${encodeURIComponent(ct.phone)}`}
+                        className="inline-flex items-center gap-1 text-xs font-bold text-emerald-400 hover:text-emerald-300 transition"
+                        title="Open WhatsApp Companion"
+                      >
+                        <MessageSquare className="h-3 w-3" />
+                        <span>WhatsApp</span>
+                      </Link>
+                    )}
+                    <Link
+                      href={`/app/outreach/campaigns/new?contact_email=${encodeURIComponent(ct.email)}&company=${encodeURIComponent(ct.company)}`}
+                      className="inline-flex items-center gap-1.5 text-xs font-bold text-blue-400 hover:text-blue-300 transition"
+                    >
+                      <Send className="h-3 w-3" />
+                      <span>Send Outreach</span>
+                    </Link>
+                  </div>
                 </div>
               </div>
             ))}

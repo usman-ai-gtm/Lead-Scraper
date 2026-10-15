@@ -20,7 +20,7 @@ import logging
 from backend.app.core.config import settings
 from backend.app.core.database import init_app_database, get_db_connection
 from backend.app.api import (
-    auth, leads, research, crm, campaigns, analytics, copilot, providers, features_lab, admin, universal_features, agents, integrations
+    auth, leads, research, crm, campaigns, analytics, copilot, providers, features_lab, admin, universal_features, agents, integrations, whatsapp
 )
 
 logging.basicConfig(level=logging.INFO)
@@ -56,6 +56,7 @@ app.include_router(features_lab.router, prefix=settings.API_V1_STR)
 app.include_router(universal_features.router, prefix=settings.API_V1_STR)
 app.include_router(agents.router, prefix=settings.API_V1_STR)
 app.include_router(integrations.router, prefix=settings.API_V1_STR)
+app.include_router(whatsapp.router, prefix=settings.API_V1_STR)
 app.include_router(admin.router, prefix=settings.API_V1_STR)
 
 @app.on_event("startup")

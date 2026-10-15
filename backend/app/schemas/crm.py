@@ -7,7 +7,9 @@ from pydantic import BaseModel
 
 class DealCreateRequest(BaseModel):
     title: str
+    company_name: Optional[str] = None
     company_id: Optional[int] = None
+    contact_name: Optional[str] = None
     contact_id: Optional[int] = None
     lead_id: Optional[int] = None
     stage: str = "NEW"

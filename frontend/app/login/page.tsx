@@ -4,7 +4,6 @@ import React, { useState, useEffect, Suspense } from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useAuth } from "@/lib/auth-context";
-import GoogleSignInButton from "@/components/auth/GoogleSignInButton";
 import { Sparkles, Lock, Mail, ArrowRight, ShieldCheck, AlertCircle, X } from "lucide-react";
 
 function LoginForm() {
@@ -16,37 +15,12 @@ function LoginForm() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  // Handle Google OAuth callback redirect parameter
   useEffect(() => {
-    const googleSession = searchParams.get("google_session");
-    if (googleSession) {
-      try {
-        const payload = JSON.parse(decodeURIComponent(googleSession));
-        if (payload.token) {
-          localStorage.setItem("usman_gtm_token", payload.token);
-          const userObj = payload.user || {
-            id: payload.id || 1,
-            email: payload.email,
-            full_name: payload.full_name,
-            company: payload.company || "",
-            role: payload.role || "ADMIN",
-            workspace_id: payload.workspace_id || 1,
-            tenant_id: 1,
-          };
-          localStorage.setItem("usman_gtm_workspace_id", String(userObj.workspace_id || 1));
-          localStorage.setItem("usman_gtm_user", JSON.stringify(userObj));
-          window.location.href = "/app";
-        }
-      } catch (e) {
-        console.error("Failed to parse Google session payload", e);
-      }
-    }
-
     const errParam = searchParams.get("error");
     if (errParam) {
       setError(decodeURIComponent(errParam));
     }
-  }, [searchParams, router]);
+  }, [searchParams]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -107,21 +81,7 @@ function LoginForm() {
             </div>
           )}
 
-          {/* Primary Action 1: Google Sign-In */}
-          <div className="mb-5">
-            <GoogleSignInButton label="Continue with Google" />
-          </div>
-
-          {/* Divider */}
-          <div className="relative flex items-center justify-center mb-5">
-            <div className="border-t border-white/10 w-full" />
-            <span className="bg-[#0c1017] px-3 text-[11px] font-medium uppercase tracking-wider text-slate-500 shrink-0">
-              or continue with email
-            </span>
-            <div className="border-t border-white/10 w-full" />
-          </div>
-
-          {/* Primary Action 2: Email Sign-In */}
+          {/* Secure Email/Password Sign-In */}
           <form onSubmit={handleSubmit} className="space-y-4">
             <div>
               <label className="block text-xs font-semibold text-slate-300 mb-1.5">Work Email</label>

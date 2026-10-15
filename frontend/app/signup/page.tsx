@@ -4,7 +4,6 @@ import React, { useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useAuth } from "@/lib/auth-context";
-import GoogleSignInButton from "@/components/auth/GoogleSignInButton";
 import { Sparkles, Lock, Mail, User, Building2, ArrowRight, AlertCircle } from "lucide-react";
 
 export default function SignupPage() {
@@ -90,20 +89,7 @@ export default function SignupPage() {
             </div>
           )}
 
-          {/* Google Sign-In */}
-          <div className="mb-5">
-            <GoogleSignInButton label="Continue with Google" />
-          </div>
-
-          {/* Divider */}
-          <div className="relative flex items-center justify-center mb-5">
-            <div className="border-t border-white/10 w-full" />
-            <span className="bg-[#0c1017] px-3 text-[11px] font-medium uppercase tracking-wider text-slate-500 shrink-0">
-              or register with email
-            </span>
-            <div className="border-t border-white/10 w-full" />
-          </div>
-
+          {/* Secure Registration Form */}
           <form onSubmit={handleSubmit} className="space-y-3.5">
             <div>
               <label className="block text-xs font-semibold text-slate-300 mb-1">Full Name</label>

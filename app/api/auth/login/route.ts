@@ -17,7 +17,7 @@ export async function POST(request: Request) {
     if (backendUrl) {
       try {
         const controller = new AbortController();
-        const timeoutId = setTimeout(() => controller.abort(), 1500);
+        const timeoutId = setTimeout(() => controller.abort(), 15000);
 
         const backendRes = await fetch(`${backendUrl}/api/auth/login`, {
           method: "POST",

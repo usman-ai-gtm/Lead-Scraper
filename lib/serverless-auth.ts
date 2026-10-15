@@ -122,28 +122,13 @@ export function authenticateServerlessUser(
 ): { user: ServerlessUser; token: string; workspace: any } | null {
   const cleanEmail = email.trim().toLowerCase();
   const pwdHash = hashPassword(pass);
-  let user = userStore.get(cleanEmail);
+  const user = userStore.get(cleanEmail);
+  if (!user) {
+    return null; // Unregistered user cannot log in
+  }
 
-  if (user) {
-    if (user.password_hash && user.password_hash !== pwdHash) {
-      return null; // Bad password
-    }
-  } else {
-    // If user registered in another lambda instance or direct login
-    const userId = Math.floor(Date.now() / 1000);
-    const fullName = cleanEmail.split("@")[0].replace(/[._-]/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
-    user = {
-      id: userId,
-      email: cleanEmail,
-      full_name: fullName,
-      company: "Enterprise",
-      role: "ADMIN",
-      workspace_id: 1,
-      tenant_id: 1,
-      password_hash: pwdHash,
-      created_at: new Date().toISOString(),
-    };
-    userStore.set(cleanEmail, user);
+  if (user.password_hash && user.password_hash !== pwdHash) {
+    return null; // Bad password
   }
 
   const token = createJwtToken({

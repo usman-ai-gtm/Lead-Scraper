@@ -9,7 +9,7 @@ export async function POST(req: Request) {
     try {
       const authHeader = req.headers.get("authorization") || "";
       const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 2000);
+      const timeoutId = setTimeout(() => controller.abort(), 15000);
 
       const backendRes = await fetch(`${backendUrl}/api/leads/search`, {
         method: "POST",

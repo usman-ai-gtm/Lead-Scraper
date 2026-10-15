@@ -54,7 +54,7 @@ def search_leads_live(
 ):
     ws_id = current_user.get("workspace_id") or req.workspace_id or 1
     results = LeadService.search_live(req.model_dump(), workspace_id=ws_id)
-    return {"status": "success", "count": len(results), "leads": results}
+    return results
 
 @router.get("/{lead_id}")
 def get_lead(lead_id: int, current_user: Dict[str, Any] = Depends(get_current_user)):

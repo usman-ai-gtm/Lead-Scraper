@@ -101,6 +101,31 @@ def signup(req: SignupRequest):
     ''', (ws_name, now_iso))
     ws_id = cur.lastrowid
 
+    # Initialize default Ideal Customer Profile for new workspace
+    cur.execute('''
+        INSERT OR IGNORE INTO ideal_customer_profiles (
+            workspace_id, business_name, offering, website, target_industries,
+            target_company_sizes, target_locations, target_roles, problems_solved,
+            excluded_industries, additional_instructions, updated_at
+        ) VALUES (
+            ?, ?, ?, ?,
+            'Healthcare, Dental Clinics, Real Estate, E-Commerce, Digital Agencies, Consulting',
+            '1-10, 11-50, 51-200',
+            'Pakistan, UAE, Saudi Arabia, UK, USA, Global',
+            'Founder, Managing Director, Practice Owner, Operations Manager, Marketing Director',
+            'Eliminating spreadsheet errors, saving 15+ hours weekly, automated reporting, lead generation',
+            'Adult, Gambling, Multi-level Marketing',
+            'Professional, honest, useful, and evidence-based B2B services.',
+            ?
+        )
+    ''', (
+        ws_id,
+        req.company or f"{req.full_name}'s Enterprise",
+        "Excel automation, custom interactive Excel dashboards, Power BI executive dashboards, data cleaning & restructuring, automated business reporting, and supervised B2B lead generation.",
+        "https://usmanai.com",
+        now_iso
+    ))
+
     # 2. Create User
     cur.execute('''
         INSERT INTO users (tenant_id, workspace_id, username, email, hashed_password, password_hash, full_name, company, role, status, is_active, active, created_at, updated_at)

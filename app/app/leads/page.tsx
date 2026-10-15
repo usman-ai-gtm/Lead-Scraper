@@ -8,11 +8,13 @@ import { useAuth } from "@/lib/auth-context";
 import { Lead } from "@/lib/types";
 import { ALL_193_COUNTRIES } from "@/lib/countries";
 import { USMAN_DEFAULT_29_PROVIDERS, DefaultProvider } from "@/lib/default-providers";
+import { normalizePhoneNumber, buildWhatsAppClickToChatUrl } from "@/lib/phone-utils";
 import {
   Search, Filter, Plus, Download, Sparkles, CheckCircle2,
   Trash2, ExternalLink, RefreshCw, Mail, Phone, Globe,
   ShieldCheck, Flame, ArrowUpDown, ChevronLeft, ChevronRight,
-  Database, UserCheck, Bot, Send, Key, SlidersHorizontal, Eye, EyeOff
+  Database, UserCheck, Bot, Send, Key, SlidersHorizontal, Eye, EyeOff,
+  MessageSquare
 } from "lucide-react";
 
 export default function LeadsPage() {
@@ -681,6 +683,22 @@ export default function LeadsPage() {
                       {/* Actions */}
                       <td className="py-3 px-3 text-right">
                         <div className="flex items-center justify-end gap-1.5">
+                          {lead.phone ? (
+                            <Link
+                              href={`/app/whatsapp?lead_id=${lead.id}`}
+                              className="p-1.5 rounded-lg text-emerald-400 hover:text-emerald-300 hover:bg-emerald-500/10 transition-colors"
+                              title={`Open WhatsApp Chat & Companion (${lead.phone})`}
+                            >
+                              <MessageSquare className="h-4 w-4" />
+                            </Link>
+                          ) : (
+                            <span
+                              className="p-1.5 rounded-lg text-slate-600 cursor-not-allowed opacity-40"
+                              title="No phone number available for WhatsApp chat"
+                            >
+                              <MessageSquare className="h-4 w-4" />
+                            </span>
+                          )}
                           <Link
                             href={`/app/research?lead_id=${lead.id}`}
                             className="p-1.5 rounded-lg text-slate-400 hover:text-blue-400 hover:bg-white/5"

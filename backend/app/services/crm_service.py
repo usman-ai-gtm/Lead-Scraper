@@ -73,19 +73,34 @@ class CRMService:
         amt = float(data.get("amount", 0.0))
         prob = int(data.get("probability", data.get("win_probability", 50)))
         exp_val = round(amt * (prob / 100.0), 2)
+
+        company_id = data.get("company_id")
+        company_name = data.get("company_name")
+        if not company_id and company_name:
+            conn = get_db_connection()
+            c_row = conn.execute("SELECT id FROM companies WHERE workspace_id = ? AND LOWER(name) = LOWER(?)", (workspace_id, company_name.strip())).fetchone()
+            if c_row:
+                company_id = c_row["id"]
+            else:
+                cur = conn.cursor()
+                cur.execute("INSERT INTO companies (workspace_id, name, website, created_at, updated_at) VALUES (?, ?, ?, ?, ?)", (workspace_id, company_name.strip(), data.get("website") or "", now_iso, now_iso))
+                company_id = cur.lastrowid
+                conn.commit()
+            conn.close()
+
         sql = '''
             INSERT INTO crm_deals (workspace_id, title, stage, amount, currency, probability, expected_value, expected_close_date, company_id, contact_id, lead_id, created_at, updated_at)
             VALUES (?, ?, ?, ?, 'USD', ?, ?, ?, ?, ?, ?, ?, ?)
         '''
         params = (
             workspace_id,
-            data.get("title", "New Enterprise Opportunity"),
+            data.get("title", f"{company_name or 'Commercial'} — Project Opportunity"),
             data.get("stage", "NEW").upper(),
             amt,
             prob,
             exp_val,
             data.get("expected_close_date", "2026-12-31"),
-            data.get("company_id"),
+            company_id,
             data.get("contact_id"),
             data.get("lead_id"),
             now_iso,

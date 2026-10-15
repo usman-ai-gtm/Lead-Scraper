@@ -53,6 +53,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
   }, []);
 
   const DEFAULT_ACTIONS = [
+    { title: "WhatsApp Outreach Companion", subtitle: "Free WhatsApp Web companion with CRM click-to-chat", url: "/app/whatsapp", badge: "WHATSAPP" },
     { title: "Find Dentists in Lahore", subtitle: "Target local dental practices with public contact extraction", url: "/app/leads?q=dentists+in+lahore", badge: "LEAD DISCOVERY" },
     { title: "Create Cold Email Campaign", subtitle: "Launch 11-step personalized cold outreach wizard", url: "/app/outreach/campaigns/new", badge: "OUTREACH" },
     { title: "Connect Google / Gmail Account", subtitle: "Authorize multiple Gmail accounts via official OAuth", url: "/app/outreach/accounts", badge: "ACCOUNTS" },
@@ -120,6 +121,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
     { name: "Research", href: "/app/research", icon: Bot },
     { name: "CRM", href: "/app/crm", icon: Database },
     { name: "Outreach", href: "/app/outreach", icon: Mail },
+    { name: "WhatsApp Companion", href: "/app/whatsapp", icon: MessageSquare },
     { name: "Automation", href: "/app/workflows", icon: Workflow },
     { name: "Revenue", href: "/app/revenue", icon: LineChart },
     { name: "Customers", href: "/app/customers", icon: Users2 },
