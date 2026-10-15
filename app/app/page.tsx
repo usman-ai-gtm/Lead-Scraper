@@ -42,7 +42,7 @@ export default function CommandCenterPage() {
             <span className="text-xs font-bold uppercase tracking-wider text-blue-400 bg-blue-500/10 px-2.5 py-0.5 rounded border border-blue-500/20">
               Enterprise GTM Operating System
             </span>
-            <span className="text-xs text-slate-500 font-mono">SOC 2 Encrypted • 600 Capabilities</span>
+            <span className="text-xs text-slate-500 font-mono">PBKDF2 Encrypted • Unified GTM Engine</span>
           </div>
           <h1 className="text-2xl sm:text-3xl font-extrabold text-white tracking-tight">
             GTM Command Center

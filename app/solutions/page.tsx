@@ -16,7 +16,7 @@ export default function SolutionsPage() {
       benefits: [
         "Buying committee mapping for complex stakeholder hierarchies",
         "Official Google & Meta multi-sender account pools",
-        "Strict SOC 2 Type II and GDPR data residency compliance",
+        "Cryptographic PBKDF2 encryption and strict workspace data isolation",
         "Predictive win-probability to optimize quarterly forecast"
       ],
       href: "/app/abm"

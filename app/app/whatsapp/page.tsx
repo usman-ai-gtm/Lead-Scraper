@@ -112,7 +112,7 @@ function WhatsAppCompanionContent() {
   const fetchOverview = async () => {
     try {
       const res = await api.get<any>("/whatsapp/overview");
-      if (res) setOverview(res);
+      if (res && res.metrics) setOverview(res);
     } catch (e) {
       console.warn("Using offline overview");
     }
@@ -121,14 +121,84 @@ function WhatsAppCompanionContent() {
   const fetchLeads = async () => {
     setLeadsLoading(true);
     try {
-      const res = await api.get<any>("/whatsapp/leads", {
-        keyword: leadsKeyword,
-        status_filter: leadsFilter,
-        page_size: 50,
-      });
-      if (res && res.leads) {
-        setLeadsList(res.leads);
+      let leads: any[] = [];
+      try {
+        const res = await api.get<any>("/whatsapp/leads", {
+          keyword: leadsKeyword,
+          status_filter: leadsFilter,
+          page_size: 50,
+        });
+        if (res && res.leads && Array.isArray(res.leads) && res.leads.length > 0) {
+          leads = res.leads;
+        }
+      } catch {
+        // Backend offline or serverless proxy fallback
       }
+
+      // If backend returned zero leads, bridge directly with discovered leads & CRM
+      if (leads.length === 0 && typeof window !== "undefined") {
+        const storedLeads = localStorage.getItem("usman_saved_leads");
+        const storedCrm = localStorage.getItem("usman_crm_deals");
+        const map = new Map<string, any>();
+
+        if (storedLeads) {
+          try {
+            const parsed = JSON.parse(storedLeads);
+            if (Array.isArray(parsed)) {
+              parsed.forEach((l) => {
+                const phone = l.phone || l.contact_phone || "+923001234567";
+                const key = l.business_name || String(l.id);
+                map.set(key, {
+                  id: l.id || Date.now(),
+                  business_name: l.business_name || l.company_name || "Target Account",
+                  contact_name: l.contact_name || "Practice Owner",
+                  phone: phone,
+                  city: l.city || "Local",
+                  country: l.country || "Pakistan",
+                  industry: l.industry || l.category || "Commercial",
+                  website: l.website || l.source_url || "",
+                  lead_score: l.lead_score || 85,
+                  crm_stage: l.crm_stage || "New Lead",
+                  phone_validation: normalizePhoneNumber(phone, "92"),
+                  is_suppressed: false
+                });
+              });
+            }
+          } catch {}
+        }
+
+        if (storedCrm) {
+          try {
+            const parsedCrm = JSON.parse(storedCrm);
+            if (Array.isArray(parsedCrm)) {
+              parsedCrm.forEach((d) => {
+                const phone = d.contact_phone || d.phone || "+923219876543";
+                const key = d.company_name || String(d.id);
+                if (!map.has(key)) {
+                  map.set(key, {
+                    id: d.id,
+                    business_name: d.company_name,
+                    contact_name: d.contact_name || "Managing Director",
+                    phone: phone,
+                    city: "Local",
+                    country: "Pakistan",
+                    industry: "Commercial",
+                    website: d.website || "",
+                    lead_score: d.win_probability || 80,
+                    crm_stage: d.stage || "Qualified",
+                    phone_validation: normalizePhoneNumber(phone, "92"),
+                    is_suppressed: false
+                  });
+                }
+              });
+            }
+          } catch {}
+        }
+
+        leads = Array.from(map.values());
+      }
+
+      setLeadsList(leads);
     } catch {
       // Fallback
     } finally {
@@ -138,44 +208,120 @@ function WhatsAppCompanionContent() {
 
   const fetchTemplates = async () => {
     try {
-      const res = await api.get<any>("/whatsapp/templates");
-      if (res && res.templates && res.templates.length > 0) {
-        setTemplates(res.templates);
+      let tmpls: WhatsAppTemplate[] = [];
+      try {
+        const res = await api.get<any>("/whatsapp/templates");
+        if (res && res.templates && res.templates.length > 0) {
+          tmpls = res.templates;
+        }
+      } catch {}
+
+      if (typeof window !== "undefined") {
+        const stored = localStorage.getItem("usman_whatsapp_templates");
+        if (stored) {
+          try {
+            const parsed = JSON.parse(stored);
+            if (Array.isArray(parsed) && parsed.length > 0) {
+              const existingIds = new Set(tmpls.map(t => t.id));
+              parsed.forEach(p => {
+                if (!existingIds.has(p.id)) tmpls.push(p);
+              });
+            }
+          } catch {}
+        }
       }
+
+      if (tmpls.length > 0) setTemplates(tmpls);
     } catch {}
   };
 
   const fetchActivities = async () => {
     try {
-      const res = await api.get<any>("/whatsapp/activities");
-      if (res && res.activities) {
-        setActivities(res.activities);
+      let actList: WhatsAppActivityLog[] = [];
+      try {
+        const res = await api.get<any>("/whatsapp/activities");
+        if (res && res.activities && Array.isArray(res.activities)) {
+          actList = res.activities;
+        }
+      } catch {}
+
+      if (typeof window !== "undefined") {
+        const localAct = localStorage.getItem("usman_whatsapp_activities");
+        if (localAct) {
+          try {
+            const parsed = JSON.parse(localAct);
+            if (Array.isArray(parsed) && parsed.length > 0) {
+              const keys = new Set(actList.map(a => `${a.business_name}_${a.action}_${a.created_at}`));
+              parsed.forEach(p => {
+                if (!keys.has(`${p.business_name}_${p.action}_${p.created_at}`)) {
+                  actList.push(p);
+                }
+              });
+            }
+          } catch {}
+        }
       }
+
+      setActivities(actList);
     } catch {}
   };
 
   const fetchSuppressions = async () => {
     try {
-      const res = await api.get<any>("/whatsapp/suppressions");
-      if (res && res.suppressions) {
-        setSuppressions(res.suppressions);
+      let suppList: WhatsAppSuppression[] = [];
+      try {
+        const res = await api.get<any>("/whatsapp/suppressions");
+        if (res && res.suppressions && Array.isArray(res.suppressions)) {
+          suppList = res.suppressions;
+        }
+      } catch {}
+
+      if (typeof window !== "undefined") {
+        const localSupp = localStorage.getItem("usman_whatsapp_suppressions");
+        if (localSupp) {
+          try {
+            const parsed = JSON.parse(localSupp);
+            if (Array.isArray(parsed)) {
+              const phones = new Set(suppList.map(s => s.phone_number));
+              parsed.forEach(p => {
+                if (!phones.has(p.phone_number)) suppList.push(p);
+              });
+            }
+          } catch {}
+        }
       }
+
+      setSuppressions(suppList);
     } catch {}
   };
 
   const fetchSettings = async () => {
     try {
-      const res = await api.get<any>("/whatsapp/settings");
-      if (res && res.settings) {
-        setSettings({
-          my_business_name: res.settings.my_business_name || "USMAN AI GTM",
-          my_offering: res.settings.my_offering || "Autonomous AI B2B Lead Intelligence",
-          value_proposition: res.settings.value_proposition || "automate qualified client discovery",
-          sender_name: res.settings.sender_name || "Muhammad Usman",
-          default_country_code: res.settings.default_country_code || "92",
-          default_tone: res.settings.default_tone || "Professional & Direct",
-          auto_open_web: Boolean(res.settings.auto_open_web),
-        });
+      let loaded = false;
+      try {
+        const res = await api.get<any>("/whatsapp/settings");
+        if (res && res.settings) {
+          setSettings({
+            my_business_name: res.settings.my_business_name || "USMAN DATA ANALYTICS",
+            my_offering: res.settings.my_offering || "Excel Automation & Interactive Dashboards",
+            value_proposition: res.settings.value_proposition || "eliminate manual spreadsheet errors and automate reporting",
+            sender_name: res.settings.sender_name || "Muhammad Usman",
+            default_country_code: res.settings.default_country_code || "92",
+            default_tone: res.settings.default_tone || "Professional & Direct",
+            auto_open_web: Boolean(res.settings.auto_open_web),
+          });
+          loaded = true;
+        }
+      } catch {}
+
+      if (!loaded && typeof window !== "undefined") {
+        const localSettings = localStorage.getItem("usman_whatsapp_settings");
+        if (localSettings) {
+          try {
+            const parsed = JSON.parse(localSettings);
+            setSettings(prev => ({ ...prev, ...parsed }));
+          } catch {}
+        }
       }
     } catch {}
   };
@@ -342,43 +488,74 @@ function WhatsAppCompanionContent() {
     window.open(url, "_blank", "noopener,noreferrer");
 
     // Record honest activity: CHAT_OPENED
+    const actData = {
+      id: Date.now(),
+      workspace_id: 1,
+      lead_id: activeLead.id,
+      business_name: activeLead.business_name,
+      contact_name: activeLead.contact_name || "Contact",
+      phone_number: activePhoneValidation.normalized,
+      action: "CHAT_OPENED" as const,
+      notes: `Chat link opened with draft (${finalDraft.length} chars)`,
+      next_followup: followUpDate || null,
+      created_at: new Date().toISOString(),
+    };
+
+    if (typeof window !== "undefined") {
+      try {
+        const stored = localStorage.getItem("usman_whatsapp_activities");
+        let list: any[] = stored ? JSON.parse(stored) : [];
+        list.unshift(actData);
+        localStorage.setItem("usman_whatsapp_activities", JSON.stringify(list.slice(0, 100)));
+      } catch {}
+    }
+
     try {
-      await api.post("/whatsapp/activities", {
-        lead_id: activeLead.id,
-        business_name: activeLead.business_name,
-        contact_name: activeLead.contact_name,
-        phone_number: activePhoneValidation.normalized,
-        action: "CHAT_OPENED",
-        notes: `Chat link opened with draft (${finalDraft.length} chars)`,
-        next_followup: followUpDate || null,
-      });
+      await api.post("/whatsapp/activities", actData);
       showToast("Opened WhatsApp chat! Activity logged as 'Chat opened'.", "success");
       fetchOverview();
       fetchActivities();
     } catch {
-      showToast("Opened WhatsApp chat in new window", "success");
+      showToast("Opened WhatsApp chat (saved to local history)", "success");
+      fetchActivities();
     }
   };
 
   const handleMarkAsSentManually = async () => {
     if (!activeLead) return;
+    const actData = {
+      id: Date.now(),
+      workspace_id: 1,
+      lead_id: activeLead.id,
+      business_name: activeLead.business_name,
+      contact_name: activeLead.contact_name || "Contact",
+      phone_number: activePhoneValidation.normalized,
+      action: "MANUALLY_MARKED_SENT" as const,
+      notes: manualNote ? `Manual confirmation: ${manualNote}` : "User manually confirmed message was sent via WhatsApp Web.",
+      next_followup: followUpDate || null,
+      created_at: new Date().toISOString(),
+    };
+
+    if (typeof window !== "undefined") {
+      try {
+        const stored = localStorage.getItem("usman_whatsapp_activities");
+        let list: any[] = stored ? JSON.parse(stored) : [];
+        list.unshift(actData);
+        localStorage.setItem("usman_whatsapp_activities", JSON.stringify(list.slice(0, 100)));
+      } catch {}
+    }
+
     try {
-      await api.post("/whatsapp/activities", {
-        lead_id: activeLead.id,
-        business_name: activeLead.business_name,
-        contact_name: activeLead.contact_name,
-        phone_number: activePhoneValidation.normalized,
-        action: "MANUALLY_MARKED_SENT",
-        notes: manualNote ? `Manual confirmation: ${manualNote}` : "User manually confirmed message was sent via WhatsApp Web.",
-        next_followup: followUpDate || null,
-      });
+      await api.post("/whatsapp/activities", actData);
       setManualNote("");
       showToast("Logged: Message manually marked as sent.", "success");
       fetchOverview();
       fetchActivities();
       fetchLeads();
     } catch {
-      showToast("Action recorded", "info");
+      setManualNote("");
+      showToast("Message marked as sent (persisted locally)", "info");
+      fetchActivities();
     }
   };
 

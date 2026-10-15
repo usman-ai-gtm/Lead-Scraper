@@ -26,7 +26,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
   const [notifications, setNotifications] = useState([
     { id: 1, title: "Campaign Verified", message: "Q4 Enterprise Cadence delivered 42 emails with 0 bounces.", time: "10m ago" },
     { id: 2, title: "Hot Prospect Detected", message: "Apex Global Tech reached 94/100 score.", time: "35m ago" },
-    { id: 3, title: "SOC 2 Audit Telemetry", message: "Automated daily security audit completed successfully.", time: "2h ago" }
+    { id: 3, title: "Security Audit Telemetry", message: "Automated cryptographic and access audit completed successfully.", time: "2h ago" }
   ]);
   const [moreMenuOpen, setMoreMenuOpen] = useState(false);
 

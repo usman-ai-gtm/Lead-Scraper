@@ -98,7 +98,7 @@ export default function ProvidersPage() {
               <tr>
                 <td colSpan={7} className="text-center py-12 text-slate-500">
                   <RefreshCw className="h-6 w-6 animate-spin mx-auto mb-2 text-blue-400" />
-                  Auditing 29 AI providers...
+                  Auditing AI & Search providers...
                 </td>
               </tr>
             ) : (

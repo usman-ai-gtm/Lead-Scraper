@@ -86,9 +86,9 @@ export default function PricingPage() {
         "Features 501–600 Master Suite",
         "Dedicated IP Warmup & Reputational Shield",
         "Custom Data Residency (US/EU/APAC)",
-        "SOC 2 Type II Compliance Evidence",
-        "99.99% Uptime SLA Guarantee",
-        "24/7 Dedicated Technical Engineer"
+        "Enterprise Audit Telemetry & Activity Logs",
+        "Dedicated Workspace Data Isolation",
+        "Direct Founder & Technical Support"
       ],
       ctaText: "Contact Enterprise Sales",
       highlight: false,

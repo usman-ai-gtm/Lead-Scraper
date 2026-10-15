@@ -63,16 +63,16 @@ export default function AboutPage() {
             </p>
             <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 text-xs font-mono text-slate-300">
               <div className="p-3 rounded-lg bg-white/5 border border-white/5">
-                <span className="text-emerald-400 font-bold">SOC 2 Type II</span> Ready
+                <span className="text-emerald-400 font-bold">Zero-Trust RBAC</span> Architecture
               </div>
               <div className="p-3 rounded-lg bg-white/5 border border-white/5">
-                <span className="text-blue-400 font-bold">GDPR & CCPA</span> Compliant
+                <span className="text-blue-400 font-bold">Privacy-First</span> Design
               </div>
               <div className="p-3 rounded-lg bg-white/5 border border-white/5">
                 <span className="text-purple-400 font-bold">TLS 1.3 / AES-256</span> Encryption
               </div>
               <div className="p-3 rounded-lg bg-white/5 border border-white/5">
-                <span className="text-amber-400 font-bold">99.99%</span> Uptime Target
+                <span className="text-amber-400 font-bold">Resilient Edge</span> Infrastructure
               </div>
             </div>
           </div>

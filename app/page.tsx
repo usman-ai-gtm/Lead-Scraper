@@ -202,9 +202,9 @@ export default function HomePage() {
               <div className="flex items-center gap-2">
                 <span className="flex items-center gap-1.5 text-xs text-emerald-400 bg-emerald-500/10 px-2.5 py-1 rounded-md border border-emerald-500/20 font-medium">
                   <span className="h-1.5 w-1.5 rounded-full bg-emerald-400 animate-ping" />
-                  Live Sync
+                  Direct Engine
                 </span>
-                <span className="text-xs text-slate-400 px-2 py-0.5 rounded bg-white/5 font-mono">29 AI Models</span>
+                <span className="text-xs text-slate-400 px-2 py-0.5 rounded bg-white/5 font-mono">Multi-Source Discovery</span>
               </div>
             </div>
 
@@ -221,25 +221,25 @@ export default function HomePage() {
                 <div className="space-y-2.5">
                   <div className="p-2.5 rounded-lg bg-white/[0.03] border border-white/[0.05]">
                     <div className="flex justify-between items-center mb-1">
-                      <span className="font-semibold text-sm text-white">Apex Global Tech</span>
-                      <span className="text-[10px] text-amber-400 bg-amber-500/10 px-1.5 py-0.5 rounded font-mono">HOT LEAD</span>
+                      <span className="font-semibold text-sm text-white">Dental Care Specialists</span>
+                      <span className="text-[10px] text-amber-400 bg-amber-500/10 px-1.5 py-0.5 rounded font-mono">HIGH FIT</span>
                     </div>
-                    <p className="text-xs text-slate-400 mb-1.5">Enterprise Cloud Architecture • New York, US</p>
+                    <p className="text-xs text-slate-400 mb-1.5">Healthcare & Dental Surgery • Lahore, PK</p>
                     <div className="flex gap-2 text-[10px] text-slate-300">
-                      <span className="bg-white/5 px-2 py-0.5 rounded">Email: Verified</span>
-                      <span className="bg-white/5 px-2 py-0.5 rounded">DNS: MX Pass</span>
+                      <span className="bg-white/5 px-2 py-0.5 rounded">Website: Active</span>
+                      <span className="bg-white/5 px-2 py-0.5 rounded">Source: Google Verified</span>
                     </div>
                   </div>
 
                   <div className="p-2.5 rounded-lg bg-white/[0.03] border border-white/[0.05]">
                     <div className="flex justify-between items-center mb-1">
-                      <span className="font-semibold text-sm text-white">Nexus Logistics Co</span>
-                      <span className="text-[10px] text-blue-400 bg-blue-500/10 px-1.5 py-0.5 rounded font-mono">WARM</span>
+                      <span className="font-semibold text-sm text-white">Nexus Logistics Group</span>
+                      <span className="text-[10px] text-blue-400 bg-blue-500/10 px-1.5 py-0.5 rounded font-mono">VERIFIED</span>
                     </div>
-                    <p className="text-xs text-slate-400 mb-1.5">Freight & Automated Routing • Chicago, US</p>
+                    <p className="text-xs text-slate-400 mb-1.5">Commercial Freight & Fleet • Dubai, UAE</p>
                     <div className="flex gap-2 text-[10px] text-slate-300">
-                      <span className="bg-white/5 px-2 py-0.5 rounded">CEO Contacted</span>
-                      <span className="bg-white/5 px-2 py-0.5 rounded">Score: 86</span>
+                      <span className="bg-white/5 px-2 py-0.5 rounded">Decision Maker: Appended</span>
+                      <span className="bg-white/5 px-2 py-0.5 rounded">Fit Score: 86</span>
                     </div>
                   </div>
                 </div>
@@ -249,18 +249,18 @@ export default function HomePage() {
               <div className="rounded-xl border border-white/[0.08] bg-[#0c121e]/80 p-4">
                 <div className="flex items-center justify-between mb-3">
                   <span className="text-xs font-semibold uppercase tracking-wider text-slate-400 flex items-center gap-1.5">
-                    <LineChart className="h-3.5 w-3.5 text-purple-400" /> Pipeline & Revenue
+                    <LineChart className="h-3.5 w-3.5 text-purple-400" /> Pipeline & Deals
                   </span>
-                  <span className="text-xs font-bold text-white">$286,500 Total</span>
+                  <span className="text-xs font-bold text-white">Active Stage Flow</span>
                 </div>
                 <div className="grid grid-cols-2 gap-2 mb-3">
                   <div className="p-2 rounded-lg bg-white/[0.02] border border-white/[0.04]">
-                    <div className="text-[10px] text-slate-400">Won Revenue</div>
-                    <div className="text-base font-bold text-emerald-400">$74,000</div>
+                    <div className="text-[10px] text-slate-400">Pipeline Tracking</div>
+                    <div className="text-base font-bold text-emerald-400">9 Stages</div>
                   </div>
                   <div className="p-2 rounded-lg bg-white/[0.02] border border-white/[0.04]">
-                    <div className="text-[10px] text-slate-400">Reply Rate</div>
-                    <div className="text-base font-bold text-blue-400">42.1%</div>
+                    <div className="text-[10px] text-slate-400">Outreach Methods</div>
+                    <div className="text-base font-bold text-blue-400">Email & WA</div>
                   </div>
                 </div>
                 {/* Visual Pipeline Bar */}
@@ -451,13 +451,13 @@ export default function HomePage() {
 
                 <div className="w-full lg:w-1/3 rounded-xl border border-white/10 bg-[#080d16] p-5 text-left font-mono text-xs">
                   <div className="flex items-center justify-between border-b border-white/10 pb-2 mb-3 text-slate-400">
-                    <span>Engine Telemetry</span>
-                    <span className="text-emerald-400 font-bold">ONLINE</span>
+                    <span>Engine Specifications</span>
+                    <span className="text-emerald-400 font-bold">OPERATIONAL</span>
                   </div>
                   <div className="space-y-2 text-slate-300">
                     <div>Module: <span className="text-blue-400">{showcase.id.toUpperCase()}</span></div>
-                    <div>Accuracy: <span className="text-emerald-400">99.8%</span></div>
-                    <div>Latency: <span className="text-purple-400">&lt; 45ms</span></div>
+                    <div>Verification: <span className="text-emerald-400">Source-Backed</span></div>
+                    <div>Security: <span className="text-purple-400">PBKDF2 / Argon2</span></div>
                     <div>Isolation: <span className="text-white">Workspace Encrypted</span></div>
                   </div>
                 </div>

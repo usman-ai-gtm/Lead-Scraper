@@ -54,7 +54,7 @@ export default function AdminPage() {
           </div>
           <h1 className="text-2xl font-extrabold text-white">System Administration & RBAC</h1>
           <p className="text-xs text-slate-400">
-            Tenant oversight, user permissions, SOC 2 audit trail, and database health metrics.
+            Tenant oversight, user permissions, immutable audit trail, and database health metrics.
           </p>
         </div>
 
@@ -105,7 +105,7 @@ export default function AdminPage() {
 
         <div className="p-4 rounded-2xl border border-white/[0.08] bg-[#0c1017]">
           <div className="text-[11px] text-slate-400 font-semibold mb-1">Security Posture</div>
-          <div className="text-sm font-bold text-white mt-1">SOC 2 Type II / AES-256</div>
+          <div className="text-sm font-bold text-white mt-1">PBKDF2 / AES-256 / RBAC</div>
           <div className="text-[10px] text-purple-400 mt-1">Zero plaintext keys</div>
         </div>
       </div>
@@ -163,7 +163,7 @@ export default function AdminPage() {
       {/* AUDIT LOGS TRAIL */}
       <div className="rounded-2xl border border-white/[0.08] bg-[#0c1017] p-6 space-y-4">
         <h2 className="text-base font-bold text-white flex items-center gap-2">
-          <Terminal className="h-4 w-4 text-purple-400" /> Immutable Security Audit Logs (SOC 2 Telemetry)
+          <Terminal className="h-4 w-4 text-purple-400" /> Immutable Security Audit Logs & Telemetry
         </h2>
 
         <div className="overflow-x-auto">

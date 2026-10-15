@@ -61,11 +61,11 @@ export default function FeaturesPage() {
       items: ["Interactive Competitor Battlecards", "AI Rep Call Coaching & Scoring", "Automated SOW & Proposal Generator", "Commission & SPIF Real-Time Calculator"]
     },
     {
-      title: "Enterprise Security & Compliance",
-      desc: "SOC 2 Type II continuous evidence collector, GDPR/CCPA data subject request (DSAR) portal, and granular consent ledgers.",
+      title: "Security & Access Governance",
+      desc: "PBKDF2/Argon2 cryptographic password hashing, role-based access control (RBAC), and immutable activity audit trails.",
       icon: ShieldCheck,
       href: "/app/admin",
-      items: ["SOC 2 Type II Telemetry Logger", "GDPR One-Click DSAR Portal", "Data Residency Routing (US/EU/APAC)", "Zero Plaintext Secret Storage"]
+      items: ["PBKDF2-HMAC Password Hashing", "Role-Based Access Control (RBAC)", "Workspace Account Isolation", "Zero Plaintext Secret Storage"]
     }
   ];
 
