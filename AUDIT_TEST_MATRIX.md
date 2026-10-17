@@ -1,66 +1,94 @@
-# USMAN AI GTM — Comprehensive Automated Test Matrix & Evidence Report
+# USMAN AI GTM — Comprehensive Audit Test Matrix & Verifiable Evidence
 
-**Test Execution Date**: 2026-10-15T22:47:00+05:00  
-**Test Suite**: `scratch/audit_workflows_test.py` & `scripts/run_live_self_test.py`  
-**Execution Environment**: Python 3.11.9, Node v20.18.0, Windows 11  
-**Backend Target**: `http://127.0.0.1:8000` (FastAPI / SQLite)  
-**Frontend Target**: `http://localhost:3000` (Next.js 14)  
-**Production Target**: `https://lead-scraper-mxs5.vercel.app/` (Vercel Serverless)  
+**Test Date**: 2026-10-16  
+**Host Environment**: Windows 11, Node.js `v20.18.0`, Python `3.11.9`, Git `2.56.0`  
+**Execution Context**: Local FastAPI (`127.0.0.1:8000`), Local Next.js (`localhost:3000`), Production Site (`https://lead-scraper-mxs5.vercel.app/`)  
+**Strict Safety Guarantee**: Zero real emails dispatched, zero live WhatsApp messages sent, zero production data modified.
 
 ---
 
-## 1. Test Summary Overview
+## 1. Master Test Results Summary
 
-| Test Suite | Total Checks | PASS | FAIL | BLOCKED | Success Rate |
+| Test Suite | Total Checks | Passed | Failed | Blocked / Expected Error | Success Rate |
 | :--- | :--- | :--- | :--- | :--- | :--- |
-| **Workflow 1: Authentication & RBAC** | 4 | 4 | 0 | 0 | 100% |
-| **Workflow 2: Lead Discovery & Search** | 1 | 1 | 0 | 0 | 100% |
-| **Workflow 3: Platform Filtering** | 1 | 1 | 0 | 0 | 100% |
-| **Workflow 4: Lead Management (CRUD)** | 2 | 2 | 0 | 0 | 100% |
-| **Workflow 5: CRM Operations & Stages** | 2 | 2 | 0 | 0 | 100% |
-| **Workflow 6: AI Providers & Latency** | 1 | 1 | 0 | 0 | 100% |
-| **Workflow 7: Gmail / Email Outreach** | 2 | 2 | 0 | 0 | 100% |
-| **Workflow 8: WhatsApp Companion & WABA** | 4 | 4 | 0 | 0 | 100% |
-| **Workflow 9: Analytics & Telemetry** | 1 | 1 | 0 | 0 | 100% |
-| **Workflow 10: Production Parity** | 2 | 2 | 0 | 0 | 100% |
-| **Master Self-Test Suite (scripts/)** | 16 | 16 | 0 | 0 | 100% |
-| **Companion Unit Tests (scratch/)** | 8 | 8 | 0 | 0 | 100% |
-| **TOTAL VERIFIED CHECKS** | **44** | **44** | **0** | **0** | **100%** |
+| **Forensic Deep Workflows** (`scratch/audit_workflows_test.py`) | 20 | 20 | 0 | 0 | **100%** |
+| **Master Live Automated Self-Test** (`scripts/run_live_self_test.py`) | 16 | 16 | 0 | 0 | **100%** |
+| **Live REST API Endpoints** (`scripts/test_live_e2e_api.py`) | 18 | 18 | 0 | 0 | **100%** |
+| **Next.js Production Build** (`npm run build`) | 88 Routes | 88 | 0 | 0 | **100% (Exit 0)** |
+| **Database Persistence & DDL Utility** (`scripts/cloud_db_migration.py`) | 3 | 3 | 0 | 0 | **100%** |
+| **Live Production Smoke Probes** (`scratch/probe_prod.py`) | 3 | 3 | 0 | 0 | **100%** |
+| **Security Vulnerability Proof-of-Concepts** | 2 | 2 (Confirmed) | 0 | 0 | **100% Vulnerability Evidence** |
 
 ---
 
-## 2. Granular 10-Workflow Test Matrix
+## 2. Detailed Test Execution Records
 
-| ID | Workflow | Endpoint / Target | Request Payload / Method | Expected Result | Observed Result | Verdict |
-| :--- | :--- | :--- | :--- | :--- | :--- | :--- |
-| **WF-1.1** | User Registration | `POST /api/auth/signup` | `{"email": "audit_user_...","password": "SecurePassword123!"}` | HTTP 200, JWT token returned | HTTP 200, Token issued, User & Workspace created | **PASS** |
-| **WF-1.2** | Valid Login | `POST /api/auth/login` | Valid email & password | HTTP 200, access token | HTTP 200, `Bearer` token returned | **PASS** |
-| **WF-1.3** | Protected Route | `GET /api/auth/me` | `Authorization: Bearer <token>` | HTTP 200, User identity | HTTP 200, Email matched registered user | **PASS** |
-| **WF-1.4** | Invalid Password | `POST /api/auth/login` | Bad password | HTTP 401 Unauthorized | HTTP 401 `{"detail": "Incorrect email or password"}` | **PASS** |
-| **WF-2.1** | Live Lead Discovery | `POST /api/leads/search` | `{"platform": "google_maps", "keyword": "Dental Clinic", "city": "Lahore"}` | HTTP 200, leads list with URLs | HTTP 200, 10 leads returned with verified source URLs | **PASS** |
-| **WF-3.1** | Platform Filter | `GET /api/leads?platform=google_maps` | Query filter parameter | HTTP 200, filtered subset | HTTP 200, 10 Google Maps leads retrieved | **PASS** |
-| **WF-4.1** | Lead Creation | `POST /api/leads` | Lead record with business, phone, email | HTTP 200/201, `lead_id` | HTTP 200, Lead #87 created in SQLite | **PASS** |
-| **WF-4.2** | Lead Readback | `GET /api/leads/87` | ID lookup | HTTP 200, matching data | HTTP 200, verified business name & phone in DB | **PASS** |
-| **WF-5.1** | CRM Pipeline Deals | `GET /api/crm/deals` | Workspace session | HTTP 200, deals list | HTTP 200, returned deals array | **PASS** |
-| **WF-5.2** | Stage Transition | `PUT /api/leads/87` | `{"lead_status": "Qualified Opportunity", "lead_score": 95}` | HTTP 200, updated stage | HTTP 200, Lead #87 updated to Qualified Opportunity | **PASS** |
-| **WF-6.1** | Provider Registry | `GET /api/providers` | Query active providers | HTTP 200, provider list | HTTP 200, 29 provider records audited | **PASS** |
-| **WF-7.1** | Connected Accounts | `GET /api/campaigns/accounts` | Query sender inboxes | HTTP 200, inboxes list | HTTP 200, audited accounts across workspace | **PASS** |
-| **WF-7.2** | Missing Sender Check | `POST /api/campaigns/test-send` | Non-existent sender ID 9999 | HTTP 404 Not Found | HTTP 404 "Selected sending account not found in database" | **PASS** |
-| **WF-8.1** | WhatsApp Overview | `GET /api/whatsapp/overview` | Query activity counters | HTTP 200, metric object | HTTP 200, real counters from DB | **PASS** |
-| **WF-8.2** | WhatsApp Settings | `GET /api/whatsapp/settings` | Query profile settings | HTTP 200, business profile | HTTP 200, `my_business_name: USMAN AI GTM` | **PASS** |
-| **WF-8.3** | WhatsApp Templates | `GET /api/whatsapp/templates` | Query template library | HTTP 200, templates array | HTTP 200, loaded templates | **PASS** |
-| **WF-8.4** | WABA Honest Check | `POST /api/campaigns/whatsapp-setup` | Placeholder token strings | HTTP 400 Bad Request | HTTP 400 rejected placeholder tokens honestly | **PASS** |
-| **WF-9.1** | Analytics Dashboard | `GET /api/analytics/dashboard` | Workspace session | HTTP 200, 16 KPI cards | HTTP 200, all 16 metrics populated | **PASS** |
-| **WF-10.1** | Prod WhatsApp Route | `GET https://lead-scraper-mxs5.vercel.app/api/whatsapp/overview` | Production probe | HTTP 200 OK | HTTP 200 `{"status": "success", "metrics": {...}}` | **PASS** |
-| **WF-10.2** | Prod Landing Page | `GET https://lead-scraper-mxs5.vercel.app/` | Production probe | HTTP 200 OK | HTTP 200, audited luxury layout rendered | **PASS** |
+### Suite A: Forensic Deep Workflows (`scratch/audit_workflows_test.py`)
+- **Command**: `python scratch/audit_workflows_test.py`
+- **Exit Code**: `0`
+- **Category**: Local Integration / Live Backend & Production Probe
+
+| Test ID | Workflow Category | Exact Endpoint / Operation | Expected Result | Observed Result | Verdict |
+| :--- | :--- | :--- | :--- | :--- | :--- |
+| **WF-1.1** | Auth | `POST /api/auth/signup` | HTTP 200, JWT issued | HTTP 200, JWT issued for `audit_user_*` | **PASS** |
+| **WF-1.2** | Auth | `POST /api/auth/login` | HTTP 200, valid credentials | HTTP 200, access token issued | **PASS** |
+| **WF-1.3** | Auth | `GET /api/auth/me` | HTTP 200, user identity | HTTP 200, authenticated user payload returned | **PASS** |
+| **WF-1.4** | Auth | `POST /api/auth/login` (Invalid Pwd) | HTTP 401 Unauthorized | HTTP 401 returned honestly | **PASS** |
+| **WF-2.1** | Discovery | `POST /api/leads/search` | Genuine leads + source attribution | 10 leads returned with source URLs | **PASS** |
+| **WF-3.1** | Filtering | `GET /api/leads?industry=...` | Industry-filtered leads | 10 filtered leads matching criteria | **PASS** |
+| **WF-4.1** | Lead CRUD | `POST /api/leads` | HTTP 200, new lead ID | Lead created successfully | **PASS** |
+| **WF-4.2** | Lead CRUD | `GET /api/leads/{id}` | Lead persistence in database | Lead retrieved & verified in SQLite | **PASS** |
+| **WF-5.1** | CRM | `GET /api/crm/deals` | HTTP 200, standardized deals payload | HTTP 200, wrapped `{status, deals, count}` | **PASS** |
+| **WF-5.2** | CRM | `PUT /api/leads/{id}` | Update CRM stage to 'Qualified Opportunity' | HTTP 200, database row updated | **PASS** |
+| **WF-6.1** | AI Providers | `GET /api/providers` | 29 configured providers list | 29 providers retrieved with masked keys | **PASS** |
+| **WF-7.1** | Email Audit | `GET /api/campaigns/accounts` | Active sending accounts audit | Audited connected accounts | **PASS** |
+| **WF-7.2** | Email Audit | `POST /api/campaigns/test-send` (Missing) | HTTP 404 honest error | HTTP 404 returned honestly; zero fake delivery | **PASS** |
+| **WF-8.1** | WhatsApp | `GET /api/whatsapp/overview` | Honest activity counts | Returned real metrics; zero fake stats | **PASS** |
+| **WF-8.2** | WhatsApp | `GET /api/whatsapp/settings` | Active profile & business hours | Settings profile returned | **PASS** |
+| **WF-8.3** | WhatsApp | `GET /api/whatsapp/templates` | Stored template catalog | Loaded B2B outreach templates | **PASS** |
+| **WF-8.4** | WhatsApp | `POST /api/campaigns/whatsapp-setup` | HTTP 400 rejection of dummy Meta token | HTTP 400 rejected placeholder token honestly | **PASS** |
+| **WF-9.1** | Analytics | `GET /api/analytics/dashboard` | Aggregated telemetry dictionary | 16 distinct analytics metrics verified | **PASS** |
+| **WF-10.1**| Production | `GET https://lead-scraper-mxs5.vercel.app/api/whatsapp/overview` | HTTP 200 OK | HTTP 200 OK, live metrics returned | **PASS** |
+| **WF-10.2**| Production | `GET https://lead-scraper-mxs5.vercel.app/` | HTTP 200 OK | HTTP 200 OK, luxury landing served | **PASS** |
 
 ---
 
-## 3. Test Quality Evaluation
+### Suite B: Master Live Automated Self-Test (`scripts/run_live_self_test.py`)
+- **Command**: `python scripts/run_live_self_test.py`
+- **Exit Code**: `0`
+- **Category**: Live Automated Smoke & Regression Suite
 
-- **Mocking vs. Real Code**:
-  - Tests in `audit_workflows_test.py` execute against the **real live running servers** (Uvicorn port 8000 and Next.js dev port 3000) using real HTTP networking, not in-memory mocks.
-  - Database operations read and write to the real SQLite database file `usman_data_analytics.db`.
-- **Assertion Rigor**:
-  - Validates HTTP response codes AND checks JSON response schemas, ensuring required fields (e.g., `access_token`, `leads`, `source_url`, `metrics`) exist and conform to types.
-  - Validates honest failure modes (401 on missing auth, 404 on missing sender account, 400 on placeholder tokens).
+| Check | Expected Result | Observed Result | Verdict |
+| :--- | :--- | :--- | :--- |
+| **1.1 Backend API & Database Connection** | HTTP 200 | HTTP 200 `{"status": "HEALTHY", "service": "USMAN AI GTM"}` | **PASS** |
+| **1.2 Frontend Next.js Server** | HTTP 200 on `http://localhost:3000` | HTTP 200 | **PASS** |
+| **2.1 User Registration & JWT Issuance** | HTTP 200 with new User ID | User ID and Workspace ID provisioned | **PASS** |
+| **2.2 Password Hashing in Database** | Cryptographic hash in DB | Verified `pbkdf2_sha256$100000$...` | **PASS** |
+| **2.3 Duplicate Registration Rejection** | HTTP 400 Bad Request | HTTP 400 ("An account with this email address already exists") | **PASS** |
+| **2.4 Login with Valid Password** | HTTP 200 with JWT | HTTP 200 with access token | **PASS** |
+| **2.5 Rejection of Wrong Password** | HTTP 401 Unauthorized | HTTP 401 ("Incorrect email or password") | **PASS** |
+| **2.6 Rejection of Unregistered Email** | HTTP 401 Unauthorized | HTTP 401 ("Incorrect email or password") | **PASS** |
+| **3.1 Lead Query & Pagination API** | HTTP 200 array/dict | HTTP 200 with pagination metadata | **PASS** |
+| **3.2 Create Persistent Lead with Source URL** | Lead ID returned | Lead created with website and source evidence | **PASS** |
+| **4.1 CRM Deals Pipeline Query** | HTTP 200 deals | Retrieved deals from SQLite | **PASS** |
+| **4.2 CRM Lead Stage Update & Persistence** | Stage updated in DB | Lead updated to 'Qualified Opportunity' | **PASS** |
+| **5.1 Ideal Customer Profile Active Retrieval** | Active ICP profile dict | Business profile: 'USMAN DATA ANALYTICS & REVENUE OPS' | **PASS** |
+| **6.1 Connected Accounts Registry API** | HTTP 200 accounts list | Audited accounts across workspaces | **PASS** |
+| **6.2 Honest Failure on Missing Account** | HTTP 404 Not Found | HTTP 404: Selected sending account not found in database | **PASS** |
+| **7.1 Database Password Encryption Scan** | 100% passwords hashed | 100% of stored user passwords cryptographically hashed | **PASS** |
+
+---
+
+### Suite C: Security Proof-of-Concept Tests
+
+#### 1. Bearer Prefix Bypass Test (SEC-008 / BUG-015)
+- **Command**: `Invoke-RestMethod -Uri 'http://127.0.0.1:8000/api/auth/me' -Headers @{ Authorization = 'Bearer jwt_session_exploit' }`
+- **Expected Result**: HTTP 401 Unauthorized (Invalid JWT token format).
+- **Observed Result**: **HTTP 200 OK** returning `{"id": 1, "email": "admin@usmanai.com", "role": "ADMIN", ...}`.
+- **Verdict**: **CONFIRMED CRITICAL VULNERABILITY (P0)**. Hardcoded prefix check in `backend/app/core/security.py:83` bypasses cryptographic signature verification.
+
+#### 2. Password Reset Token Leakage Test (SEC-007 / BUG-011)
+- **Command**: `requests.post("http://127.0.0.1:8000/api/auth/forgot-password", json={"email": "admin@usmanai.com"})`
+- **Expected Result**: HTTP 200 with generic success message and `token_available_for_local_test: null`.
+- **Observed Result**: **HTTP 200 OK** with `'token_available_for_local_test': '[REDACTED_RESET_TOKEN]'`.
+- **Verdict**: **CONFIRMED HIGH VULNERABILITY (P1)**. Returns unhashed password reset token in API response.

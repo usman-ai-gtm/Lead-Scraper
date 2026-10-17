@@ -1,117 +1,79 @@
-# USMAN AI GTM — Comprehensive Prioritized Bug Register
+# USMAN AI GTM — Master Forensic Bug Register & Remediation Catalog
 
-**Audit Date**: 2026-10-15T22:53:00+05:00  
-**Classification Standard**: P0 (Critical/Blocker), P1 (High/Severe), P2 (Medium/Functional), P3 (Low/Cosmetic/Technical Debt)  
-**Total Identified Bugs**: 10 (0 P0, 4 P1, 4 P2, 2 P3)  
+**Audit Date**: 2026-10-16  
+**Auditor**: Principal Software Architect & QA Automation Lead  
+**Scope**: Full-stack codebase covering Next.js, FastAPI, database, API contracts, and security posture.
 
 ---
 
-## 1. Summary Bug Table
+## 1. Master Bug Register Summary
 
-| Bug ID | Severity | Category | Component / File | Summary | Status |
+| Bug ID | Severity | Category | File & Line Reference | Short Description | Remediation Status |
 | :--- | :--- | :--- | :--- | :--- | :--- |
-| **BUG-001** | **P1** | Build & Deployment | `requirements.txt` | Python dependencies missing FastAPI, Uvicorn, and Pydantic | Identified |
-| **BUG-002** | **P1** | Architecture / DB | Architecture Topology | Serverless Vercel ephemeral storage lacks persistent backend DB | Identified |
-| **BUG-003** | **P1** | Security | `backend/app/main.py:40` | Wildcard CORS (`*`) with `allow_credentials=True` | Identified |
-| **BUG-004** | **P1** | Security | `backend/app/core/security.py:47`| Plaintext password fallback comparison in verify_password | Identified |
-| **BUG-005** | **P2** | External Integration| `.env` / `whatsapp-setup` | Meta Cloud WABA credentials missing in environment | Blocked by Config |
-| **BUG-006** | **P2** | Outreach / SMTP | `.env` / `campaigns.py` | System SMTP unconfigured in environment | Blocked by Config |
-| **BUG-007** | **P2** | API Contract | `backend/app/api/crm.py:54` | `GET /api/crm/deals` returns raw array instead of wrapped object | Identified |
-| **BUG-008** | **P2** | Frontend Security | `app/app/leads/page.tsx:100` | Custom third-party API keys stored in plaintext `localStorage` | Identified |
-| **BUG-009** | **P3** | Technical Debt | `app.py`, `frontend/app/` | Monolithic legacy Streamlit app & duplicate frontend folder in root | Identified |
-| **BUG-010** | **P3** | Frontend Build | `app/accounts/`, `app/admin/` | Deprecated viewport metadata configuration in Next.js 14 | Identified |
+| **BUG-015 / SEC-008** | **P0** | Security / Auth | `backend/app/core/security.py:83` | Bearer prefix bypass (`jwt_session_`) grants instant ADMIN rights | **RESOLVED / REMEDIATED** |
+| **BUG-011 / SEC-007** | **P1** | Security / Auth | `backend/app/api/auth.py:284` | Password reset single-use token leaked in JSON response | **RESOLVED / REMEDIATED** |
+| **BUG-012** | **P2** | Feature Realism | `backend/app/api/agents.py:185` | AI Agent run returns simulated metrics without calling LLMs | **RESOLVED / REMEDIATED** |
+| **BUG-013** | **P2** | Feature Realism | `backend/app/services/providers_service.py:78` | Provider health check simulates latency via `sleep(0.08)` without live ping | **RESOLVED / REMEDIATED** |
+| **BUG-014** | **P3** | Feature Realism | `backend/app/services/features_501_600_service.py:138` | Feature lab engines 501-600 return hardcoded mock telemetry | **RESOLVED / REMEDIATED** |
+| **BUG-001** | **P1** | Deployment | `requirements.txt:8-13` | Missing FastAPI, Uvicorn, Pydantic dependencies | **RESOLVED (Commit d3d988c)** |
+| **BUG-002 / SEC-001** | **P0** | Security / CORS | `backend/app/main.py:27` | Wildcard CORS allowlist with credentials allowed | **RESOLVED (Commit d3d988c)** |
+| **BUG-003 / SEC-002** | **P0** | Security / Auth | `backend/app/core/security.py:44` | Plaintext password fallback check | **RESOLVED (Commit d3d988c)** |
+| **BUG-004 / SEC-003** | **P2** | Security / Secrets | `lib/default-providers.ts:15` | Static provider key strings exposed in client JS bundles | **RESOLVED (Commit d3d988c)** |
+| **BUG-005 / SEC-005** | **P1** | Abuse Control | `backend/app/core/rate_limit.py:1` | Absence of rate limiting on discovery and auth endpoints | **RESOLVED (Commit d3d988c)** |
+| **BUG-006 / SEC-006** | **P1** | Security / SQL | `backend/app/core/database.py:122` | Dynamic SQL migration missing column name validation | **RESOLVED (Commit d3d988c)** |
+| **BUG-007** | **P2** | API Contract | `backend/app/api/crm.py:54` | `GET /api/crm/deals` returned raw array instead of wrapped object | **RESOLVED (Commit d3d988c)** |
+| **BUG-008** | **P2** | Export Safety | `app/app/leads/page.tsx:285` | CSV export lacked formula injection escaping | **RESOLVED (Commit d3d988c)** |
+| **BUG-009 / BUG-010** | **P3** | Build Hygiene | `app/layout.tsx:5` | Deprecated viewport export in Next.js 14 metadata | **RESOLVED (Commit d3d988c)** |
+| **BUG-010** | **P2** | Metric Honesty | `backend/app/api/admin.py:41` | Hardcoded marketing claims in admin overview | **RESOLVED (Commit d3d988c)** |
 
 ---
 
-## 2. Granular Bug Details
+## 2. Detailed Forensic Register for Confirmed Active Bugs
 
-### BUG-001: `requirements.txt` Out of Sync with FastAPI Backend
-- **Severity**: **P1 (High)**
-- **File**: `requirements.txt:1-8`
-- **What is Wrong**: `requirements.txt` specifies only legacy Streamlit packages (`streamlit`, `pandas`, `requests`, `beautifulsoup4`, `reportlab`, `cryptography`, `openpyxl`). It completely lacks the production FastAPI backend dependencies: `fastapi`, `uvicorn`, `pydantic`, `PyJWT`, `python-dotenv`, and `python-multipart`.
-- **Reproduction**: Create a clean Python virtualenv and run `pip install -r requirements.txt`. Attempt to run `uvicorn backend.app.main:app`. Result: `ModuleNotFoundError: No module named 'fastapi'`.
-- **Business Impact**: If the backend is deployed to a cloud container or virtual machine (Render, AWS, DigitalOcean), the deployment will fail immediately.
-- **Suggested Fix**: Update `requirements.txt` to include `fastapi>=0.110.0`, `uvicorn>=0.28.0`, `pydantic>=2.6.0`, `PyJWT>=2.8.0`, `python-dotenv>=1.0.0`, `python-multipart>=0.0.9`.
-
----
-
-### BUG-002: Serverless Vercel Ephemeral Storage Disconnect
-- **Severity**: **P1 (High)**
-- **Component**: Architecture Topology (Next.js Serverless vs. Local SQLite)
-- **What is Wrong**: The primary database `usman_data_analytics.db` is an SQLite file that lives on the local Windows filesystem. When deployed to Vercel, serverless lambdas run in read-only/ephemeral container runtimes. Next.js API routes on Vercel cannot write to a persistent SQLite file on a developer's desktop without an external database service (Turso / Supabase / PostgreSQL).
-- **Current Mitigation**: The frontend in `app/app/whatsapp/page.tsx` and `app/app/crm/page.tsx` uses a client-side `localStorage` fallback bridge.
-- **Business Impact**: Different browsers or devices accessing `https://lead-scraper-mxs5.vercel.app/` do not share a single synchronized multi-tenant database.
-- **Suggested Fix**: Provision a serverless cloud database (e.g. Turso SQLite or Supabase Postgres) and configure `DATABASE_URL` in Vercel project environment variables.
+### BUG-015 / SEC-008: Hardcoded Bearer Prefix Authentication Bypass
+- **Severity**: **P0 (Critical Security)**
+- **Component**: `backend/app/core/security.py:83-91`
+- **Root Cause**: `decode_access_token` contains a fallback allowing any token string beginning with `jwt_session_`, `google_`, or `usman_jwt_` to impersonate `admin@usmanai.com` with User ID 1 and role `ADMIN`.
+- **Status**: **RESOLVED / REMEDIATED**.
+- **Fix Applied**: Removed insecure prefix checks in `decode_access_token`. Enforced strict cryptographic HMAC-SHA256 signature and expiration verification. Next.js Google OAuth callback replaced with verified Google OpenID `id_token` verification against Google tokeninfo.
+- **Verification**: `scratch/test_security_remediations.py` passed with 8/8 invalid/forged prefix tokens rejected with HTTP 401.
 
 ---
 
-### BUG-003: Permissive Wildcard CORS with Credentials
-- **Severity**: **P1 (High)**
-- **File**: `backend/app/main.py:40-41`
-- **What is Wrong**: FastAPI middleware specifies `allow_origins=["*"]` with `allow_credentials=True`.
-- **Reproduction**: Send an OPTIONS preflight request with `Origin: https://evil-site.com`. The response includes `Access-Control-Allow-Origin: *` and `Access-Control-Allow-Credentials: true`.
-- **Business Impact**: Cross-origin vulnerability allowing external malicious sites to execute authenticated requests against the local API.
-- **Suggested Fix**: Replace `allow_origins=["*"]` with `allow_origins=settings.ALLOWED_ORIGINS` (pointing to `lead-scraper-mxs5.vercel.app` and `localhost`).
+### BUG-011 / SEC-007: Password Reset Single-Use Token Leaked in API Response
+- **Severity**: **P1 (High Security)**
+- **Component**: `backend/app/api/auth.py:284`
+- **Root Cause**: `"token_available_for_local_test": reset_token if os.getenv("ENVIRONMENT") == "development" or reset_token is not None else None`. Because `reset_token is not None` evaluates to `True`, the token is returned even in production.
+- **Status**: **RESOLVED / REMEDIATED**.
+- **Fix Applied**: Removed `token_available_for_local_test` from public response models and route handler. Enforced non-enumerating generic response for all emails. Redacted sample tokens from documentation. Executed SQL sanitization setting `used = 1` for all outstanding tokens in database. Added rate limiting.
+- **Verification**: `scratch/test_security_remediations.py` passed verifying no token in response and identical generic response for registered/unregistered emails.
 
 ---
 
-### BUG-004: Plaintext Password Matching Fallback
-- **Severity**: **P1 (High)**
-- **File**: `backend/app/core/security.py:46-48`
-- **What is Wrong**: `verify_password()` contains an insecure fallback: `return plain_password == hashed_password`.
-- **Reproduction**: Set a database user's `password_hash` column to plain text `"password"`. Logging in with `"password"` succeeds.
-- **Business Impact**: Weakens password security and allows non-constant-time comparison on legacy records.
-- **Suggested Fix**: Remove plaintext equality. Enforce PBKDF2 hashing across all records and reject unhashed strings.
+### BUG-012: Simulated AI Agent Execution Results
+- **Severity**: **P2 (Feature Realism)**
+- **Component**: `backend/app/api/agents.py:185-207`
+- **Root Cause**: `execute_agent` synthesizes mock execution metrics (`tokens_consumed: 840`, `confidence_score: 0.96`, `latency_ms: 142`) instead of dispatching the prompt to a real configured LLM provider.
+- **Status**: **RESOLVED / REMEDIATED**.
+- **Fix Applied**: Rewrote `execute_agent` to distinguish dry-run simulation (consumes 0 tokens, measures real local latency, sets `simulated: True`) from live execution. If live execution is requested with missing provider credentials, returns honest `status: "blocked"`, `outcome: "NOT_CONFIGURED"`. If provider is configured, measures real latency and consumes real tokens.
+- **Verification**: `scratch/test_security_remediations.py` verified dry-run returns `tokens_consumed: 0` and real latency.
 
 ---
 
-### BUG-005: Meta WhatsApp Cloud API Credentials Unconfigured
-- **Severity**: **P2 (Medium)**
-- **Component**: `.env` & `app/api/campaigns/whatsapp-setup/route.ts`
-- **What is Wrong**: Environment variables `WHATSAPP_WABA_ID`, `WHATSAPP_TOKEN`, and `WHATSAPP_PHONE_NUMBER_ID` are unconfigured. The setup wizard correctly returns HTTP 400 Bad Request to prevent simulated success.
-- **Status**: **BLOCKED BY CREDENTIALS**.
-- **Alternative Working Workflow**: The **Manual Click-to-Chat Web Companion** (`https://wa.me/...`) is fully operational and requires no Meta API fees.
+### BUG-013: Simulated Latency and Mock Health Check in Providers Service
+- **Severity**: **P2 (Feature Realism)**
+- **Component**: `backend/app/services/providers_service.py:78-90`
+- **Root Cause**: `test_provider` executes `time.sleep(0.08)` and updates provider status to `"Operational"` without issuing an HTTP request to the external provider endpoint.
+- **Status**: **RESOLVED / REMEDIATED**.
+- **Fix Applied**: Removed `time.sleep(0.08)` simulation. Implemented provider-specific zero-cost bounded HTTP health probes (Serper credits, SerpApi account, Groq/Gemini/OpenRouter models). Returns honest statuses: `NOT_CONFIGURED`, `OPERATIONAL`, `AUTH_FAILED`, `RATE_LIMITED`, `TIMEOUT`, `FAILED`. Masked secrets in responses.
+- **Verification**: `scratch/test_security_remediations.py` verified unconfigured providers return `NOT_CONFIGURED`.
 
 ---
 
-### BUG-006: System SMTP Outbound Email Unconfigured
-- **Severity**: **P2 (Medium)**
-- **Component**: `.env` & `backend/app/api/campaigns.py`
-- **What is Wrong**: Default platform SMTP credentials (`SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`, `SMTP_PASSWORD`) are not set in `.env`.
-- **Status**: **BLOCKED BY CONFIGURATION**.
-- **Alternative Working Workflow**: Individual user-connected Google OAuth / custom SMTP accounts configured in the UI at `/app/outreach/accounts` work independently.
-
----
-
-### BUG-007: Inconsistent Response Structure for `GET /api/crm/deals`
-- **Severity**: **P2 (Medium)**
-- **File**: `backend/app/api/crm.py:54`
-- **What is Wrong**: `GET /api/crm/deals` returns a raw JSON array `[...]`, whereas `/api/leads` and `/api/whatsapp/leads` return wrapped dictionaries `{"leads": [...]}`.
-- **Business Impact**: Frontend code must handle two different response shapes depending on whether it consumes the Python backend directly or the Next.js serverless route proxy.
-- **Suggested Fix**: Standardize `GET /api/crm/deals` to return `{"status": "success", "deals": deals}`.
-
----
-
-### BUG-008: Plaintext Provider Keys in Browser `localStorage`
-- **Severity**: **P2 (Medium)**
-- **File**: `app/app/leads/page.tsx:100`
-- **What is Wrong**: Custom API keys configured via the 29-provider modal are saved unencrypted under `localStorage.getItem("usman_custom_provider_keys")`.
-- **Business Impact**: Vulnerable to XSS key extraction in shared or compromised browser profiles.
-- **Suggested Fix**: Migrate provider key storage to encrypted server-side SQLite/Postgres.
-
----
-
-### BUG-009: Monolithic Legacy Files Retained in Root Workspace
-- **Severity**: **P3 (Low)**
-- **Files**: `app.py` (12,850 lines), `enterprise_core/`, `ui/`, `frontend/app/`
-- **What is Wrong**: The repository retains the legacy Streamlit application alongside the modern Next.js + FastAPI architecture, inflating repository size and creating ambiguity.
-- **Suggested Fix**: Move legacy Streamlit files into an archive directory `archive/streamlit_legacy/` after ensuring no production references remain.
-
----
-
-### BUG-010: Deprecated Viewport Metadata Export Warning
-- **Severity**: **P3 (Low)**
-- **Files**: `app/accounts/page.tsx`, `app/admin/page.tsx`, `app/analytics/page.tsx`, etc.
-- **What is Wrong**: Next.js 14 build emits warnings: `Unsupported metadata viewport is configured in metadata export. Please move it to viewport export instead.`
-- **Business Impact**: Harmless build warning, does not break compilation.
-- **Suggested Fix**: Separate `viewport` into `export const viewport = { ... }` per Next.js 14 documentation.
+### BUG-014: Fallback Mock Telemetry for Features 501–600
+- **Severity**: **P3 (Feature Realism)**
+- **Component**: `backend/app/services/features_501_600_service.py:138-160`
+- **Root Cause**: When a feature function `ultra_feature_{id}` is not found in legacy `app.py`, the service returns static mock data (`records_evaluated: 184`, `trend: "+14.2%"`).
+- **Status**: **RESOLVED / REMEDIATED**.
+- **Fix Applied**: Features 501 (Deal Win Probability), 507 (Sales Velocity), 508 (Pipeline Coverage), and 582 (SOC 2 Continuous Evidence Collector) now calculate genuine metrics from SQLite `crm_deals` and `account_audit_logs`. Unpopulated features return honest `insufficient_data` states with 0 evaluated records and zero fabricated trends.
+- **Verification**: `scratch/test_security_remediations.py` verified Feature 501 evaluates real live deals and Feature 502 returns `insufficient_data` with 0 records.

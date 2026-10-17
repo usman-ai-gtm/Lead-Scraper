@@ -66,6 +66,7 @@ export async function GET(request: Request) {
           email,
           full_name: fullName,
           picture,
+          id_token: tokens.id_token || "",
         }),
         signal: controller.signal,
       });
@@ -75,23 +76,12 @@ export async function GET(request: Request) {
         authData = await verifyRes.json();
       }
     } catch {
-      // Backend is unreachable or running in standalone Vercel serverless mode
+      // Backend is unreachable
     }
 
-    if (!authData) {
-      // Resilient serverless provisioning for Vercel
-      const token = `jwt_session_${Date.now()}_${Math.random().toString(36).substring(7)}`;
-      authData = {
-        access_token: token,
-        user: {
-          id: Math.floor(Date.now() / 1000),
-          email,
-          full_name: fullName,
-          role: "ADMIN",
-          workspace_id: 1,
-          is_active: true,
-        },
-      };
+    if (!authData || !authData.access_token) {
+      console.error("[Google OAuth] Authentication service unavailable or rejected token");
+      return NextResponse.redirect(`${origin}/login?error=Authentication+service+unavailable`);
     }
 
     const authPayload = encodeURIComponent(

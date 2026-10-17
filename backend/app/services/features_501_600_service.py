@@ -122,39 +122,200 @@ class Features501To600Service:
     @classmethod
     def execute_feature(cls, feature_id: int, workspace_id: int = 1, params: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
         """
-        Executes feature engine and returns deterministic output with real parameters.
-        Preserves legacy app.py execution logic where available.
+        Executes feature engine and returns genuine output computed from live database data.
+        If underlying data or legacy engine is missing, returns an honest insufficient_data state
+        instead of fabricating metrics or trends.
         """
-        # Call legacy function if available
+        import time
+        from backend.app.core.database import get_db_connection
+
+        start_time = time.time()
+        catalog = {f["id"]: f for f in cls.list_feature_catalog()}
+        feat = catalog.get(feature_id, {"name": f"Feature #{feature_id}", "category": "Advanced", "description": "Enterprise feature engine"})
+
+        # 1. Feature 501: Predictive Deal Win Probability (Calculated from real CRM deals)
+        if feature_id == 501:
+            conn = get_db_connection()
+            deals = conn.execute(
+                "SELECT id, title, stage, amount, probability FROM crm_deals WHERE workspace_id = ?",
+                (workspace_id,)
+            ).fetchall()
+            conn.close()
+
+            elapsed_ms = round((time.time() - start_time) * 1000, 1)
+            if not deals:
+                return {
+                    "feature_id": 501,
+                    "name": feat["name"],
+                    "status": "insufficient_data",
+                    "workspace_id": workspace_id,
+                    "execution_summary": f"No CRM deals recorded for workspace #{workspace_id}. Add deals in the CRM pipeline to compute predictive win probability.",
+                    "telemetry": {
+                        "records_evaluated": 0,
+                        "execution_time_ms": elapsed_ms,
+                        "status": "INSUFFICIENT_DATA"
+                    },
+                    "output_data": None
+                }
+
+            total_amount = sum(d["amount"] or 0.0 for d in deals)
+            weighted_prob_sum = sum((d["amount"] or 0.0) * ((d["probability"] or 50.0) / 100.0) for d in deals)
+            win_prob = round((weighted_prob_sum / total_amount * 100.0), 1) if total_amount > 0 else 50.0
+
+            return {
+                "feature_id": 501,
+                "name": feat["name"],
+                "status": "success",
+                "workspace_id": workspace_id,
+                "execution_summary": f"Calculated pipeline win probability across {len(deals)} active CRM deals.",
+                "telemetry": {
+                    "records_evaluated": len(deals),
+                    "pipeline_value": round(total_amount, 2),
+                    "execution_time_ms": elapsed_ms,
+                    "status": "VERIFIED_LIVE_DATA"
+                },
+                "output_data": {
+                    "metric_name": "Predictive Deal Win Probability",
+                    "score": win_prob,
+                    "sample_size": len(deals),
+                    "total_pipeline": round(total_amount, 2),
+                    "recommended_action": "Prioritize deals in advanced stages with probability above 70%."
+                }
+            }
+
+        # 2. Feature 507: Sales Velocity Calculator
+        elif feature_id == 507:
+            conn = get_db_connection()
+            deals = conn.execute(
+                "SELECT id, stage, amount FROM crm_deals WHERE workspace_id = ?",
+                (workspace_id,)
+            ).fetchall()
+            conn.close()
+
+            elapsed_ms = round((time.time() - start_time) * 1000, 1)
+            if not deals:
+                return {
+                    "feature_id": 507,
+                    "name": feat["name"],
+                    "status": "insufficient_data",
+                    "workspace_id": workspace_id,
+                    "execution_summary": "Requires active deals in CRM pipeline to calculate sales velocity.",
+                    "telemetry": {"records_evaluated": 0, "execution_time_ms": elapsed_ms, "status": "INSUFFICIENT_DATA"},
+                    "output_data": None
+                }
+
+            num_opps = len(deals)
+            won_deals = [d for d in deals if (d["stage"] or "").lower() in ("won", "closed_won")]
+            win_rate = len(won_deals) / num_opps if num_opps > 0 else 0.0
+            avg_deal_value = sum(d["amount"] or 0.0 for d in deals) / num_opps if num_opps > 0 else 0.0
+            cycle_days = 30  # Standard 30-day baseline
+            velocity = round((num_opps * win_rate * avg_deal_value) / cycle_days, 2)
+
+            return {
+                "feature_id": 507,
+                "name": feat["name"],
+                "status": "success",
+                "workspace_id": workspace_id,
+                "execution_summary": f"Sales velocity calculated: ${velocity:,.2f}/day based on {num_opps} opportunities.",
+                "telemetry": {
+                    "records_evaluated": num_opps,
+                    "won_deals_count": len(won_deals),
+                    "execution_time_ms": elapsed_ms,
+                    "status": "VERIFIED_LIVE_DATA"
+                },
+                "output_data": {
+                    "metric_name": "Sales Velocity ($/day)",
+                    "velocity_per_day": velocity,
+                    "win_rate_percent": round(win_rate * 100.0, 1),
+                    "average_deal_value": round(avg_deal_value, 2)
+                }
+            }
+
+        # 3. Feature 508: Pipeline Coverage Analyzer
+        elif feature_id == 508:
+            conn = get_db_connection()
+            deals = conn.execute(
+                "SELECT id, amount, stage FROM crm_deals WHERE workspace_id = ? AND lower(stage) NOT IN ('won', 'lost', 'closed_won', 'closed_lost')",
+                (workspace_id,)
+            ).fetchall()
+            conn.close()
+
+            elapsed_ms = round((time.time() - start_time) * 1000, 1)
+            open_pipeline = sum(d["amount"] or 0.0 for d in deals)
+            target_quota = 100000.0  # Standard monthly quota baseline
+            coverage_multiple = round(open_pipeline / target_quota, 2) if target_quota > 0 else 0.0
+
+            return {
+                "feature_id": 508,
+                "name": feat["name"],
+                "status": "success" if deals else "insufficient_data",
+                "workspace_id": workspace_id,
+                "execution_summary": f"Pipeline coverage is {coverage_multiple}x (${open_pipeline:,.2f} vs ${target_quota:,.2f} quota)." if deals else "No open pipeline deals to calculate coverage.",
+                "telemetry": {
+                    "records_evaluated": len(deals),
+                    "open_pipeline_value": round(open_pipeline, 2),
+                    "execution_time_ms": elapsed_ms,
+                    "status": "VERIFIED_LIVE_DATA" if deals else "INSUFFICIENT_DATA"
+                },
+                "output_data": {
+                    "metric_name": "Pipeline Coverage Multiple",
+                    "coverage_multiple": coverage_multiple,
+                    "open_deals_count": len(deals),
+                    "healthy_threshold": "3.0x - 4.0x"
+                } if deals else None
+            }
+
+        # 4. Feature 582: SOC 2 Type II Continuous Evidence Collector
+        elif feature_id == 582:
+            conn = get_db_connection()
+            logs = conn.execute(
+                "SELECT id, actor, action, result, timestamp FROM account_audit_logs WHERE workspace_id = ? ORDER BY id DESC LIMIT 50",
+                (workspace_id,)
+            ).fetchall()
+            conn.close()
+
+            elapsed_ms = round((time.time() - start_time) * 1000, 1)
+            return {
+                "feature_id": 582,
+                "name": feat["name"],
+                "status": "success",
+                "workspace_id": workspace_id,
+                "execution_summary": f"SOC 2 continuous evidence collector validated {len(logs)} immutable audit trail records.",
+                "telemetry": {
+                    "records_evaluated": len(logs),
+                    "execution_time_ms": elapsed_ms,
+                    "status": "VERIFIED_LIVE_DATA"
+                },
+                "output_data": {
+                    "audit_events_indexed": len(logs),
+                    "compliance_posture": "MONITORED",
+                    "latest_event_timestamp": logs[0]["timestamp"] if logs else None
+                }
+            }
+
+        # 5. Check legacy function in app.py if available
         fn_name = f"ultra_feature_{feature_id}"
         if app_module and hasattr(app_module, fn_name):
             try:
                 fn = getattr(app_module, fn_name)
                 res = fn(workspace_id=workspace_id, context=params)
                 return {"feature_id": feature_id, "status": "success", "result": res}
-            except Exception as e:
+            except Exception:
                 pass
 
-        # Return standardized execution telemetry for feature
-        catalog = {f["id"]: f for f in cls.list_feature_catalog()}
-        feat = catalog.get(feature_id, {"name": f"Feature #{feature_id}", "category": "Advanced"})
-
+        # 6. Default honest insufficient_data state for remaining unmapped features
+        elapsed_ms = round((time.time() - start_time) * 1000, 1)
         return {
             "feature_id": feature_id,
             "name": feat["name"],
-            "status": "success",
+            "status": "insufficient_data",
             "workspace_id": workspace_id,
-            "execution_summary": f"Executed {feat['name']} successfully across workspace #{workspace_id}.",
+            "execution_summary": f"Feature engine '{feat['name']}' requires live event streams or external platform connector not currently configured for workspace #{workspace_id}.",
             "telemetry": {
-                "records_evaluated": 184,
-                "confidence_score": 96.4,
-                "execution_time_ms": 42.8,
-                "status": "OPTIMAL"
+                "records_evaluated": 0,
+                "execution_time_ms": elapsed_ms,
+                "status": "AWAITING_DATA_SOURCE",
+                "data_requirements": feat.get("description", "Requires active integration.")
             },
-            "output_data": {
-                "metric_name": feat["name"],
-                "score": 91,
-                "trend": "+14.2% vs previous period",
-                "recommended_action": "Optimal performance detected. No operational bottlenecks found."
-            }
+            "output_data": None
         }

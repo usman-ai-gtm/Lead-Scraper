@@ -32,6 +32,7 @@ class GoogleVerifyRequest(BaseModel):
     email: str
     full_name: Optional[str] = "Google User"
     picture: Optional[str] = None
+    id_token: Optional[str] = None
 
 class UserOut(BaseModel):
     id: int

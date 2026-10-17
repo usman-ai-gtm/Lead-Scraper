@@ -2,10 +2,10 @@ import { proxyToBackend } from "@/lib/backend-proxy";
 
 export async function POST(req: Request, { params }: { params: { id: string } }) {
   const fallback = {
-    status: "HEALTHY",
+    status: "FAILED",
     provider_id: params.id,
-    latency_ms: 195,
-    message: "Provider handshake verified with 0ms clock drift"
+    latency_ms: 0,
+    message: "Unable to reach backend service for provider health check"
   };
   return proxyToBackend(`/api/providers/${params.id}/test`, req, fallback);
 }

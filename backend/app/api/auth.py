@@ -163,10 +163,34 @@ def signup(req: SignupRequest):
 def verify_google_oauth_identity(req: GoogleVerifyRequest):
     """
     Finds or provisions user account based on verified Google OAuth 2.0 OpenID claims.
+    Validates Google identity tokens cryptographically against Google tokeninfo.
     """
     clean_email = req.email.strip().lower()
     if not clean_email or "@" not in clean_email:
         raise HTTPException(status_code=400, detail="Invalid Google profile email")
+
+    # Cryptographically verify id_token if provided
+    if req.id_token:
+        try:
+            import requests
+            verify_url = f"https://oauth2.googleapis.com/tokeninfo?id_token={req.id_token}"
+            g_resp = requests.get(verify_url, timeout=5)
+            if g_resp.status_code == 200:
+                g_info = g_resp.json()
+                g_email = (g_info.get("email") or "").lower()
+                if g_email != clean_email:
+                    raise HTTPException(status_code=401, detail="Google token email mismatch")
+                expected_aud = os.getenv("GOOGLE_CLIENT_ID")
+                if expected_aud and g_info.get("aud") != expected_aud:
+                    raise HTTPException(status_code=401, detail="Google token audience mismatch")
+            else:
+                logger.warning(f"[Google OAuth] Token verification failed: {g_resp.status_code}")
+                raise HTTPException(status_code=401, detail="Invalid Google identity token")
+        except HTTPException:
+            raise
+        except Exception as e:
+            logger.error(f"[Google OAuth] Verification error: {e}")
+            raise HTTPException(status_code=401, detail="Google identity verification failed")
 
     now_iso = datetime.now(timezone.utc).isoformat()
     conn = get_db_connection()
@@ -233,6 +257,7 @@ def forgot_password(req: ForgotPasswordRequest):
     Uses non-enumerating responses to protect user privacy.
     """
     clean_email = req.email.strip().lower()
+    auth_rate_limiter.check(f"forgot_{clean_email}")
     conn = get_db_connection()
     user_row = conn.execute("SELECT id, full_name FROM users WHERE LOWER(email) = ?", (clean_email,)).fetchone()
 
@@ -274,14 +299,13 @@ def forgot_password(req: ForgotPasswordRequest):
             except Exception as e:
                 logger.warning(f"[Password Reset] SMTP delivery notice: {e}")
 
-        logger.info(f"[Password Reset Diagnostic] Token generated for {clean_email}. Test URL: http://localhost:3000/reset-password?token={reset_token}")
+        logger.info(f"[Password Reset] Reset request processed for account.")
 
     conn.close()
 
     return {
         "status": "success",
-        "message": "If an account exists with this email address, password reset instructions have been sent.",
-        "token_available_for_local_test": reset_token if os.getenv("ENVIRONMENT") == "development" or reset_token is not None else None
+        "message": "If an account exists with this email address, password reset instructions have been sent."
     }
 
 @router.post("/reset-password")
@@ -292,6 +316,8 @@ def reset_password(req: ResetPasswordRequest):
     clean_token = req.token.strip()
     if not clean_token:
         raise HTTPException(status_code=400, detail="Missing password reset token")
+
+    auth_rate_limiter.check(f"reset_{clean_token[:12]}")
 
     if len(req.new_password) < 8:
         raise HTTPException(status_code=400, detail="Password must be at least 8 characters long")

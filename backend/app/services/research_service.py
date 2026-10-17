@@ -40,20 +40,26 @@ class ResearchService:
         site = website or "https://example.com"
         clean_domain = re.sub(r'https?://(www\.)?', '', site).strip('/').split('/')[0]
 
-        # Live probe website if reachable
+        # Live probe website if reachable (with SSRF protection SEC-010)
         scraped_text = ""
         meta_description = ""
         if site.startswith("http"):
             try:
-                headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) UsmanResearchBot/2.0'}
-                res = requests.get(site, headers=headers, timeout=6)
-                if res.status_code == 200:
+                from backend.app.core.ssrf_protection import safe_http_get, SSRFSecurityError
+                status_code, text, resp_headers = safe_http_get(
+                    site,
+                    headers={'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) UsmanResearchBot/2.0'},
+                    timeout=6.0
+                )
+                if status_code == 200:
                     from bs4 import BeautifulSoup
-                    soup = BeautifulSoup(res.text, "html.parser")
+                    soup = BeautifulSoup(text, "html.parser")
                     desc_tag = soup.find("meta", attrs={"name": "description"}) or soup.find("meta", attrs={"property": "og:description"})
                     if desc_tag and desc_tag.get("content"):
                         meta_description = desc_tag["content"]
                     scraped_text = " ".join([p.get_text() for p in soup.find_all(["h1", "h2", "p"])[:15]])
+            except SSRFSecurityError as se:
+                logger.warning(f"SSRF blocked outbound crawl to {site}: {se}")
             except Exception as e:
                 logger.info(f"Passive crawl note for {site}: {e}")
 
