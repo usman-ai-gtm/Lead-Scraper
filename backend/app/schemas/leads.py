@@ -13,7 +13,29 @@ class LeadSearchRequest(BaseModel):
     industry: str = "Any"
     business_type: str = "Any"
     target_count: int = 20
+    business_size: Optional[str] = "Any"
+    employee_range: Optional[str] = "Any"
+    revenue_range: Optional[str] = "Any"
+    business_age: Optional[str] = "Any"
+    language: Optional[str] = "Any"
+    min_score: Optional[int] = 0
+    min_buying_potential: Optional[int] = 0
+    activity_status: Optional[str] = "Any"
+    website_status: Optional[str] = "Any"
+    email_required: Optional[bool] = False
+    phone_required: Optional[bool] = False
+    decision_maker_required: Optional[bool] = False
+    intent_category: Optional[str] = "Any"
+    natural_language_query: Optional[str] = None
     workspace_id: Optional[int] = 1
+
+class LeadStrategyRequest(BaseModel):
+    prompt: str
+    workspace_id: Optional[int] = 1
+
+class LeadBuyingIntentRequest(BaseModel):
+    target_service: Optional[str] = "General Business Growth"
+    mode: Optional[str] = "BALANCED MODE"
 
 class LeadFilterParams(BaseModel):
     workspace_id: Optional[int] = 1

@@ -23,6 +23,12 @@ export interface CRMDeal {
   website?: string;
   expected_close_date?: string;
   created_at?: string;
+  lead_score?: number;
+  final_lead_score?: number;
+  qualification_level?: string;
+  buying_intent_score?: number;
+  buying_intent_level?: string;
+  buying_intent_category?: string;
 }
 
 const PIPELINE_STAGES = [
@@ -333,7 +339,9 @@ export default function CRMPage() {
 
       const newImports: CRMDeal[] = parsed.map((l: any, i: number) => {
         const name = l.business_name || l.company_name || `Target Account ${i + 1}`;
-        const score = l.lead_score || 80;
+        const score = l.final_lead_score || l.lead_score || 80;
+        const intentScore = l.buying_intent_score || 65;
+        const intentLevel = l.buying_intent_level || (intentScore >= 75 ? "🟢 HIGH INTENT" : "🟡 MODERATE INTENT");
         return {
           id: Date.now() + i,
           title: `${name} — Outbound Opportunity`,
@@ -345,7 +353,13 @@ export default function CRMPage() {
           contact_email: l.email || undefined,
           contact_phone: l.phone || undefined,
           website: l.website || l.source_url || undefined,
-          expected_close_date: new Date(Date.now() + 30 * 86400000).toISOString().split("T")[0]
+          expected_close_date: new Date(Date.now() + 30 * 86400000).toISOString().split("T")[0],
+          lead_score: score,
+          final_lead_score: score,
+          qualification_level: l.qualification_level || "🟢 High Potential",
+          buying_intent_score: intentScore,
+          buying_intent_level: intentLevel,
+          buying_intent_category: l.buying_intent_category || "Marketing / Lead Generation"
         };
       });
 
@@ -647,6 +661,18 @@ export default function CRMPage() {
                           </span>
                         </div>
 
+                        {/* Telemetry & Buying Intent Badge strip on Deal Card */}
+                        <div className="flex items-center gap-1.5 flex-wrap">
+                          <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-blue-500/10 text-blue-300 border border-blue-500/20 font-mono">
+                            ⚡ {deal.final_lead_score || deal.lead_score || 75}/100
+                          </span>
+                          {deal.buying_intent_level && (
+                            <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-purple-500/10 text-purple-300 border border-purple-500/20 font-mono">
+                              {deal.buying_intent_level.replace(" INTENT", "")}
+                            </span>
+                          )}
+                        </div>
+
                         {deal.contact_name && (
                           <div className="text-[10px] text-slate-400 flex items-center gap-1">
                             <span className="text-slate-500">Contact:</span>
@@ -725,6 +751,7 @@ export default function CRMPage() {
                 <tr>
                   <th className="py-3 px-4">Deal Title & Company</th>
                   <th className="py-3 px-4">Stage</th>
+                  <th className="py-3 px-4">Score & Intent</th>
                   <th className="py-3 px-4">Contract Amount</th>
                   <th className="py-3 px-4">Win Probability</th>
                   <th className="py-3 px-4">Key Contact</th>
@@ -734,7 +761,7 @@ export default function CRMPage() {
               <tbody className="divide-y divide-white/[0.04]">
                 {filteredDeals.length === 0 ? (
                   <tr>
-                    <td colSpan={6} className="py-12 text-center text-slate-500 text-xs">
+                    <td colSpan={7} className="py-12 text-center text-slate-500 text-xs">
                       No deals match your filter criteria.
                     </td>
                   </tr>
@@ -749,6 +776,18 @@ export default function CRMPage() {
                         <span className="px-2 py-0.5 rounded bg-blue-500/10 text-blue-400 border border-blue-500/20 font-bold text-[11px]">
                           {d.stage}
                         </span>
+                      </td>
+                      <td className="py-3 px-4">
+                        <div className="flex items-center gap-1.5 flex-wrap">
+                          <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-blue-500/10 text-blue-300 font-mono">
+                            ⚡ {d.final_lead_score || d.lead_score || 75}/100
+                          </span>
+                          {d.buying_intent_level && (
+                            <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-purple-500/10 text-purple-300 font-mono">
+                              {d.buying_intent_level.replace(" INTENT", "")}
+                            </span>
+                          )}
+                        </div>
                       </td>
                       <td className="py-3 px-4 font-mono font-bold text-emerald-400">
                         ${d.amount?.toLocaleString()}

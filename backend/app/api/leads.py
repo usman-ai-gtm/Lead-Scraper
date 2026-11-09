@@ -6,7 +6,8 @@ from fastapi import APIRouter, HTTPException, Depends, Query
 from typing import Dict, Any, List, Optional
 
 from backend.app.schemas.leads import (
-    LeadSearchRequest, LeadCreateRequest, LeadUpdateRequest, LeadBulkActionRequest
+    LeadSearchRequest, LeadCreateRequest, LeadUpdateRequest, LeadBulkActionRequest,
+    LeadStrategyRequest, LeadBuyingIntentRequest
 )
 from backend.app.services.lead_service import LeadService
 from backend.app.core.security import get_current_user
@@ -92,9 +93,36 @@ def delete_lead(lead_id: int, current_user: Dict[str, Any] = Depends(get_current
     LeadService.delete_lead(lead_id)
     return {"status": "success", "message": f"Lead #{lead_id} deleted successfully"}
 
+@router.post("/ai-strategy")
+def generate_ai_strategy(
+    req: LeadStrategyRequest,
+    current_user: Dict[str, Any] = Depends(get_current_user)
+):
+    ws_id = current_user.get("workspace_id") or req.workspace_id or 1
+    return LeadService.generate_ai_strategy(req.prompt, workspace_id=ws_id)
+
 @router.post("/{lead_id}/score")
 def calculate_lead_score(lead_id: int, current_user: Dict[str, Any] = Depends(get_current_user)):
     res = LeadService.calculate_score(lead_id)
+    return res
+
+@router.post("/{lead_id}/intent")
+def analyze_lead_intent(
+    lead_id: int,
+    req: Optional[LeadBuyingIntentRequest] = None,
+    current_user: Dict[str, Any] = Depends(get_current_user)
+):
+    target_service = req.target_service if req else "General Business Growth"
+    mode = req.mode if req else "BALANCED MODE"
+    res = LeadService.analyze_buying_intent(lead_id, target_service=target_service, mode=mode)
+    return res
+
+@router.get("/{lead_id}/intent")
+def get_lead_intent(lead_id: int, current_user: Dict[str, Any] = Depends(get_current_user)):
+    res = LeadService.get_buying_intent(lead_id)
+    if not res:
+        # Generate on demand if not yet analyzed
+        res = LeadService.analyze_buying_intent(lead_id)
     return res
 
 @router.post("/bulk-action")

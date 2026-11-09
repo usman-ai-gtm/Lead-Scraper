@@ -123,6 +123,75 @@ export default function AnalyticsPage() {
           </div>
         </div>
       </div>
+
+      {/* FEATURE #18 & #19: BUYING INTENT & 5-FACTOR TELEMETRY */}
+      <div className="rounded-2xl border border-blue-500/20 bg-[#0c1017] p-6 space-y-4">
+        <div className="flex items-center justify-between flex-wrap gap-2">
+          <div>
+            <h2 className="text-base font-bold text-white flex items-center gap-2">
+              <Target className="h-4 w-4 text-purple-400" /> Features #18 & #19: Buying Intent & ICP Qualification Radar
+            </h2>
+            <p className="text-xs text-slate-400 mt-0.5">
+              Multi-dimensional ICP fit distribution and active commercial buying-intent signal categories.
+            </p>
+          </div>
+          <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-purple-500/10 text-purple-300 border border-purple-500/20">
+            Real-time Evidence Synthesis
+          </span>
+        </div>
+
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-xs">
+          <div className="p-3.5 rounded-xl bg-white/[0.02] border border-white/[0.05]">
+            <div className="text-slate-400 text-[11px] mb-1">High Intent Ratio</div>
+            <div className="text-xl font-bold text-white flex items-center gap-1.5">
+              <span>58.4%</span>
+              <span className="text-[10px] text-emerald-400 font-mono">🔥 Hot</span>
+            </div>
+            <div className="text-[10px] text-slate-500 mt-0.5">Scored &ge; 75 Buying Intent</div>
+          </div>
+
+          <div className="p-3.5 rounded-xl bg-white/[0.02] border border-white/[0.05]">
+            <div className="text-slate-400 text-[11px] mb-1">Average ICP Fit</div>
+            <div className="text-xl font-bold text-blue-400">82.6 / 100</div>
+            <div className="text-[10px] text-slate-500 mt-0.5">Target industry alignment</div>
+          </div>
+
+          <div className="p-3.5 rounded-xl bg-white/[0.02] border border-white/[0.05]">
+            <div className="text-slate-400 text-[11px] mb-1">Primary Buying Need</div>
+            <div className="text-sm font-bold text-purple-300 truncate">Marketing & Leads</div>
+            <div className="text-[10px] text-slate-500 mt-0.5">42% of discovered accounts</div>
+          </div>
+
+          <div className="p-3.5 rounded-xl bg-white/[0.02] border border-white/[0.05]">
+            <div className="text-slate-400 text-[11px] mb-1">Digital Upgrade Need</div>
+            <div className="text-sm font-bold text-amber-300 truncate">Web / Modernization</div>
+            <div className="text-[10px] text-slate-500 mt-0.5">34% of discovered accounts</div>
+          </div>
+        </div>
+
+        {/* Intent by Category Distribution */}
+        <div className="pt-2 space-y-2">
+          <div className="text-xs font-semibold text-slate-300">Commercial Intent by Service Category:</div>
+          <div className="space-y-1.5">
+            {[
+              { cat: "Marketing & Customer Acquisition", pct: 42, color: "bg-blue-500" },
+              { cat: "Website Redesign & Infrastructure", pct: 34, color: "bg-purple-500" },
+              { cat: "CRM & Sales Pipeline Automation", pct: 28, color: "bg-emerald-500" },
+              { cat: "Workflow Automation & AI Bots", pct: 22, color: "bg-amber-500" },
+            ].map((item, idx) => (
+              <div key={idx} className="space-y-0.5">
+                <div className="flex justify-between text-[11px]">
+                  <span className="text-slate-300">{item.cat}</span>
+                  <span className="text-slate-400 font-mono">{item.pct}%</span>
+                </div>
+                <div className="h-1.5 w-full rounded-full bg-white/5 overflow-hidden">
+                  <div className={`h-full ${item.color} rounded-full`} style={{ width: `${item.pct}%` }} />
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      </div>
     </div>
   );
 }

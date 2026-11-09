@@ -37,7 +37,8 @@ export async function proxyToBackend(
       }
 
       const controller = new AbortController();
-      const timeout = setTimeout(() => controller.abort(), 2000);
+      const timeoutMs = endpoint.includes("search") || endpoint.includes("intent") || endpoint.includes("execute") || endpoint.includes("strategy") || endpoint.includes("research") ? 15000 : 5000;
+      const timeout = setTimeout(() => controller.abort(), timeoutMs);
       init.signal = controller.signal;
 
       const res = await fetch(url, init);
