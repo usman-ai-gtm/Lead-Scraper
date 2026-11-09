@@ -1,7 +1,9 @@
 import { NextResponse } from "next/server";
 
 const isVercel = Boolean(process.env.VERCEL || process.env.NEXT_PUBLIC_VERCEL_ENV);
-const BACKEND_URL = process.env.BACKEND_URL || (isVercel ? "" : "http://127.0.0.1:8000");
+const rawBackend = process.env.BACKEND_URL;
+const isLocalhost = !rawBackend || rawBackend.includes("localhost") || rawBackend.includes("127.0.0.1");
+const BACKEND_URL = (isVercel && isLocalhost) ? "" : (rawBackend || (isVercel ? "" : "http://127.0.0.1:8000"));
 
 /**
  * Enterprise Resilience Proxy
@@ -17,7 +19,10 @@ export async function proxyToBackend(
 ): Promise<Response> {
   if (BACKEND_URL) {
     try {
-      const url = `${BACKEND_URL}${endpoint}`;
+      const reqUrl = new URL(req.url);
+      const search = reqUrl.search;
+      const targetPath = (search && !endpoint.includes("?")) ? `${endpoint}${search}` : endpoint;
+      const url = `${BACKEND_URL}${targetPath}`;
       const headers = new Headers();
       const authHeader = req.headers.get("authorization");
       if (authHeader) headers.set("authorization", authHeader);

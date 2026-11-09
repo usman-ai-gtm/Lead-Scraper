@@ -52,31 +52,36 @@ export async function GET(request: Request) {
     const picture = profile.picture || "";
 
     // 3. Verify and provision account through real FastAPI backend
-    const backendUrl = process.env.BACKEND_URL || "http://127.0.0.1:8000";
+    const isVercel = Boolean(process.env.VERCEL || process.env.NEXT_PUBLIC_VERCEL_ENV);
+    const rawBackend = process.env.BACKEND_URL;
+    const isLocalhost = !rawBackend || rawBackend.includes("localhost") || rawBackend.includes("127.0.0.1");
+    const backendUrl = (isVercel && isLocalhost) ? "" : (rawBackend || (isVercel ? "" : "http://127.0.0.1:8000"));
     let authData: any = null;
 
-    try {
-      const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 2000);
+    if (backendUrl) {
+      try {
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 2000);
 
-      const verifyRes = await fetch(`${backendUrl}/api/auth/google-verify`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          email,
-          full_name: fullName,
-          picture,
-          id_token: tokens.id_token || "",
-        }),
-        signal: controller.signal,
-      });
-      clearTimeout(timeoutId);
+        const verifyRes = await fetch(`${backendUrl}/api/auth/google-verify`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            email,
+            full_name: fullName,
+            picture,
+            id_token: tokens.id_token || "",
+          }),
+          signal: controller.signal,
+        });
+        clearTimeout(timeoutId);
 
-      if (verifyRes.ok) {
-        authData = await verifyRes.json();
+        if (verifyRes.ok) {
+          authData = await verifyRes.json();
+        }
+      } catch {
+        // Backend is unreachable
       }
-    } catch {
-      // Backend is unreachable
     }
 
     if (!authData || !authData.access_token) {

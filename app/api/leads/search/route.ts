@@ -3,31 +3,36 @@ import { NextResponse } from "next/server";
 export async function POST(req: Request) {
   try {
     const body = await req.json();
-    const backendUrl = process.env.BACKEND_URL || "http://127.0.0.1:8000";
+    const isVercel = Boolean(process.env.VERCEL || process.env.NEXT_PUBLIC_VERCEL_ENV);
+    const rawBackend = process.env.BACKEND_URL;
+    const isLocalhost = !rawBackend || rawBackend.includes("localhost") || rawBackend.includes("127.0.0.1");
+    const backendUrl = (isVercel && isLocalhost) ? "" : (rawBackend || (isVercel ? "" : "http://127.0.0.1:8000"));
 
-    // 1. Try FastAPI backend first
-    try {
-      const authHeader = req.headers.get("authorization") || "";
-      const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 15000);
+    // 1. Try FastAPI backend first if available
+    if (backendUrl) {
+      try {
+        const authHeader = req.headers.get("authorization") || "";
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 15000);
 
-      const backendRes = await fetch(`${backendUrl}/api/leads/search`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          ...(authHeader ? { Authorization: authHeader } : {}),
-        },
-        body: JSON.stringify(body),
-        signal: controller.signal,
-      });
-      clearTimeout(timeoutId);
+        const backendRes = await fetch(`${backendUrl}/api/leads/search`, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            ...(authHeader ? { Authorization: authHeader } : {}),
+          },
+          body: JSON.stringify(body),
+          signal: controller.signal,
+        });
+        clearTimeout(timeoutId);
 
-      if (backendRes.status !== 503 && backendRes.status !== 502 && backendRes.status !== 504) {
-        const data = await backendRes.json().catch(() => ({}));
-        return NextResponse.json(data, { status: backendRes.status });
+        if (backendRes.status !== 503 && backendRes.status !== 502 && backendRes.status !== 504) {
+          const data = await backendRes.json().catch(() => ({}));
+          return NextResponse.json(data, { status: backendRes.status });
+        }
+      } catch {
+        // Backend is offline or running on standalone Vercel
       }
-    } catch {
-      // Backend is offline or running on standalone Vercel
     }
 
     // 2. Direct Serper API discovery on Vercel Serverless with Multi-Platform & 5-Score Calculation
