@@ -13,7 +13,9 @@ import time
 import logging
 import requests
 import pandas as pd
-from datetime import datetime
+import hashlib
+import ipaddress
+from datetime import datetime, timedelta, timezone
 from bs4 import BeautifulSoup
 import streamlit as st
 import re
@@ -84,6 +86,146 @@ except Exception as e:
 
 
 # -------------------------------------------------------------------------
+# 0. GLOBAL HELPER FUNCTIONS & SSRF GUARDS
+# -------------------------------------------------------------------------
+def now_iso() -> str:
+    """Returns current UTC timestamp in ISO 8601 format."""
+    return datetime.now(timezone.utc).isoformat()
+
+
+def clean_text(val, max_len: int = 500) -> str:
+    """Safely converts val to string, collapses whitespace, and truncates to max_len."""
+    if val is None:
+        return ""
+    s = re.sub(r"\s+", " ", str(val)).strip()
+    return s[:max_len]
+
+
+def safe_int(val, default: int = 0) -> int:
+    """Safely converts val to int with fallback to default."""
+    try:
+        if val is None:
+            return default
+        return int(float(val))
+    except (ValueError, TypeError):
+        return default
+
+
+def safe_float(val, default: float = 0.0) -> float:
+    """Safely converts val to float with fallback to default."""
+    try:
+        if val is None:
+            return default
+        return float(val)
+    except (ValueError, TypeError):
+        return default
+
+
+def is_safe_public_url(url: str) -> bool:
+    """
+    SSRF Guard (SEC-010): Validates URL scheme, port, hostname, and resolved IPs.
+    Blocks loopback (127.0.0.0/8, ::1), private RFC1918, link-local (169.254.0.0/16),
+    multicast, reserved addresses, and cloud metadata endpoints.
+    """
+    if not url or not isinstance(url, str):
+        return False
+    url = url.strip()
+    try:
+        parsed = urlparse(url)
+    except Exception:
+        return False
+
+    if parsed.scheme.lower() not in ("http", "https"):
+        return False
+
+    hostname = parsed.hostname
+    if not hostname:
+        return False
+
+    # Block credentials embedded in URL
+    if parsed.username or parsed.password:
+        return False
+
+    # Block non-standard ports
+    port = parsed.port or (443 if parsed.scheme.lower() == "https" else 80)
+    if port not in (80, 443, 8080, 8443):
+        return False
+
+    hostname_lower = hostname.lower()
+    if hostname_lower in (
+        "localhost", "127.0.0.1", "::1", "169.254.169.254",
+        "metadata.google.internal", "100.100.100.200"
+    ):
+        return False
+
+    try:
+        # Check if hostname is an IP literal
+        try:
+            ip = ipaddress.ip_address(hostname)
+            is_literal = True
+        except ValueError:
+            is_literal = False
+
+        if is_literal:
+            if (
+                ip.is_loopback or ip.is_private or ip.is_link_local
+                or ip.is_multicast or ip.is_reserved or ip.is_unspecified
+                or str(ip) in ("169.254.169.254", "100.100.100.200")
+            ):
+                return False
+        else:
+            # Resolve DNS and check all resolved socket IPs
+            addr_info = socket.getaddrinfo(hostname, port, proto=socket.IPPROTO_TCP)
+            if not addr_info:
+                return False
+            for entry in addr_info:
+                sockaddr = entry[4]
+                resolved_ip = ipaddress.ip_address(sockaddr[0])
+                if (
+                    resolved_ip.is_loopback or resolved_ip.is_private
+                    or resolved_ip.is_link_local or resolved_ip.is_multicast
+                    or resolved_ip.is_reserved or resolved_ip.is_unspecified
+                    or str(resolved_ip) in ("169.254.169.254", "100.100.100.200")
+                ):
+                    return False
+    except Exception:
+        return False
+
+    return True
+
+
+def norm_url(url: str) -> str:
+    """Cleans URL string, prepends https:// if scheme missing, validates via is_safe_public_url."""
+    url = (url or "").strip()
+    if not url:
+        return ""
+    if not re.match(r"^https?://", url, re.I):
+        url = "https://" + url
+    if not is_safe_public_url(url):
+        return ""
+    return url
+
+
+def normalize_email(email: str) -> str:
+    """Strips and lowercases email, returning empty string if '@' is missing."""
+    email = str(email or "").strip().lower()
+    if "@" not in email:
+        return ""
+    return email
+
+
+def normalize_phone(phone: str) -> str:
+    """Removes all non-digit and non-plus characters from phone number."""
+    return re.sub(r"[^0-9+]", "", str(phone or "").strip())
+
+
+def stable_hash(*parts) -> str:
+    """Computes deterministic SHA256 hex digest over parts."""
+    joined = "|".join(str(p or "").strip().lower() for p in parts)
+    return hashlib.sha256(joined.encode("utf-8")).hexdigest()
+
+
+# -------------------------------------------------------------------------
 # 1. DATABASE SETUP & CLEAN PROVIDER REGISTRY INITIALIZATION
 # -------------------------------------------------------------------------
 def get_db_connection():
@@ -99,9 +241,17 @@ def init_db():
         CREATE TABLE IF NOT EXISTS workspaces (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             name TEXT UNIQUE NOT NULL,
-            created_at TEXT NOT NULL
+            created_at TEXT NOT NULL,
+            tenant_id INTEGER DEFAULT 1
         )
     ''')
+    cursor.execute("PRAGMA table_info(workspaces)")
+    ws_existing_cols = {r[1] for r in cursor.fetchall()}
+    if "tenant_id" not in ws_existing_cols:
+        try:
+            cursor.execute("ALTER TABLE workspaces ADD COLUMN tenant_id INTEGER DEFAULT 1")
+        except Exception:
+            pass
     
     cursor.execute('''
         CREATE TABLE IF NOT EXISTS leads (
@@ -188,12 +338,46 @@ def init_db():
             timestamp TEXT
         )
     ''')
+
+    # Ensure leads has identity_key column
+    cursor.execute("PRAGMA table_info(leads)")
+    lead_existing_cols = {r[1] for r in cursor.fetchall()}
+    if "identity_key" not in lead_existing_cols:
+        try:
+            cursor.execute("ALTER TABLE leads ADD COLUMN identity_key TEXT DEFAULT ''")
+        except Exception:
+            pass
+
+    # Backfill missing identity_key on leads to satisfy UNIQUE(workspace_id, identity_key)
+    cursor.execute("PRAGMA table_info(leads)")
+    lead_existing_cols = {r[1] for r in cursor.fetchall()}
+    if "identity_key" in lead_existing_cols:
+        rows_to_backfill = cursor.execute(
+            "SELECT id, business_name, website, email, phone FROM leads WHERE identity_key IS NULL OR identity_key = ''"
+        ).fetchall()
+        for r in rows_to_backfill:
+            lid = r[0]
+            bname = r[1] or ""
+            web = r[2] or ""
+            em = r[3] or ""
+            ph = r[4] or ""
+            new_key = stable_hash(str(lid), bname, web, em, ph)
+            cursor.execute("UPDATE leads SET identity_key = ? WHERE id = ?", (new_key, lid))
+        if rows_to_backfill:
+            conn.commit()
+
     conn.commit()
     
     cursor.execute("SELECT COUNT(*) FROM workspaces")
     if cursor.fetchone()[0] == 0:
-        cursor.execute("INSERT INTO workspaces (name, created_at) VALUES (?, ?)", 
-                       ("Default Workspace", datetime.now().isoformat()))
+        cursor.execute("PRAGMA table_info(workspaces)")
+        ws_col_set = {r[1] for r in cursor.fetchall()}
+        if "tenant_id" in ws_col_set:
+            cursor.execute("INSERT INTO workspaces (name, tenant_id, created_at) VALUES (?, ?, ?)", 
+                           ("Default Workspace", 1, datetime.now().isoformat()))
+        else:
+            cursor.execute("INSERT INTO workspaces (name, created_at) VALUES (?, ?)", 
+                           ("Default Workspace", datetime.now().isoformat()))
         conn.commit()
         
     initial_providers = [
@@ -341,15 +525,32 @@ class SearchEngineManager:
 
         platform_queries = {
             "Google / Business Directory": f"{keyword} {location}",
+            "Google/Maps": f"{keyword} {location} maps",
             "Instagram": f"site:instagram.com {keyword} {location}",
-            "YouTube": f"site:youtube.com {keyword} {location}",
-            "LinkedIn": f"site:linkedin.com/company {keyword} {location}",
-            "Reddit": f"site:reddit.com {keyword} {location}",
             "Facebook": f"site:facebook.com {keyword} {location}",
-            "Telegram": f"site:t.me {keyword} {location}"
+            "LinkedIn": f"site:linkedin.com/company {keyword} {location}",
+            "YouTube": f"site:youtube.com {keyword} {location}",
+            "X": f"site:x.com {keyword} {location}",
+            "Reddit": f"site:reddit.com {keyword} {location}",
+            "Telegram": f"site:t.me {keyword} {location}",
+            "Business Directories": f"{keyword} {location} directory OR yellowpages",
+            "Websites and all other supported sources": f"{keyword} {location} official website"
         }
 
-        platforms_to_search = list(platform_queries.keys()) if selected_platform == "All Platforms" else [selected_platform]
+        core_platforms = [
+            "Google / Business Directory",
+            "Google/Maps",
+            "LinkedIn",
+            "Instagram",
+            "Facebook",
+            "YouTube",
+            "X",
+            "Reddit",
+            "Telegram",
+            "Business Directories",
+            "Websites and all other supported sources"
+        ]
+        platforms_to_search = core_platforms if selected_platform == "All Platforms" else [selected_platform]
         platform_results = {}
 
         for plat in platforms_to_search:
@@ -367,6 +568,77 @@ class SearchEngineManager:
             platform_results[plat] = formatted_leads
             
         return platform_results
+
+# -------------------------------------------------------------------------
+# WEBSITE INTELLIGENCE & DEEP CRAWLER
+# -------------------------------------------------------------------------
+class WebsiteIntelligence:
+    """
+    Autonomous website crawler and contact extractor.
+    Extracts verified emails (ignoring image/asset extensions), phone numbers,
+    and text summaries with strict SSRF guard validation.
+    """
+    @staticmethod
+    def crawl_and_extract(url: str):
+        default_res = {
+            "email": "",
+            "phone": "",
+            "email_status": "Unverified",
+            "email_confidence": 0.0,
+            "snippet": ""
+        }
+        url = (url or "").strip()
+        if not url:
+            return default_res
+        if not re.match(r"^https?://", url, re.I):
+            url = "https://" + url
+        if not is_safe_public_url(url):
+            logger.warning(f"WebsiteIntelligence: URL blocked by SSRF guard: {url}")
+            return default_res
+
+        try:
+            headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) UsmanResearchBot/2.0"}
+            resp = requests.get(url, headers=headers, timeout=10, allow_redirects=True)
+            if resp.status_code != 200 or not resp.text:
+                return default_res
+
+            soup = BeautifulSoup(resp.text, "html.parser")
+            for elem in soup(["script", "style", "noscript", "header", "footer", "nav"]):
+                elem.decompose()
+
+            text = soup.get_text(" ", strip=True)
+            snippet = clean_text(text, 500)
+
+            # Extract emails, excluding asset extensions
+            raw_emails = re.findall(r"[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}", resp.text)
+            ignored_exts = ('.png', '.jpg', '.jpeg', '.gif', '.svg', '.webp', '.css', '.js', '.ico')
+            valid_emails = [
+                e.strip().lower() for e in raw_emails
+                if not any(e.lower().endswith(ext) for ext in ignored_exts)
+                and len(e) < 80
+            ]
+            found_email = valid_emails[0] if valid_emails else ""
+
+            # Extract phone numbers
+            raw_phones = re.findall(r"(?:\+?\d{1,3}[-.\s]?)?\(?\d{3}\)?[-.\s]?\d{3}[-.\s]?\d{4}", text)
+            valid_phones = [normalize_phone(p) for p in raw_phones if len(re.sub(r'\D', '', p)) >= 10]
+            found_phone = valid_phones[0] if valid_phones else ""
+
+            return {
+                "email": found_email,
+                "phone": found_phone,
+                "email_status": "Verified" if found_email else "Unverified",
+                "email_confidence": 0.85 if found_email else 0.0,
+                "snippet": snippet
+            }
+        except Exception as e:
+            logger.warning(f"WebsiteIntelligence crawl failed for {url}: {e}")
+            return default_res
+
+    @classmethod
+    def deep_crawl_contact_info(cls, url: str):
+        return cls.crawl_and_extract(url)
+
 
 # -------------------------------------------------------------------------
 # FEATURE #18: REAL AI-POWERED LEAD SCORING & QUALIFICATION ENGINE
@@ -567,6 +839,40 @@ class BuyingIntentEngine:
                 FOREIGN KEY(lead_id) REFERENCES leads(id) ON DELETE CASCADE
             )
         """)
+
+        # Non-destructive migration for existing tables missing new columns
+        cursor.execute("PRAGMA table_info(buying_intent_analysis)")
+        existing_cols = {row[1] for row in cursor.fetchall()}
+        intent_col_defs = [
+            ("buying_intent_score", "INTEGER DEFAULT 0"),
+            ("buying_intent_level", "TEXT DEFAULT '🔴 VERY LOW INTENT'"),
+            ("intent_categories", "TEXT DEFAULT '[]'"),
+            ("positive_signals", "TEXT DEFAULT '[]'"),
+            ("negative_signals", "TEXT DEFAULT '[]'"),
+            ("potential_trigger", "TEXT DEFAULT ''"),
+            ("potential_need", "TEXT DEFAULT ''"),
+            ("observed_signals", "TEXT DEFAULT '[]'"),
+            ("inferred_signals", "TEXT DEFAULT '[]'"),
+            ("unknown_signals", "TEXT DEFAULT '[]'"),
+            ("supporting_evidence", "TEXT DEFAULT '[]'"),
+            ("missing_evidence", "TEXT DEFAULT '[]'"),
+            ("recommended_action", "TEXT DEFAULT ''"),
+            ("intent_confidence", "REAL DEFAULT 0.0"),
+            ("ai_consensus", "REAL DEFAULT 0.0"),
+            ("supporting_providers", "TEXT DEFAULT '[]'"),
+            ("conflicting_providers", "TEXT DEFAULT '[]'"),
+            ("master_judge", "TEXT DEFAULT ''"),
+            ("analysis_mode", "TEXT DEFAULT 'BALANCED MODE'"),
+            ("source_fingerprint", "TEXT DEFAULT ''"),
+            ("analyzed_at", "TEXT DEFAULT ''"),
+            ("updated_at", "TEXT DEFAULT ''")
+        ]
+        for col_name, col_type in intent_col_defs:
+            if col_name not in existing_cols:
+                try:
+                    cursor.execute(f"ALTER TABLE buying_intent_analysis ADD COLUMN {col_name} {col_type}")
+                except Exception as e:
+                    logger.warning(f"Could not add column {col_name} to buying_intent_analysis: {e}")
 
         conn.commit()
         conn.close()
@@ -3372,7 +3678,7 @@ Return ONLY valid JSON:
                     updated_at = ?
 
                 WHERE lead_id = ?
-            """, values[1:] + (int(lead_id),))
+            """, values[1:-1] + (int(lead_id),))
 
         else:
             conn.execute("""
@@ -4566,7 +4872,7 @@ Return ONLY valid JSON:
                     updated_at = ?
                 WHERE lead_id = ?
                 """,
-                values[1:] + (
+                values[1:-1] + (
                     int(lead_id),
                 )
             )
@@ -6470,7 +6776,7 @@ Return ONLY valid JSON:
 
                 WHERE lead_id = ?
                 """,
-                values[1:] + (
+                values[1:-1] + (
                     int(lead_id),
                 )
             )
@@ -6533,13 +6839,12 @@ Return ONLY valid JSON:
                     ?, ?,
                     ?, ?,
                     ?, ?,
-                    ?, ?,
                     ?, ?, ?, ?, ?, ?, ?, ?,
                     ?, ?, ?, ?, ?,
                     ?, ?
                 )
                 """,
-                values + (now,)
+                values
             )
 
         conn.commit()
@@ -6632,6 +6937,25 @@ class LeadDeduplicationEngine:
             )
         """)
 
+        # Non-destructive migration for existing duplicate_clusters missing columns
+        cursor = conn.cursor()
+        cursor.execute("PRAGMA table_info(duplicate_clusters)")
+        existing_cluster_cols = {row[1] for row in cursor.fetchall()}
+        cluster_col_defs = [
+            ("duplicate_lead_ids", "TEXT DEFAULT '[]'"),
+            ("similarity_score", "REAL DEFAULT 0.0"),
+            ("match_reasons", "TEXT DEFAULT '[]'"),
+            ("conflicting_fields", "TEXT DEFAULT '[]'"),
+            ("merged", "INTEGER DEFAULT 0"),
+            ("updated_at", "TEXT DEFAULT ''")
+        ]
+        for col_name, col_type in cluster_col_defs:
+            if col_name not in existing_cluster_cols:
+                try:
+                    cursor.execute(f"ALTER TABLE duplicate_clusters ADD COLUMN {col_name} {col_type}")
+                except Exception as e:
+                    logger.warning(f"Could not add column {col_name} to duplicate_clusters: {e}")
+
         conn.execute("""
             CREATE TABLE IF NOT EXISTS deduplication_history (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -6653,6 +6977,20 @@ class LeadDeduplicationEngine:
         if value is None:
             return ""
         return str(value).strip()
+
+    @staticmethod
+    def dedupe(items):
+        result = []
+        seen = set()
+        for item in items or []:
+            text = str(item).strip()
+            if not text:
+                continue
+            key = text.lower()
+            if key not in seen:
+                seen.add(key)
+                result.append(text)
+        return result
 
     @staticmethod
     def normalize_text(value):
@@ -9608,7 +9946,7 @@ Return ONLY valid JSON:
                     updated_at = ?
                 WHERE lead_id = ?
                 """,
-                values[1:] + (
+                values[1:-1] + (
                     int(lead_id),
                 )
             )
@@ -9649,7 +9987,7 @@ Return ONLY valid JSON:
                     ?, ?, ?, ?, ?, ?, ?,
                     ?, ?, ?, ?, ?, ?, ?,
                     ?, ?, ?, ?, ?, ?, ?,
-                    ?, ?, ?, ?, ?, ?
+                    ?, ?, ?, ?, ?
                 )
                 """,
                 values
@@ -10278,6 +10616,19 @@ def init_premium_schema():
     conn = get_db_connection()
     try:
         ddl = [
+            """CREATE TABLE IF NOT EXISTS evidence (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                lead_id INTEGER NOT NULL,
+                source_type TEXT,
+                source_url TEXT,
+                title TEXT,
+                snippet TEXT,
+                claim TEXT,
+                claim_type TEXT DEFAULT 'OBSERVED',
+                confidence REAL DEFAULT 0,
+                content_hash TEXT,
+                created_at TEXT NOT NULL
+            )""",
             """CREATE TABLE IF NOT EXISTS premium_feature_runs (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 workspace_id INTEGER,
@@ -10492,6 +10843,8 @@ def premium_fetch_page(url, timeout=18):
     url = (url or "").strip()
     if not url: return {"success":False,"error":"No URL"}
     if not re.match(r"^https?://", url, re.I): url = "https://" + url
+    if not is_safe_public_url(url):
+        return {"success": False, "error": "Blocked by SSRF policy (is_safe_public_url)"}
     try:
         t0=time.perf_counter()
         r=requests.get(url,timeout=timeout,headers={"User-Agent":"USMAN-Luxury-Research/1.0"},allow_redirects=True)
@@ -15469,7 +15822,11 @@ def render_settings_page():
         if new_ws:
             conn = get_db_connection()
             try:
-                conn.execute("INSERT INTO workspaces (name, created_at) VALUES (?, ?)", (new_ws, datetime.now().isoformat()))
+                ws_cols = {r[1] for r in conn.execute("PRAGMA table_info(workspaces)").fetchall()}
+                if "tenant_id" in ws_cols:
+                    conn.execute("INSERT INTO workspaces (name, tenant_id, created_at) VALUES (?, ?, ?)", (new_ws, 1, datetime.now().isoformat()))
+                else:
+                    conn.execute("INSERT INTO workspaces (name, created_at) VALUES (?, ?)", (new_ws, datetime.now().isoformat()))
                 conn.commit()
                 st.success(f"Workspace '{new_ws}' created successfully!")
                 st.rerun()
@@ -15726,17 +16083,56 @@ elif menu == "🔍 Lead Discovery & Web Evidence":
                             if dummy_score < min_lead_score:
                                 continue
 
-                            cursor.execute('''
-                                INSERT INTO leads (
-                                    workspace_id, business_name, website, source, source_url, 
-                                    search_keyword, search_location, date_discovered, industry,
-                                    email, email_status, email_confidence, phone, ai_summary, crm_stage, lead_score, created_at, updated_at
-                                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'Not Contacted', ?, ?, ?)
-                            ''', (
-                                active_ws_id, r.get("business_name"), website_url, plat_name, r.get("snippet", ""),
-                                keyword, current_city, now, industry, crawl_data["email"], crawl_data["email_status"],
-                                crawl_data["email_confidence"], crawl_data["phone"], f"Intent: {ai_intent_service} | " + crawl_data["snippet"], dummy_score, now, now
-                            ))
+                            ident_key = stable_hash(
+                                str(active_ws_id),
+                                r.get("business_name", ""),
+                                website_url,
+                                crawl_data.get("email", ""),
+                                crawl_data.get("phone", "")
+                            )
+                            cursor.execute("PRAGMA table_info(leads)")
+                            l_cols = {c[1] for c in cursor.fetchall()}
+                            if "identity_key" in l_cols:
+                                existing_lead = cursor.execute(
+                                    "SELECT id FROM leads WHERE workspace_id = ? AND identity_key = ? LIMIT 1",
+                                    (active_ws_id, ident_key)
+                                ).fetchone()
+                                if existing_lead:
+                                    cursor.execute('''
+                                        UPDATE leads SET 
+                                            updated_at = ?,
+                                            email = COALESCE(NULLIF(email, ''), ?),
+                                            email_status = COALESCE(NULLIF(email_status, ''), ?),
+                                            email_confidence = CASE WHEN email IS NULL OR email = '' THEN ? ELSE email_confidence END,
+                                            phone = COALESCE(NULLIF(phone, ''), ?)
+                                        WHERE id = ?
+                                    ''', (now, crawl_data["email"], crawl_data["email_status"], crawl_data["email_confidence"], crawl_data["phone"], existing_lead[0]))
+                                    conn.commit()
+                                    continue
+
+                                cursor.execute('''
+                                    INSERT INTO leads (
+                                        workspace_id, business_name, website, source, source_url, 
+                                        search_keyword, search_location, date_discovered, industry,
+                                        email, email_status, email_confidence, phone, ai_summary, crm_stage, lead_score, identity_key, created_at, updated_at
+                                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'Not Contacted', ?, ?, ?, ?)
+                                ''', (
+                                    active_ws_id, r.get("business_name"), website_url, plat_name, r.get("snippet", ""),
+                                    keyword, current_city, now, industry, crawl_data["email"], crawl_data["email_status"],
+                                    crawl_data["email_confidence"], crawl_data["phone"], f"Intent: {ai_intent_service} | " + crawl_data["snippet"], dummy_score, ident_key, now, now
+                                ))
+                            else:
+                                cursor.execute('''
+                                    INSERT INTO leads (
+                                        workspace_id, business_name, website, source, source_url, 
+                                        search_keyword, search_location, date_discovered, industry,
+                                        email, email_status, email_confidence, phone, ai_summary, crm_stage, lead_score, created_at, updated_at
+                                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'Not Contacted', ?, ?, ?)
+                                ''', (
+                                    active_ws_id, r.get("business_name"), website_url, plat_name, r.get("snippet", ""),
+                                    keyword, current_city, now, industry, crawl_data["email"], crawl_data["email_status"],
+                                    crawl_data["email_confidence"], crawl_data["phone"], f"Intent: {ai_intent_service} | " + crawl_data["snippet"], dummy_score, now, now
+                                ))
                             conn.commit()
                             total_added += 1
                             
