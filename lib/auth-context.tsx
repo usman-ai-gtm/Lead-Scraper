@@ -11,6 +11,7 @@ interface AuthContextType {
   loading: boolean;
   login: (email: string, pass: string) => Promise<void>;
   signup: (data: { email: string; pass: string; fullName: string; company?: string; workspaceName?: string }) => Promise<void>;
+  changePassword: (oldPass: string, newPass: string) => Promise<void>;
   logout: () => void;
   switchWorkspace: (workspaceId: number) => void;
 }
@@ -22,6 +23,7 @@ const AuthContext = createContext<AuthContextType>({
   loading: true,
   login: async () => {},
   signup: async () => {},
+  changePassword: async () => {},
   logout: () => {},
   switchWorkspace: () => {},
 });
@@ -131,6 +133,18 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     localStorage.setItem("usman_gtm_workspaces", JSON.stringify([newWs]));
   };
 
+  const changePassword = async (oldPass: string, newPass: string) => {
+    await api.post("/auth/change-password", {
+      old_password: oldPass,
+      new_password: newPass,
+    });
+    if (user) {
+      const updatedUser = { ...user, must_change_password: false };
+      setUser(updatedUser);
+      localStorage.setItem("usman_gtm_user", JSON.stringify(updatedUser));
+    }
+  };
+
   const logout = () => {
     localStorage.removeItem("usman_gtm_token");
     localStorage.removeItem("usman_gtm_workspace_id");
@@ -158,6 +172,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         loading,
         login,
         signup,
+        changePassword,
         logout,
         switchWorkspace,
       }}

@@ -35,7 +35,11 @@ def update_deal_stage(
     req: StageUpdateRequest,
     current_user: Dict[str, Any] = Depends(get_current_user)
 ):
-    CRMService.update_deal_stage(deal_id, req.stage)
+    user_role = str(current_user.get("role", "USER")).upper()
+    ws_id = None if user_role == "ADMIN" else int(current_user.get("workspace_id", 1))
+    success = CRMService.update_deal_stage(deal_id, req.stage, workspace_id=ws_id)
+    if not success:
+        raise HTTPException(status_code=404, detail="Deal not found or access denied")
     return {"status": "success", "message": f"Deal #{deal_id} moved to {req.stage}"}
 
 @router.get("/companies")

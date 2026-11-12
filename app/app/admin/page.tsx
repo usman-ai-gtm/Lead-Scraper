@@ -3,6 +3,7 @@
 import React, { useState, useEffect } from "react";
 import Link from "next/link";
 import { api } from "@/lib/api";
+import { ClientProvisioningSection } from "@/components/admin/ClientProvisioningSection";
 import {
   Shield, Users, Activity, Lock, Database, RefreshCw,
   CheckCircle2, AlertTriangle, Key, Terminal, Server
@@ -109,6 +110,9 @@ export default function AdminPage() {
           <div className="text-[10px] text-purple-400 mt-1">Zero plaintext keys</div>
         </div>
       </div>
+
+      {/* 50-CLIENT SEATS PROVISIONING & WORKSPACE ISOLATION */}
+      <ClientProvisioningSection />
 
       {/* USER MANAGEMENT TABLE */}
       <div className="rounded-2xl border border-white/[0.08] bg-[#0c1017] p-6 space-y-4">

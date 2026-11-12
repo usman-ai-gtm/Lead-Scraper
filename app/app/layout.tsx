@@ -5,6 +5,7 @@ import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { useAuth } from "@/lib/auth-context";
 import { api } from "@/lib/api";
+import { ForcedPasswordModal } from "@/components/auth/ForcedPasswordModal";
 import {
   LayoutDashboard, Search, Sparkles, Mail, Database, LineChart,
   Users2, BarChart3, Bot, ChevronDown, Bell, Settings, LogOut,
@@ -35,7 +36,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
     if (!loading && !user) {
       const token = typeof window !== "undefined" ? localStorage.getItem("usman_gtm_token") : null;
       if (!token) {
-        router.push("/signup");
+        router.push("/login");
       }
     }
   }, [user, loading, router]);
@@ -352,6 +353,9 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
           {children}
         </main>
       </div>
+
+      {/* MANDATORY FIRST-LOGIN PASSWORD ROTATION MODAL */}
+      <ForcedPasswordModal />
 
       {/* COMMAND PALETTE MODAL (Ctrl + K) */}
       {commandPaletteOpen && (

@@ -12,7 +12,7 @@ from datetime import datetime, timezone, timedelta
 from backend.app.schemas.auth import (
     LoginRequest, SignupRequest, TokenResponse, UserOut, WorkspaceOut,
     ForgotPasswordRequest, ResetPasswordRequest, GoogleVerifyRequest,
-    IdealCustomerProfileSchema
+    IdealCustomerProfileSchema, ChangePasswordRequest
 )
 from backend.app.core.database import get_db_connection, execute_write
 from backend.app.core.security import hash_password, verify_password, create_access_token, get_current_user
@@ -40,6 +40,12 @@ def login(req: LoginRequest):
         )
     
     user = dict(user_row)
+    if user.get("status") in ["SUSPENDED", "REVOKED"] or user.get("is_active") == 0 or user.get("active") == 0:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Your client account has been suspended or deactivated. Please contact your administrator.",
+        )
+
     password_hash_val = user.get("hashed_password") or user.get("password_hash")
     if not password_hash_val or not verify_password(req.password, password_hash_val):
         raise HTTPException(
@@ -52,12 +58,15 @@ def login(req: LoginRequest):
     now_iso = datetime.now(timezone.utc).isoformat()
     execute_write("UPDATE users SET last_login = ?, updated_at = ? WHERE id = ?", (now_iso, now_iso, user["id"]))
 
+    must_change = bool(user.get("must_change_password", 0))
+
     token_data = {
         "sub": str(user["id"]),
         "email": user["email"],
-        "role": user.get("role", "ADMIN"),
+        "role": user.get("role", "USER"),
         "workspace_id": user.get("workspace_id", 1),
-        "tenant_id": user.get("tenant_id", 1)
+        "tenant_id": user.get("tenant_id", 1),
+        "must_change_password": must_change
     }
     access_token = create_access_token(token_data)
 
@@ -66,98 +75,60 @@ def login(req: LoginRequest):
         email=user["email"],
         full_name=user.get("full_name") or "User",
         company=user.get("company"),
-        role=user.get("role", "ADMIN"),
+        role=user.get("role", "USER"),
         workspace_id=user.get("workspace_id", 1),
-        tenant_id=user.get("tenant_id", 1)
+        tenant_id=user.get("tenant_id", 1),
+        must_change_password=must_change,
+        status=user.get("status", "ACTIVE")
     )
     return TokenResponse(access_token=access_token, user=user_out)
 
 @router.post("/signup", response_model=TokenResponse)
 def signup(req: SignupRequest):
-    clean_email = req.email.strip().lower()
-    if not clean_email or "@" not in clean_email:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="A valid email address is required")
+    """
+    Public self-registration is strictly DISABLED.
+    All accounts must be provisioned by the system administrator.
+    """
+    raise HTTPException(
+        status_code=status.HTTP_403_FORBIDDEN,
+        detail="Public registration is disabled. USMAN AI GTM is an invitation-only client platform. Please contact your administrator to provision your client account."
+    )
 
-    if len(req.password) < 8:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Password must be at least 8 characters long")
-
+@router.post("/change-password")
+def change_password(
+    req: ChangePasswordRequest,
+    current_user: Dict[str, Any] = Depends(get_current_user)
+):
+    """
+    Allows authenticated client to change their temporary password at first login.
+    Enforces password complexity (min 8 chars) and clears must_change_password flag.
+    """
+    user_id = int(current_user["sub"])
     conn = get_db_connection()
-    existing = conn.execute("SELECT id FROM users WHERE LOWER(email) = ?", (clean_email,)).fetchone()
-    if existing:
-        conn.close()
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="An account with this email address already exists")
-
-    now_iso = datetime.now(timezone.utc).isoformat()
-    hashed_pwd = hash_password(req.password)
-
-    # 1. Create Workspace for user with conflict protection
-    base_ws_name = req.workspace_name or f"{req.full_name}'s Workspace"
-    cur = conn.cursor()
-    # Check if workspace name exists, ensure uniqueness
-    ws_name = base_ws_name
-    ws_exists = cur.execute("SELECT id FROM workspaces WHERE name = ?", (ws_name,)).fetchone()
-    if ws_exists:
-        ws_name = f"{base_ws_name} ({secrets.token_hex(2)})"
-    
-    cur.execute('''
-        INSERT INTO workspaces (tenant_id, name, description, created_at)
-        VALUES (1, ?, 'Personal Workspace', ?)
-    ''', (ws_name, now_iso))
-    ws_id = cur.lastrowid
-
-    # Initialize default Ideal Customer Profile for new workspace
-    cur.execute('''
-        INSERT OR IGNORE INTO ideal_customer_profiles (
-            workspace_id, business_name, offering, website, target_industries,
-            target_company_sizes, target_locations, target_roles, problems_solved,
-            excluded_industries, additional_instructions, updated_at
-        ) VALUES (
-            ?, ?, ?, ?,
-            'Healthcare, Dental Clinics, Real Estate, E-Commerce, Digital Agencies, Consulting',
-            '1-10, 11-50, 51-200',
-            'Pakistan, UAE, Saudi Arabia, UK, USA, Global',
-            'Founder, Managing Director, Practice Owner, Operations Manager, Marketing Director',
-            'Eliminating spreadsheet errors, saving 15+ hours weekly, automated reporting, lead generation',
-            'Adult, Gambling, Multi-level Marketing',
-            'Professional, honest, useful, and evidence-based B2B services.',
-            ?
-        )
-    ''', (
-        ws_id,
-        req.company or f"{req.full_name}'s Enterprise",
-        "Excel automation, custom interactive Excel dashboards, Power BI executive dashboards, data cleaning & restructuring, automated business reporting, and supervised B2B lead generation.",
-        "https://usmanai.com",
-        now_iso
-    ))
-
-    # 2. Create User
-    cur.execute('''
-        INSERT INTO users (tenant_id, workspace_id, username, email, hashed_password, password_hash, full_name, company, role, status, is_active, active, created_at, updated_at)
-        VALUES (1, ?, ?, ?, ?, ?, ?, ?, 'ADMIN', 'ACTIVE', 1, 1, ?, ?)
-    ''', (ws_id, clean_email, clean_email, hashed_pwd, hashed_pwd, req.full_name.strip(), req.company, now_iso, now_iso))
-    user_id = cur.lastrowid
-    conn.commit()
+    user_row = conn.execute("SELECT * FROM users WHERE id = ?", (user_id,)).fetchone()
     conn.close()
 
-    token_data = {
-        "sub": str(user_id),
-        "email": clean_email,
-        "role": "ADMIN",
-        "workspace_id": ws_id,
-        "tenant_id": 1
-    }
-    access_token = create_access_token(token_data)
+    if not user_row:
+        raise HTTPException(status_code=404, detail="User account not found")
 
-    user_out = UserOut(
-        id=user_id,
-        email=clean_email,
-        full_name=req.full_name.strip(),
-        company=req.company,
-        role="ADMIN",
-        workspace_id=ws_id,
-        tenant_id=1
+    user = dict(user_row)
+    current_hash = user.get("hashed_password") or user.get("password_hash")
+    if not current_hash or not verify_password(req.old_password, current_hash):
+        raise HTTPException(status_code=400, detail="Current password is incorrect")
+
+    if len(req.new_password) < 8:
+        raise HTTPException(status_code=400, detail="New password must be at least 8 characters long")
+
+    if req.old_password == req.new_password:
+        raise HTTPException(status_code=400, detail="New password cannot be the same as your temporary password")
+
+    new_hash = hash_password(req.new_password)
+    now_iso = datetime.now(timezone.utc).isoformat()
+    execute_write(
+        "UPDATE users SET hashed_password = ?, password_hash = ?, must_change_password = 0, updated_at = ? WHERE id = ?",
+        (new_hash, new_hash, now_iso, user_id)
     )
-    return TokenResponse(access_token=access_token, user=user_out)
+    return {"status": "success", "message": "Password changed successfully. Your permanent credentials are now active."}
 
 @router.post("/google-verify", response_model=TokenResponse)
 def verify_google_oauth_identity(req: GoogleVerifyRequest):
@@ -374,9 +345,11 @@ def get_current_user_profile(user_payload: Dict[str, Any] = Depends(get_current_
         email=user["email"],
         full_name=user.get("full_name") or "Administrator",
         company=user.get("company"),
-        role=user.get("role", "ADMIN"),
+        role=user.get("role", "USER"),
         workspace_id=user.get("workspace_id", 1),
-        tenant_id=user.get("tenant_id", 1)
+        tenant_id=user.get("tenant_id", 1),
+        must_change_password=bool(user.get("must_change_password", 0)),
+        status=user.get("status", "ACTIVE")
     )
 
 @router.get("/workspaces", response_model=List[WorkspaceOut])

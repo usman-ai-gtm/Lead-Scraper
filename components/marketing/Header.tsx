@@ -51,15 +51,9 @@ export const Header: React.FC = () => {
         <div className="hidden sm:flex items-center gap-4">
           <Link
             href="/login"
-            className="rounded-lg px-4 py-2.5 text-sm font-semibold text-slate-300 hover:text-white transition-colors"
-          >
-            Login
-          </Link>
-          <Link
-            href="/signup"
             className="group relative inline-flex items-center gap-2 overflow-hidden rounded-xl bg-gradient-to-r from-blue-600 via-indigo-600 to-purple-600 px-5 py-2.5 text-sm font-semibold text-white shadow-glow-sm transition-all hover:scale-[1.02] hover:shadow-glow-md"
           >
-            <span>Create an account</span>
+            <span>Client Sign In</span>
             <ArrowRight className="h-4 w-4 transition-transform group-hover:translate-x-1" />
           </Link>
         </div>
@@ -125,16 +119,9 @@ export const Header: React.FC = () => {
             <Link
               href="/login"
               onClick={() => setMobileMenuOpen(false)}
-              className="w-full text-center py-2.5 text-sm font-semibold text-slate-300 border border-white/10 rounded-xl"
-            >
-              Login
-            </Link>
-            <Link
-              href="/signup"
-              onClick={() => setMobileMenuOpen(false)}
               className="w-full text-center py-2.5 text-sm font-semibold text-white bg-blue-600 rounded-xl"
             >
-              Create an account
+              Client Sign In
             </Link>
           </div>
         </div>

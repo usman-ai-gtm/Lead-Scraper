@@ -172,10 +172,10 @@ export default function HomePage() {
           {/* CTA Buttons */}
           <div className="flex flex-col sm:flex-row items-center justify-center gap-4 mb-16">
             <Link
-              href="/signup"
+              href="/login"
               className="w-full sm:w-auto inline-flex items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-blue-600 via-indigo-600 to-purple-600 px-8 py-4 text-base font-bold text-white shadow-glow-md transition-all hover:scale-105 hover:shadow-glow-purple"
             >
-              <span>Create an account</span>
+              <span>Sign In to Dashboard</span>
               <ArrowRight className="h-5 w-5" />
             </Link>
             <Link
@@ -478,10 +478,10 @@ export default function HomePage() {
           </p>
           <div className="flex flex-col sm:flex-row items-center justify-center gap-4">
             <Link
-              href="/signup"
+              href="/login"
               className="w-full sm:w-auto inline-flex items-center justify-center gap-2 rounded-xl bg-blue-600 px-8 py-4 text-base font-bold text-white shadow-glow-md hover:bg-blue-500 hover:scale-105 transition-all"
             >
-              <span>Get Started Free</span>
+              <span>Sign In to Dashboard</span>
               <ArrowRight className="h-5 w-5" />
             </Link>
             <Link

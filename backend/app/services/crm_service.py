@@ -109,13 +109,24 @@ class CRMService:
         return execute_write(sql, params)
 
     @classmethod
-    def update_deal_stage(cls, deal_id: int, new_stage: str) -> bool:
+    def update_deal_stage(cls, deal_id: int, new_stage: str, workspace_id: Optional[int] = None) -> bool:
         stage = new_stage.upper()
         now_iso = datetime.now(timezone.utc).isoformat()
-        execute_write('''
-            UPDATE crm_deals SET stage = ?, updated_at = ? WHERE id = ?
-        ''', (stage, now_iso, deal_id))
-        return True
+        if workspace_id is not None:
+            conn = get_db_connection()
+            cur = conn.cursor()
+            cur.execute('''
+                UPDATE crm_deals SET stage = ?, updated_at = ? WHERE id = ? AND workspace_id = ?
+            ''', (stage, now_iso, int(deal_id), int(workspace_id)))
+            affected = cur.rowcount
+            conn.commit()
+            conn.close()
+            return affected > 0
+        else:
+            execute_write('''
+                UPDATE crm_deals SET stage = ?, updated_at = ? WHERE id = ?
+            ''', (stage, now_iso, int(deal_id)))
+            return True
 
     @classmethod
     def get_companies(cls, workspace_id: int = 1) -> List[Dict[str, Any]]:

@@ -1,63 +1,13 @@
 "use client";
 
-import React, { useState } from "react";
+import React from "react";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
-import { useAuth } from "@/lib/auth-context";
-import { Sparkles, Lock, Mail, User, Building2, ArrowRight, AlertCircle, CheckSquare, Square } from "lucide-react";
+import { Sparkles, Shield, ArrowRight, Lock, CheckCircle2, Mail } from "lucide-react";
 
 export default function SignupPage() {
-  const router = useRouter();
-  const { signup } = useAuth();
-  const [form, setForm] = useState({
-    fullName: "",
-    email: "",
-    workspaceName: "",
-    password: "",
-    confirmPassword: "",
-  });
-  const [termsAgreed, setTermsAgreed] = useState(false);
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setError(null);
-
-    if (form.password.length < 8) {
-      setError("Password must be at least 8 characters long");
-      return;
-    }
-
-    if (form.password !== form.confirmPassword) {
-      setError("Passwords do not match. Please verify your password confirmation.");
-      return;
-    }
-
-    if (!termsAgreed) {
-      setError("Please agree to the Terms of Service and Privacy Policy to create your account.");
-      return;
-    }
-
-    setLoading(true);
-    try {
-      await signup({
-        fullName: form.fullName.trim(),
-        email: form.email.trim().toLowerCase(),
-        workspaceName: form.workspaceName.trim() || `${form.fullName.trim()}'s Workspace`,
-        pass: form.password,
-      });
-      router.push("/app");
-    } catch (err: any) {
-      setError(err.message || "Failed to create account. Please try again.");
-    } finally {
-      setLoading(false);
-    }
-  };
-
   return (
     <div className="min-h-screen bg-[#07090e] text-slate-100 flex flex-col justify-center items-center px-4 py-12 relative">
-      <div className="absolute top-1/4 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[600px] h-[350px] bg-purple-600/15 rounded-full blur-[120px] pointer-events-none" />
+      <div className="absolute top-1/4 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[600px] h-[350px] bg-blue-600/15 rounded-full blur-[120px] pointer-events-none" />
 
       <div className="w-full max-w-md relative z-10">
         <div className="text-center mb-8">
@@ -70,141 +20,64 @@ export default function SignupPage() {
                 USMAN <span className="text-blue-500 font-extrabold">AI GTM</span>
               </div>
               <div className="text-[10px] font-medium uppercase tracking-widest text-slate-400">
-                Enterprise Revenue Operations
+                Enterprise B2B Lead Extraction
               </div>
             </div>
           </Link>
         </div>
 
-        <div className="rounded-2xl border border-white/[0.08] bg-[#0c1017]/90 p-8 shadow-glass backdrop-blur-xl">
-          <h1 className="text-2xl font-bold text-white mb-2 text-center">Create an account</h1>
-          <p className="text-xs text-slate-400 text-center mb-6">
-            Instant access to verified leads, multi-channel outreach, and AI intelligence
-          </p>
+        <div className="rounded-2xl border border-white/[0.08] bg-[#0c1017]/95 p-8 shadow-glass backdrop-blur-xl text-center space-y-6">
+          <div className="inline-flex h-16 w-16 items-center justify-center rounded-2xl bg-blue-500/10 border border-blue-500/20 text-blue-400 mx-auto">
+            <Shield className="h-8 w-8" />
+          </div>
 
-          {error && (
-            <div className="mb-6 p-3 rounded-xl bg-rose-500/10 border border-rose-500/20 text-rose-400 text-xs flex items-center gap-2">
-              <AlertCircle className="h-4 w-4 shrink-0" />
-              <span>{error}</span>
+          <div>
+            <div className="inline-block px-2.5 py-0.5 rounded text-[11px] font-bold uppercase tracking-wider text-blue-400 bg-blue-500/10 border border-blue-500/20 mb-2">
+              Invitation-Only Platform
             </div>
-          )}
+            <h1 className="text-2xl font-bold text-white mb-2">Client Workspace Access</h1>
+            <p className="text-xs text-slate-400 leading-relaxed max-w-sm mx-auto">
+              To guarantee strict multi-tenant isolation, data privacy, and dedicated search capacity, public registration is closed.
+            </p>
+          </div>
 
-          {/* Secure Registration Form */}
-          <form onSubmit={handleSubmit} className="space-y-3.5">
-            <div>
-              <label className="block text-xs font-semibold text-slate-300 mb-1">Full Name</label>
-              <div className="relative">
-                <User className="absolute left-3.5 top-3 h-4 w-4 text-slate-500" />
-                <input
-                  type="text"
-                  required
-                  value={form.fullName}
-                  onChange={(e) => setForm({ ...form, fullName: e.target.value })}
-                  className="w-full rounded-xl border border-white/10 bg-white/[0.03] pl-10 pr-4 py-2.5 text-sm text-white placeholder-slate-500 focus:border-blue-500 focus:outline-none"
-                  placeholder="Muhammad Usman"
-                />
-              </div>
+          <div className="p-4 rounded-xl bg-white/[0.02] border border-white/[0.06] text-left space-y-2.5">
+            <div className="text-xs font-semibold text-slate-300">How to access your workspace:</div>
+            <div className="flex items-start gap-2 text-xs text-slate-400">
+              <CheckCircle2 className="h-4 w-4 text-emerald-400 shrink-0 mt-0.5" />
+              <span><strong>Already have client credentials?</strong> Sign in with your temporary password and update it on your first login.</span>
             </div>
-
-            <div>
-              <label className="block text-xs font-semibold text-slate-300 mb-1">Work Email</label>
-              <div className="relative">
-                <Mail className="absolute left-3.5 top-3 h-4 w-4 text-slate-500" />
-                <input
-                  type="email"
-                  required
-                  value={form.email}
-                  onChange={(e) => setForm({ ...form, email: e.target.value })}
-                  className="w-full rounded-xl border border-white/10 bg-white/[0.03] pl-10 pr-4 py-2.5 text-sm text-white placeholder-slate-500 focus:border-blue-500 focus:outline-none"
-                  placeholder="name@company.com"
-                />
-              </div>
+            <div className="flex items-start gap-2 text-xs text-slate-400">
+              <CheckCircle2 className="h-4 w-4 text-emerald-400 shrink-0 mt-0.5" />
+              <span><strong>Need a new client seat?</strong> Contact your account administrator to provision your isolated workspace (up to 50 active client seats).</span>
             </div>
+          </div>
 
-            <div>
-              <label className="block text-xs font-semibold text-slate-300 mb-1">Workspace Name</label>
-              <div className="relative">
-                <Building2 className="absolute left-3.5 top-3 h-4 w-4 text-slate-500" />
-                <input
-                  type="text"
-                  value={form.workspaceName}
-                  onChange={(e) => setForm({ ...form, workspaceName: e.target.value })}
-                  className="w-full rounded-xl border border-white/10 bg-white/[0.03] pl-10 pr-3.5 py-2.5 text-sm text-white placeholder-slate-500 focus:border-blue-500 focus:outline-none"
-                  placeholder="My Sales Workspace"
-                />
-              </div>
-            </div>
-
-            <div>
-              <label className="block text-xs font-semibold text-slate-300 mb-1">Password</label>
-              <div className="relative">
-                <Lock className="absolute left-3.5 top-3 h-4 w-4 text-slate-500" />
-                <input
-                  type="password"
-                  required
-                  value={form.password}
-                  onChange={(e) => setForm({ ...form, password: e.target.value })}
-                  className="w-full rounded-xl border border-white/10 bg-white/[0.03] pl-10 pr-4 py-2.5 text-sm text-white placeholder-slate-500 focus:border-blue-500 focus:outline-none"
-                  placeholder="Minimum 8 characters"
-                />
-              </div>
-            </div>
-
-            <div>
-              <label className="block text-xs font-semibold text-slate-300 mb-1">Confirm Password</label>
-              <div className="relative">
-                <Lock className="absolute left-3.5 top-3 h-4 w-4 text-slate-500" />
-                <input
-                  type="password"
-                  required
-                  value={form.confirmPassword}
-                  onChange={(e) => setForm({ ...form, confirmPassword: e.target.value })}
-                  className="w-full rounded-xl border border-white/10 bg-white/[0.03] pl-10 pr-4 py-2.5 text-sm text-white placeholder-slate-500 focus:border-blue-500 focus:outline-none"
-                  placeholder="Repeat your password"
-                />
-              </div>
-            </div>
-
-            {/* Terms and Privacy Consent Checkbox */}
-            <div className="pt-1">
-              <label className="flex items-start gap-2.5 cursor-pointer text-xs text-slate-400">
-                <input
-                  type="checkbox"
-                  checked={termsAgreed}
-                  onChange={(e) => setTermsAgreed(e.target.checked)}
-                  className="mt-0.5 h-4 w-4 rounded border-white/20 bg-white/5 text-blue-600 focus:ring-0 focus:outline-none cursor-pointer"
-                />
-                <span className="leading-tight">
-                  I agree to the{" "}
-                  <Link href="/about#terms" className="text-blue-400 hover:text-blue-300 underline" target="_blank">
-                    Terms of Service
-                  </Link>{" "}
-                  and{" "}
-                  <Link href="/about#privacy" className="text-blue-400 hover:text-blue-300 underline" target="_blank">
-                    Privacy Policy
-                  </Link>
-                  .
-                </span>
-              </label>
-            </div>
-
-            <button
-              type="submit"
-              disabled={loading}
-              className="w-full mt-2 py-3 rounded-xl bg-gradient-to-r from-blue-600 via-indigo-600 to-purple-600 text-white font-bold text-sm shadow-glow-sm hover:opacity-95 transition-all flex items-center justify-center gap-2 disabled:opacity-50"
+          <div className="space-y-3 pt-2">
+            <Link
+              href="/login"
+              className="w-full py-3.5 rounded-xl bg-gradient-to-r from-blue-600 via-indigo-600 to-purple-600 text-white font-bold text-sm shadow-glow-sm hover:scale-[1.02] transition-all flex items-center justify-center gap-2"
             >
-              <span>{loading ? "Creating your workspace..." : "Create Account"}</span>
+              <Lock className="h-4 w-4" />
+              <span>Sign In to Your Workspace</span>
               <ArrowRight className="h-4 w-4" />
-            </button>
-          </form>
+            </Link>
+
+            <Link
+              href="/contact"
+              className="w-full py-2.5 rounded-xl border border-white/10 bg-white/[0.02] hover:bg-white/[0.06] text-slate-300 font-semibold text-xs transition-all flex items-center justify-center gap-1.5"
+            >
+              <Mail className="h-3.5 w-3.5" />
+              <span>Request Client Access</span>
+            </Link>
+          </div>
         </div>
 
-        <p className="text-center text-xs text-slate-400 mt-6">
-          Already have an account?{" "}
-          <Link href="/login" className="text-blue-400 font-semibold hover:text-blue-300">
-            Sign In
+        <div className="text-center mt-6">
+          <Link href="/" className="text-xs text-slate-500 hover:text-slate-300 transition-colors">
+            &larr; Back to Home
           </Link>
-        </p>
+        </div>
       </div>
     </div>
   );

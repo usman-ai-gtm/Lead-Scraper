@@ -12,6 +12,8 @@ Strict Rules:
 
 import os
 import re
+import csv
+import io
 import json
 import logging
 import requests
@@ -410,14 +412,18 @@ class BuyingIntentEngine:
         cls,
         lead_id: int,
         target_service: str = "General Business Growth",
-        mode: str = "BALANCED MODE"
+        mode: str = "BALANCED MODE",
+        workspace_id: Optional[int] = None
     ) -> Dict[str, Any]:
         cls.ensure_database()
         conn = get_db_connection()
-        row = conn.execute("SELECT * FROM leads WHERE id = ?", (int(lead_id),)).fetchone()
+        if workspace_id is not None:
+            row = conn.execute("SELECT * FROM leads WHERE id = ? AND workspace_id = ?", (int(lead_id), int(workspace_id))).fetchone()
+        else:
+            row = conn.execute("SELECT * FROM leads WHERE id = ?", (int(lead_id),)).fetchone()
         if not row:
             conn.close()
-            return {"success": False, "error": "Lead not found."}
+            return {"success": False, "error": "Lead not found or access denied."}
 
         lead = dict(row)
         conn.close()
@@ -638,9 +644,12 @@ class LeadService:
         }
 
     @classmethod
-    def get_lead_by_id(cls, lead_id: int) -> Optional[Dict[str, Any]]:
+    def get_lead_by_id(cls, lead_id: int, workspace_id: Optional[int] = None) -> Optional[Dict[str, Any]]:
         conn = get_db_connection()
-        row = conn.execute("SELECT * FROM leads WHERE id = ?", (lead_id,)).fetchone()
+        if workspace_id is not None:
+            row = conn.execute("SELECT * FROM leads WHERE id = ? AND workspace_id = ?", (int(lead_id), int(workspace_id))).fetchone()
+        else:
+            row = conn.execute("SELECT * FROM leads WHERE id = ?", (int(lead_id),)).fetchone()
         conn.close()
         return dict(row) if row else None
 
@@ -738,7 +747,7 @@ class LeadService:
         return execute_write(sql, params)
 
     @classmethod
-    def update_lead(cls, lead_id: int, updates: Dict[str, Any]) -> bool:
+    def update_lead(cls, lead_id: int, updates: Dict[str, Any], workspace_id: Optional[int] = None) -> bool:
         if not updates:
             return False
         conn = get_db_connection()
@@ -750,28 +759,60 @@ class LeadService:
                 params.append(v)
         fields.append("updated_at = ?")
         params.append(datetime.now(timezone.utc).isoformat())
-        params.append(lead_id)
+        params.append(int(lead_id))
 
-        sql = f"UPDATE leads SET {', '.join(fields)} WHERE id = ?"
-        conn.execute(sql, params)
+        if workspace_id is not None:
+            params.append(int(workspace_id))
+            sql = f"UPDATE leads SET {', '.join(fields)} WHERE id = ? AND workspace_id = ?"
+        else:
+            sql = f"UPDATE leads SET {', '.join(fields)} WHERE id = ?"
+
+        cur = conn.cursor()
+        cur.execute(sql, params)
+        affected = cur.rowcount
         conn.commit()
         conn.close()
-        return True
+        return affected > 0
 
     @classmethod
-    def delete_lead(cls, lead_id: int) -> bool:
-        execute_write("DELETE FROM leads WHERE id = ?", (lead_id,))
-        return True
+    def delete_lead(cls, lead_id: int, workspace_id: Optional[int] = None) -> bool:
+        if workspace_id is not None:
+            conn = get_db_connection()
+            cur = conn.cursor()
+            cur.execute("DELETE FROM leads WHERE id = ? AND workspace_id = ?", (int(lead_id), int(workspace_id)))
+            affected = cur.rowcount
+            conn.commit()
+            conn.close()
+            return affected > 0
+        else:
+            execute_write("DELETE FROM leads WHERE id = ?", (int(lead_id),))
+            return True
 
     @classmethod
-    def calculate_score(cls, lead_id: int) -> Dict[str, Any]:
+    def filter_ids_by_workspace(cls, lead_ids: List[int], workspace_id: Optional[int] = None) -> List[int]:
+        if not lead_ids:
+            return []
+        if workspace_id is None:
+            return lead_ids
+        conn = get_db_connection()
+        placeholders = ",".join("?" for _ in lead_ids)
+        rows = conn.execute(
+            f"SELECT id FROM leads WHERE workspace_id = ? AND id IN ({placeholders})",
+            (int(workspace_id), *[int(x) for x in lead_ids])
+        ).fetchall()
+        conn.close()
+        return [r["id"] for r in rows]
+
+    @classmethod
+    def calculate_score(cls, lead_id: int, workspace_id: Optional[int] = None) -> Dict[str, Any]:
         """
         Calculates explainable 5-factor scoring (ICP Fit, Data Confidence, Opportunity, Buying Potential, Final Score).
         Persists all 14 scoring fields into database.
+        Strictly enforces tenant workspace ownership.
         """
-        lead = cls.get_lead_by_id(lead_id)
+        lead = cls.get_lead_by_id(lead_id, workspace_id=workspace_id)
         if not lead:
-            return {"error": "Lead not found"}
+            return {"error": "Lead not found or access denied"}
 
         conn = get_db_connection()
         icp_row = conn.execute("SELECT * FROM ideal_customer_profiles WHERE workspace_id = ?", (lead.get("workspace_id", 1),)).fetchone()
@@ -797,7 +838,7 @@ class LeadService:
             "main_risk": score_res["main_risk"],
             "recommended_action": score_res["recommended_action"],
             "scoring_confidence": score_res["scoring_confidence"],
-        })
+        }, workspace_id=workspace_id)
 
         return {
             "lead_id": lead_id,
@@ -820,15 +861,91 @@ class LeadService:
         }
 
     @classmethod
-    def analyze_buying_intent(cls, lead_id: int, target_service: str = "General Business Growth", mode: str = "BALANCED MODE") -> Dict[str, Any]:
+    def analyze_buying_intent(
+        cls,
+        lead_id: int,
+        target_service: str = "General Business Growth",
+        mode: str = "BALANCED MODE",
+        workspace_id: Optional[int] = None
+    ) -> Dict[str, Any]:
         """
         Analyzes and stores B2B buying intent for a lead.
+        Enforces tenant workspace ownership.
         """
-        return BuyingIntentEngine.analyze_lead(lead_id, target_service=target_service, mode=mode)
+        lead = cls.get_lead_by_id(lead_id, workspace_id=workspace_id)
+        if not lead:
+            return {"success": False, "error": "Lead not found or access denied."}
+        return BuyingIntentEngine.analyze_lead(lead_id, target_service=target_service, mode=mode, workspace_id=workspace_id)
 
     @classmethod
-    def get_buying_intent(cls, lead_id: int) -> Optional[Dict[str, Any]]:
+    def get_buying_intent(cls, lead_id: int, workspace_id: Optional[int] = None) -> Optional[Dict[str, Any]]:
+        lead = cls.get_lead_by_id(lead_id, workspace_id=workspace_id)
+        if not lead:
+            return None
         return BuyingIntentEngine.get_analysis_by_lead_id(lead_id)
+
+    @classmethod
+    def export_leads_csv(
+        cls,
+        workspace_id: int,
+        keyword: str = "",
+        country: str = "Any",
+        city: str = "Any",
+        industry: str = "Any",
+        min_score: int = 0,
+        crm_stage: str = "Any"
+    ) -> str:
+        """
+        Exports caller's workspace leads to verified CSV format.
+        Strictly enforces workspace isolation: Client A can NEVER export Client B's leads!
+        """
+        leads_res = cls.get_leads(
+            workspace_id=workspace_id,
+            keyword=keyword,
+            country=country,
+            city=city,
+            industry=industry,
+            min_score=min_score,
+            crm_stage=crm_stage,
+            page=1,
+            page_size=10000
+        )
+        leads = leads_res.get("leads", [])
+
+        output = io.StringIO()
+        writer = csv.writer(output)
+        headers = [
+            "ID", "Business Name", "Industry", "Category", "Address", "City", "State", "Country",
+            "Phone", "Phone Status", "Email", "Email Status", "Website", "Lead Score",
+            "ICP Fit Score", "Buying Intent Level", "Buying Intent Score", "CRM Stage",
+            "Source", "Source URL", "Date Discovered"
+        ]
+        writer.writerow(headers)
+        for l in leads:
+            writer.writerow([
+                l.get("id", ""),
+                l.get("business_name", ""),
+                l.get("industry", ""),
+                l.get("category", ""),
+                l.get("address", ""),
+                l.get("city", ""),
+                l.get("state", ""),
+                l.get("country", ""),
+                l.get("phone", ""),
+                l.get("phone_status", ""),
+                l.get("email", ""),
+                l.get("email_status", ""),
+                l.get("website", ""),
+                l.get("final_lead_score", l.get("lead_score", 0)),
+                l.get("icp_fit_score", 0),
+                l.get("buying_intent_level", ""),
+                l.get("buying_intent_score", 0),
+                l.get("crm_stage", ""),
+                l.get("source", ""),
+                l.get("source_url", ""),
+                l.get("created_at", "")
+            ])
+        return output.getvalue()
 
     @classmethod
     def generate_ai_strategy(cls, prompt: str, workspace_id: int = 1) -> Dict[str, Any]:

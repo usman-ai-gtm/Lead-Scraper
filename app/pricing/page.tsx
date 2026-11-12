@@ -186,7 +186,7 @@ export default function PricingPage() {
                   </div>
 
                   <Link
-                    href="/signup"
+                    href="/login"
                     className={`w-full py-3 rounded-xl text-center text-sm font-bold transition-all ${
                       p.highlight
                         ? "bg-blue-600 hover:bg-blue-500 text-white shadow-glow-sm"

@@ -6,6 +6,25 @@ export interface User {
   role: "ADMIN" | "MANAGER" | "USER" | "VIEWER";
   workspace_id: number;
   tenant_id: number;
+  status?: string;
+  must_change_password?: boolean;
+}
+
+export interface ClientAccount {
+  id: number;
+  email: string;
+  full_name: string;
+  company?: string;
+  workspace_id: number;
+  workspace_name: string;
+  role: string;
+  status: "ACTIVE" | "SUSPENDED" | "REVOKED";
+  must_change_password: boolean;
+  max_leads_quota: number;
+  client_notes?: string;
+  created_at: string;
+  last_login?: string;
+  leads_count: number;
 }
 
 export interface Workspace {

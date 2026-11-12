@@ -42,6 +42,12 @@ class UserOut(BaseModel):
     role: str
     workspace_id: int
     tenant_id: int
+    must_change_password: Optional[bool] = False
+    status: Optional[str] = "ACTIVE"
+
+class ChangePasswordRequest(BaseModel):
+    old_password: str
+    new_password: str
 
 class WorkspaceOut(BaseModel):
     id: int

@@ -1,6 +1,6 @@
 import crypto from "crypto";
 
-const JWT_SECRET = process.env.JWT_SECRET || "usman_gtm_enterprise_jwt_secret_2026_super_safe";
+const JWT_SECRET = process.env.SECRET_KEY || process.env.JWT_SECRET || "usman_ai_gtm_ultra_pro_max_secret_key_change_in_production_jwt_99";
 
 export interface ServerlessUser {
   id: number;
@@ -11,14 +11,45 @@ export interface ServerlessUser {
   workspace_id: number;
   tenant_id: number;
   password_hash?: string;
+  must_change_password?: boolean;
+  status?: string;
   created_at: string;
 }
 
 // In-memory store per serverless execution environment
 const userStore = new Map<string, ServerlessUser>();
 
-export function hashPassword(password: string): string {
-  return crypto.pbkdf2Sync(password, "usman_salt_gtm_2026", 100000, 32, "sha256").toString("hex");
+/**
+ * Enterprise PBKDF2 Password Hashing with Unique Per-User 16-byte Salt.
+ * Format: pbkdf2_sha256$100000$salt_hex$hash_hex
+ */
+export function hashPassword(password: string, saltHex?: string): string {
+  const salt = saltHex ? Buffer.from(saltHex, "hex") : crypto.randomBytes(16);
+  const iterations = 100000;
+  const hash = crypto.pbkdf2Sync(password, salt, iterations, 32, "sha256").toString("hex");
+  return `pbkdf2_sha256$${iterations}$${salt.toString("hex")}$${hash}`;
+}
+
+export function verifyPassword(plainPassword: string, storedHash?: string): boolean {
+  if (!plainPassword || !storedHash) return false;
+  try {
+    if (storedHash.startsWith("pbkdf2_sha256$")) {
+      const parts = storedHash.split("$");
+      if (parts.length !== 4) return false;
+      const [, iterationsStr, saltHex, expectedHashHex] = parts;
+      const iterations = parseInt(iterationsStr, 10);
+      const salt = Buffer.from(saltHex, "hex");
+      const computedHash = crypto.pbkdf2Sync(plainPassword, salt, iterations, 32, "sha256").toString("hex");
+      const a = Buffer.from(computedHash, "utf-8");
+      const b = Buffer.from(expectedHashHex, "utf-8");
+      return a.length === b.length && crypto.timingSafeEqual(a, b);
+    }
+    // Legacy salted fallback migration
+    const legacyHash = crypto.pbkdf2Sync(plainPassword, "usman_salt_gtm_2026", 100000, 32, "sha256").toString("hex");
+    return storedHash === legacyHash;
+  } catch {
+    return false;
+  }
 }
 
 export function createJwtToken(payload: {
@@ -28,6 +59,7 @@ export function createJwtToken(payload: {
   role: string;
   workspace_id: number;
   tenant_id?: number;
+  must_change_password?: boolean;
 }): string {
   const header = Buffer.from(JSON.stringify({ alg: "HS256", typ: "JWT" })).toString("base64url");
   const now = Math.floor(Date.now() / 1000);
@@ -121,13 +153,16 @@ export function authenticateServerlessUser(
   pass: string
 ): { user: ServerlessUser; token: string; workspace: any } | null {
   const cleanEmail = email.trim().toLowerCase();
-  const pwdHash = hashPassword(pass);
   const user = userStore.get(cleanEmail);
   if (!user) {
     return null; // Unregistered user cannot log in
   }
 
-  if (user.password_hash && user.password_hash !== pwdHash) {
+  if (user.status === "SUSPENDED" || user.status === "REVOKED") {
+    return null; // Inactive or suspended user
+  }
+
+  if (user.password_hash && !verifyPassword(pass, user.password_hash)) {
     return null; // Bad password
   }
 
@@ -138,6 +173,7 @@ export function authenticateServerlessUser(
     role: user.role,
     workspace_id: user.workspace_id,
     tenant_id: 1,
+    must_change_password: user.must_change_password,
   });
 
   const workspace = {
@@ -150,4 +186,60 @@ export function authenticateServerlessUser(
   };
 
   return { user, token, workspace };
+}
+
+export function provisionServerlessClient(data: {
+  email: string;
+  fullName: string;
+  company?: string;
+  maxLeadsQuota?: number;
+}): { client: ServerlessUser; temporaryPassword: string } {
+  const cleanEmail = data.email.trim().toLowerCase();
+  const alphabet = "ABCDEFGHJKLMNPQRSTUVWXYZabcdefghjkmnpqrstuvwxyz23456789!@#$%^&*";
+  let tempPass = "";
+  const randomBytes = crypto.randomBytes(16);
+  for (let i = 0; i < 16; i++) {
+    tempPass += alphabet[randomBytes[i] % alphabet.length];
+  }
+
+  const pwdHash = hashPassword(tempPass);
+  const userId = Math.floor(Date.now() / 1000);
+  const nowIso = new Date().toISOString();
+  const nextWsId = userStore.size + 10;
+
+  const client: ServerlessUser = {
+    id: userId,
+    email: cleanEmail,
+    full_name: data.fullName.trim(),
+    company: data.company || "Client Organization",
+    role: "USER",
+    workspace_id: nextWsId,
+    tenant_id: 1,
+    password_hash: pwdHash,
+    must_change_password: true,
+    status: "ACTIVE",
+    created_at: nowIso,
+  };
+
+  userStore.set(cleanEmail, client);
+  return { client, temporaryPassword: tempPass };
+}
+
+export function changeServerlessUserPassword(
+  email: string,
+  oldPass: string,
+  newPass: string
+): boolean {
+  const cleanEmail = email.trim().toLowerCase();
+  const user = userStore.get(cleanEmail);
+  if (!user || !user.password_hash) return false;
+
+  if (!verifyPassword(oldPass, user.password_hash)) {
+    return false;
+  }
+
+  user.password_hash = hashPassword(newPass);
+  user.must_change_password = false;
+  userStore.set(cleanEmail, user);
+  return true;
 }

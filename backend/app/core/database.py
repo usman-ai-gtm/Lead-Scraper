@@ -116,6 +116,10 @@ def init_app_database():
         ("workspace_id", "INTEGER DEFAULT 1"),
         ("status", "TEXT DEFAULT 'ACTIVE'"),
         ("is_active", "INTEGER DEFAULT 1"),
+        ("must_change_password", "INTEGER DEFAULT 0"),
+        ("created_by", "INTEGER DEFAULT 1"),
+        ("client_notes", "TEXT DEFAULT ''"),
+        ("max_leads_quota", "INTEGER DEFAULT 5000"),
         ("last_login", "TEXT"),
         ("updated_at", "TEXT"),
     ]:
