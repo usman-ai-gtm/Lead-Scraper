@@ -30,6 +30,32 @@ export function hashPassword(password: string, saltHex?: string): string {
   return `pbkdf2_sha256$${iterations}$${salt.toString("hex")}$${hash}`;
 }
 
+function seedAdminUser(email: string, pass: string, name: string) {
+  const cleanEmail = email.trim().toLowerCase();
+  if (!userStore.has(cleanEmail)) {
+    userStore.set(cleanEmail, {
+      id: userStore.size + 1,
+      email: cleanEmail,
+      full_name: name,
+      company: "USMAN AI GTM Enterprise",
+      role: "ADMIN",
+      workspace_id: 1,
+      tenant_id: 1,
+      password_hash: hashPassword(pass),
+      must_change_password: false,
+      status: "ACTIVE",
+      created_at: new Date().toISOString(),
+    });
+  }
+}
+
+// Seed production administrator accounts
+seedAdminUser("admin@usmanai.com", "UsmanGTM@2026!", "Administrator");
+seedAdminUser("admin@usmangtm.com", "UsmanGTM@2026!", "Administrator");
+seedAdminUser("selftest_founder_2026@usmanai.com", "SecurePassword@2026!", "Muhammad Usman (Founder)");
+seedAdminUser("mu0602503@gmail.com", "UsmanGTM@2026!", "Muhammad Usman");
+seedAdminUser("transaction000001@gmail.com", "UsmanGTM@2026!", "Administrator");
+
 export function verifyPassword(plainPassword: string, storedHash?: string): boolean {
   if (!plainPassword || !storedHash) return false;
   try {
@@ -223,6 +249,34 @@ export function provisionServerlessClient(data: {
 
   userStore.set(cleanEmail, client);
   return { client, temporaryPassword: tempPass };
+}
+
+export function listServerlessClients(): { clients: any[]; count: number; max_seats: number } {
+  const list: any[] = [];
+  userStore.forEach((u) => {
+    if (u.role === "USER") {
+      list.push({
+        id: u.id,
+        email: u.email,
+        full_name: u.full_name,
+        company: u.company,
+        role: u.role,
+        status: u.status || "ACTIVE",
+        workspace_id: u.workspace_id,
+        workspace_name: `${u.company || u.full_name}'s Private Workspace`,
+        must_change_password: Boolean(u.must_change_password),
+        max_leads_quota: 5000,
+        total_leads: 0,
+        leads_count: 0,
+        created_at: u.created_at,
+      });
+    }
+  });
+  return {
+    clients: list,
+    count: list.length,
+    max_seats: 50,
+  };
 }
 
 export function changeServerlessUserPassword(

@@ -1,13 +1,9 @@
 import { NextResponse } from "next/server";
 import { proxyToBackend } from "@/lib/backend-proxy";
-import { provisionServerlessClient } from "@/lib/serverless-auth";
+import { provisionServerlessClient, listServerlessClients } from "@/lib/serverless-auth";
 
 export async function GET(req: Request) {
-  const fallback = {
-    clients: [],
-    count: 0,
-    max_seats: 50
-  };
+  const fallback = () => listServerlessClients();
   return proxyToBackend("/api/admin/clients", req, fallback);
 }
 
