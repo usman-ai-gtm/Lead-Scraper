@@ -62,7 +62,20 @@ export async function proxyToBackend(
   if (fallbackData !== undefined) {
     if (typeof fallbackData === "function") {
       const result = await fallbackData();
+      if (result instanceof Response) return result;
+      if (result && typeof result === "object" && "status" in result && "data" in result && typeof result.status === "number") {
+        return NextResponse.json(result.data, { status: result.status });
+      }
       return NextResponse.json(result);
+    }
+    if (typeof fallbackData === "string") {
+      return new Response(fallbackData, {
+        status: 200,
+        headers: {
+          "Content-Type": "text/csv; charset=utf-8",
+          "Content-Disposition": 'attachment; filename="leads.csv"',
+        },
+      });
     }
     return NextResponse.json(fallbackData);
   }
