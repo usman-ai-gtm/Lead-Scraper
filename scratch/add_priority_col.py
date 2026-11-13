@@ -11,3 +11,4 @@ for db_name in ["usman_data_analytics.db", "usman_luxury_engine.db"]:
         conn.commit()
     conn.close()
 print("Done checking priority column.")
+

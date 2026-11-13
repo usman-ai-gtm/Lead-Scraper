@@ -19,7 +19,7 @@ export default function SolutionsPage() {
         "Cryptographic PBKDF2 encryption and strict workspace data isolation",
         "Predictive win-probability to optimize quarterly forecast"
       ],
-      href: "/app/abm"
+      href: "/app/leads"
     },
     {
       title: "RevOps & Pipeline Acceleration",
@@ -32,7 +32,7 @@ export default function SolutionsPage() {
         "Monte Carlo simulation predicting commit vs best-case ARR",
         "Automated SLA monitoring on inbound lead response time"
       ],
-      href: "/app/revenue"
+      href: "/app/saved-leads"
     },
     {
       title: "Lead Generation & GTM Agencies",
@@ -58,7 +58,7 @@ export default function SolutionsPage() {
         "Executive sponsor turnover alerts via LinkedIn tracking",
         "Net revenue retention cohort matrices"
       ],
-      href: "/app/customers"
+      href: "/app/exports"
     }
   ];
 

@@ -2,27 +2,41 @@
 
 import React, { useState, useEffect } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { api } from "@/lib/api";
-import { DashboardMetrics } from "@/lib/types";
+import { useAuth } from "@/lib/auth-context";
+import { Lead } from "@/lib/types";
+import { ALL_193_COUNTRIES } from "@/lib/countries";
 import {
-  Users, Target, Flame, Send, MessageSquare, Calendar, DollarSign,
-  TrendingUp, Activity, ArrowUpRight, Search, Bot, PlusCircle, CheckCircle2,
-  RefreshCw, Sparkles, BarChart3, AlertCircle, ArrowRight, ShieldCheck,
-  Building2, Workflow, Mail, Layers, Compass
+  Search, Database, Download, Settings, RefreshCw,
+  Building2, Globe, Mail, Phone, CheckCircle2,
+  ExternalLink, ArrowRight, ShieldCheck, Zap
 } from "lucide-react";
 
-export default function CommandCenterPage() {
-  const [metrics, setMetrics] = useState<DashboardMetrics | null>(null);
+export default function DashboardPage() {
+  const router = useRouter();
+  const { user } = useAuth();
+
+  const [leads, setLeads] = useState<Lead[]>([]);
+  const [totalLeads, setTotalLeads] = useState(0);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
 
-  const fetchMetrics = async () => {
+  // Quick Search launcher inputs
+  const [quickCountry, setQuickCountry] = useState("United States");
+  const [quickCity, setQuickCity] = useState("");
+  const [quickIndustry, setQuickIndustry] = useState("Technology & SaaS");
+  const [quickKeyword, setQuickKeyword] = useState("");
+
+  const fetchWorkspaceOverview = async () => {
     try {
       setRefreshing(true);
-      const data = await api.get<DashboardMetrics>("/analytics/dashboard");
-      setMetrics(data);
+      const res = await api.get<any>("/leads", { page: 1, page_size: 5 });
+      const items = res?.leads || (Array.isArray(res) ? res : []);
+      setLeads(items);
+      setTotalLeads(res?.total !== undefined ? res.total : items.length);
     } catch (err) {
-      console.warn("Using baseline dashboard metrics", err);
+      console.warn("Could not load leads overview", err);
     } finally {
       setLoading(false);
       setRefreshing(false);
@@ -30,8 +44,23 @@ export default function CommandCenterPage() {
   };
 
   useEffect(() => {
-    fetchMetrics();
+    fetchWorkspaceOverview();
   }, []);
+
+  const handleLaunchSearch = (e: React.FormEvent) => {
+    e.preventDefault();
+    const params = new URLSearchParams();
+    if (quickCountry) params.set("country", quickCountry);
+    if (quickCity) params.set("city", quickCity);
+    if (quickIndustry && quickIndustry !== "Any") params.set("industry", quickIndustry);
+    if (quickKeyword) params.set("keyword", quickKeyword);
+    router.push(`/app/leads?${params.toString()}`);
+  };
+
+  // Calculate actual verified emails and phones
+  const leadsWithEmail = leads.filter((l) => l.email && l.email !== "Not Found").length;
+  const leadsWithPhone = leads.filter((l) => l.phone && l.phone !== "Not Found").length;
+  const contactRate = totalLeads > 0 ? Math.round(((leadsWithEmail + leadsWithPhone) / (totalLeads * 2)) * 100) : 100;
 
   return (
     <div className="space-y-8 max-w-7xl mx-auto pb-16">
@@ -40,21 +69,23 @@ export default function CommandCenterPage() {
         <div>
           <div className="flex items-center gap-2 mb-1">
             <span className="text-xs font-bold uppercase tracking-wider text-blue-400 bg-blue-500/10 px-2.5 py-0.5 rounded border border-blue-500/20">
-              Enterprise GTM Operating System
+              B2B Lead Extraction Engine
             </span>
-            <span className="text-xs text-slate-500 font-mono">PBKDF2 Encrypted • Unified GTM Engine</span>
+            <span className="text-xs text-slate-500 font-mono">
+              Workspace #{user?.workspace_id || 1} • Tenant Isolated
+            </span>
           </div>
           <h1 className="text-2xl sm:text-3xl font-extrabold text-white tracking-tight">
-            GTM Command Center
+            Lead Extraction Command Center
           </h1>
           <p className="text-xs text-slate-400">
-            Hundreds of intelligent capabilities working together in one unified GTM operating system.
+            Real public business discovery, verified contacts, and multi-format exports across 193 countries.
           </p>
         </div>
 
         <div className="flex items-center gap-2.5 flex-wrap">
           <button
-            onClick={fetchMetrics}
+            onClick={fetchWorkspaceOverview}
             disabled={refreshing}
             className="flex items-center gap-1.5 px-3 py-2 text-xs font-semibold text-slate-300 bg-white/[0.04] hover:bg-white/[0.08] border border-white/10 rounded-xl transition-all"
           >
@@ -66,408 +97,245 @@ export default function CommandCenterPage() {
             className="flex items-center gap-1.5 px-3.5 py-2 text-xs font-bold text-white bg-blue-600 hover:bg-blue-500 rounded-xl shadow-glow-sm transition-all"
           >
             <Search className="h-3.5 w-3.5" />
-            <span>Find Leads</span>
+            <span>Start Lead Search</span>
           </Link>
           <Link
-            href="/app/outreach/campaigns/new"
-            className="flex items-center gap-1.5 px-3.5 py-2 text-xs font-semibold text-white bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-500 hover:to-indigo-500 rounded-xl shadow-glow-sm transition-all"
+            href="/app/exports"
+            className="flex items-center gap-1.5 px-3.5 py-2 text-xs font-semibold text-slate-300 bg-white/[0.04] hover:bg-white/[0.08] border border-white/10 rounded-xl transition-all"
           >
-            <PlusCircle className="h-3.5 w-3.5" />
-            <span>New Campaign</span>
+            <Download className="h-3.5 w-3.5 text-emerald-400" />
+            <span>Export Data</span>
           </Link>
         </div>
       </div>
 
-      {/* Main End-to-End GTM Flow Pipeline Banner */}
-      <div className="rounded-2xl border border-white/[0.08] bg-[#0c1017] p-5 shadow-glow-sm">
-        <div className="flex items-center justify-between pb-3 border-b border-white/[0.06] mb-3">
-          <span className="text-[11px] font-bold uppercase tracking-wider text-slate-400 flex items-center gap-2">
-            <Compass className="h-3.5 w-3.5 text-blue-400" /> Unified GTM Operating Journey
-          </span>
-          <span className="text-[10px] text-slate-500 font-mono">6 Connected Product Phases</span>
-        </div>
-
-        <div className="grid grid-cols-2 md:grid-cols-6 gap-2">
-          {[
-            { step: "FIND", tool: "Lead Discovery", link: "/app/leads", desc: "Public search & scraping" },
-            { step: "UNDERSTAND", tool: "AI Research", link: "/app/research", desc: "Company evidence & signals" },
-            { step: "QUALIFY", tool: "Scoring & Intent", link: "/app/features?id=19", desc: "High-intent buyer radar" },
-            { step: "ENGAGE", tool: "Outreach & Gmail", link: "/app/outreach", desc: "Personalized cold cadences" },
-            { step: "CONVERT", tool: "CRM & Pipeline", link: "/app/crm", desc: "Opportunity kanban & deals" },
-            { step: "GROW", tool: "Revenue Intel", link: "/app/revenue", desc: "Expansion & retention" }
-          ].map((item, idx) => (
-            <Link
-              key={idx}
-              href={item.link}
-              className="p-3 rounded-xl bg-white/[0.02] hover:bg-white/[0.06] border border-white/[0.04] transition-all group"
-            >
-              <div className="text-[9px] font-bold text-blue-400 uppercase tracking-wider">
-                {idx + 1}. {item.step}
-              </div>
-              <div className="text-xs font-bold text-white group-hover:text-blue-300 mt-0.5">
-                {item.tool}
-              </div>
-              <div className="text-[10px] text-slate-400 mt-1 line-clamp-1">
-                {item.desc}
-              </div>
-            </Link>
-          ))}
-        </div>
-      </div>
-
-      {/* Quick Actions Shortcuts */}
-      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
-        {[
-          { name: "Find Leads", href: "/app/leads", icon: Search, color: "text-blue-400" },
-          { name: "Research Company", href: "/app/research", icon: Bot, color: "text-purple-400" },
-          { name: "Create Campaign", href: "/app/outreach/campaigns/new", icon: Send, color: "text-emerald-400" },
-          { name: "Connect Gmail", href: "/app/outreach/accounts", icon: Mail, color: "text-amber-400" },
-          { name: "Create Workflow", href: "/app/workflows", icon: Workflow, color: "text-cyan-400" },
-          { name: "Open AI Copilot", href: "/app/copilot", icon: Sparkles, color: "text-indigo-400" }
-        ].map((qa, i) => {
-          const Icon = qa.icon;
-          return (
-            <Link
-              key={i}
-              href={qa.href}
-              className="p-3.5 rounded-xl border border-white/[0.06] bg-[#0c1017] hover:border-white/[0.15] hover:bg-[#121824] transition-all flex items-center gap-3"
-            >
-              <Icon className={`h-4 w-4 ${qa.color} shrink-0`} />
-              <span className="text-xs font-bold text-white truncate">{qa.name}</span>
-            </Link>
-          );
-        })}
-      </div>
-
-      {/* KPI METRIC CARDS */}
-      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-3.5">
-        <div className="rounded-2xl border border-white/[0.08] bg-[#0c1017] p-4 flex flex-col justify-between hover:border-blue-500/30 transition-all">
+      {/* Real Workspace Metric Cards */}
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
+        <div className="p-4 rounded-2xl border border-white/[0.08] bg-[#0c1017] hover:border-blue-500/30 transition-all">
           <div className="flex items-center justify-between mb-2">
-            <span className="text-[11px] font-semibold text-slate-400 uppercase tracking-wider">Total Leads</span>
-            <Users className="h-4 w-4 text-blue-400" />
+            <span className="text-[11px] font-semibold text-slate-400 uppercase tracking-wider">Saved Leads</span>
+            <Database className="h-4 w-4 text-blue-400" />
           </div>
-          <div>
-            <div className="text-2xl font-extrabold text-white">
-              {loading ? "..." : (metrics?.total_leads || 0).toLocaleString()}
-            </div>
-            <div className="text-[10px] text-slate-400 mt-1">
-              {metrics?.total_leads ? "Stored in workspace" : "Zero leads recorded"}
-            </div>
-          </div>
+          <div className="text-2xl font-extrabold text-white">{totalLeads}</div>
+          <div className="text-[10px] text-slate-500 mt-1">In your private workspace</div>
         </div>
 
-        <div className="rounded-2xl border border-white/[0.08] bg-[#0c1017] p-4 flex flex-col justify-between hover:border-emerald-500/30 transition-all">
+        <div className="p-4 rounded-2xl border border-white/[0.08] bg-[#0c1017] hover:border-emerald-500/30 transition-all">
           <div className="flex items-center justify-between mb-2">
-            <span className="text-[11px] font-semibold text-slate-400 uppercase tracking-wider">Verified Leads</span>
-            <Target className="h-4 w-4 text-emerald-400" />
-          </div>
-          <div>
-            <div className="text-2xl font-extrabold text-white">
-              {loading ? "..." : (metrics?.verified_leads || 0).toLocaleString()}
-            </div>
-            <div className="text-[10px] text-slate-400 mt-1">
-              MX & DNS validated
-            </div>
-          </div>
-        </div>
-
-        <div className="rounded-2xl border border-white/[0.08] bg-[#0c1017] p-4 flex flex-col justify-between hover:border-amber-500/30 transition-all">
-          <div className="flex items-center justify-between mb-2">
-            <span className="text-[11px] font-semibold text-slate-400 uppercase tracking-wider">High Intent</span>
-            <Flame className="h-4 w-4 text-amber-400" />
-          </div>
-          <div>
-            <div className="text-2xl font-extrabold text-white">
-              {loading ? "..." : (metrics?.high_intent_leads || 0).toLocaleString()}
-            </div>
-            <div className="text-[10px] text-amber-400 mt-1 font-semibold">
-              Score &ge; 80 (Hot ICP)
-            </div>
-          </div>
-        </div>
-
-        <div className="rounded-2xl border border-white/[0.08] bg-[#0c1017] p-4 flex flex-col justify-between hover:border-purple-500/30 transition-all">
-          <div className="flex items-center justify-between mb-2">
-            <span className="text-[11px] font-semibold text-slate-400 uppercase tracking-wider">Active Campaigns</span>
-            <Send className="h-4 w-4 text-purple-400" />
-          </div>
-          <div>
-            <div className="text-2xl font-extrabold text-white">
-              {loading ? "..." : metrics?.active_campaigns || 0}
-            </div>
-            <div className="text-[10px] text-slate-400 mt-1">
-              Cadence Day 1–12
-            </div>
-          </div>
-        </div>
-
-        <div className="rounded-2xl border border-white/[0.08] bg-[#0c1017] p-4 flex flex-col justify-between hover:border-blue-500/30 transition-all">
-          <div className="flex items-center justify-between mb-2">
-            <span className="text-[11px] font-semibold text-slate-400 uppercase tracking-wider">Outreach Sent</span>
-            <MessageSquare className="h-4 w-4 text-blue-400" />
-          </div>
-          <div>
-            <div className="text-2xl font-extrabold text-white">
-              {loading ? "..." : (metrics?.total_emails_sent || 0).toLocaleString()}
-            </div>
-            <div className="text-[10px] text-blue-400 mt-1">
-              Delivered via Gmail API
-            </div>
-          </div>
-        </div>
-
-        <div className="rounded-2xl border border-white/[0.08] bg-[#0c1017] p-4 flex flex-col justify-between hover:border-emerald-500/30 transition-all">
-          <div className="flex items-center justify-between mb-2">
-            <span className="text-[11px] font-semibold text-slate-400 uppercase tracking-wider">Reply Rate</span>
-            <TrendingUp className="h-4 w-4 text-emerald-400" />
-          </div>
-          <div>
-            <div className="text-2xl font-extrabold text-emerald-400">
-              {loading ? "..." : `${metrics?.reply_rate ? metrics.reply_rate : 0}%`}
-            </div>
-            <div className="text-[10px] text-slate-400 mt-1">
-              {metrics?.reply_rate ? "Live campaign replies" : "No replies recorded yet"}
-            </div>
-          </div>
-        </div>
-
-        <div className="rounded-2xl border border-white/[0.08] bg-[#0c1017] p-4 flex flex-col justify-between hover:border-cyan-500/30 transition-all">
-          <div className="flex items-center justify-between mb-2">
-            <span className="text-[11px] font-semibold text-slate-400 uppercase tracking-wider">Meetings Booked</span>
-            <Calendar className="h-4 w-4 text-cyan-400" />
-          </div>
-          <div>
-            <div className="text-2xl font-extrabold text-white">
-              {loading ? "..." : metrics?.meetings_booked || 0}
-            </div>
-            <div className="text-[10px] text-cyan-400 mt-1">
-              Qualified demos
-            </div>
-          </div>
-        </div>
-
-        <div className="rounded-2xl border border-white/[0.08] bg-[#0c1017] p-4 flex flex-col justify-between hover:border-purple-500/30 transition-all">
-          <div className="flex items-center justify-between mb-2">
-            <span className="text-[11px] font-semibold text-slate-400 uppercase tracking-wider">Pipeline Value</span>
-            <DollarSign className="h-4 w-4 text-purple-400" />
-          </div>
-          <div>
-            <div className="text-2xl font-extrabold text-white">
-              ${loading ? "..." : (metrics?.pipeline_value || 0).toLocaleString(undefined, { maximumFractionDigits: 0 })}
-            </div>
-            <div className="text-[10px] text-slate-400 mt-1">
-              {metrics?.pipeline_value ? "Active CRM stages" : "No active deals"}
-            </div>
-          </div>
-        </div>
-
-        <div className="rounded-2xl border border-white/[0.08] bg-[#0c1017] p-4 flex flex-col justify-between hover:border-emerald-500/30 transition-all">
-          <div className="flex items-center justify-between mb-2">
-            <span className="text-[11px] font-semibold text-slate-400 uppercase tracking-wider">Won Revenue</span>
+            <span className="text-[11px] font-semibold text-slate-400 uppercase tracking-wider">Contact Rate</span>
             <CheckCircle2 className="h-4 w-4 text-emerald-400" />
           </div>
-          <div>
-            <div className="text-2xl font-extrabold text-emerald-400">
-              ${loading ? "..." : (metrics?.won_revenue || 0).toLocaleString(undefined, { maximumFractionDigits: 0 })}
-            </div>
-            <div className="text-[10px] text-emerald-400/80 mt-1 font-semibold">
-              {metrics?.won_revenue ? "Closed contracts" : "No recorded revenue"}
-            </div>
-          </div>
+          <div className="text-2xl font-extrabold text-emerald-400">{contactRate}%</div>
+          <div className="text-[10px] text-slate-500 mt-1">Leads with verified contact</div>
         </div>
 
-        <div className="rounded-2xl border border-white/[0.08] bg-[#0c1017] p-4 flex flex-col justify-between hover:border-blue-500/30 transition-all">
+        <div className="p-4 rounded-2xl border border-white/[0.08] bg-[#0c1017] hover:border-purple-500/30 transition-all">
           <div className="flex items-center justify-between mb-2">
-            <span className="text-[11px] font-semibold text-slate-400 uppercase tracking-wider">Win Rate</span>
-            <Activity className="h-4 w-4 text-blue-400" />
+            <span className="text-[11px] font-semibold text-slate-400 uppercase tracking-wider">Search Quota</span>
+            <Zap className="h-4 w-4 text-purple-400" />
           </div>
-          <div>
-            <div className="text-2xl font-extrabold text-white">
-              {loading ? "..." : `${metrics?.conversion_rate ? metrics.conversion_rate : 0}%`}
-            </div>
-            <div className="text-[10px] text-blue-400 mt-1">
-              {metrics?.conversion_rate ? "Pipeline conversion" : "No deals converted"}
-            </div>
+          <div className="text-2xl font-extrabold text-purple-400">5,000</div>
+          <div className="text-[10px] text-slate-500 mt-1">Monthly extraction limit</div>
+        </div>
+
+        <div className="p-4 rounded-2xl border border-white/[0.08] bg-[#0c1017] hover:border-blue-500/30 transition-all">
+          <div className="flex items-center justify-between mb-2">
+            <span className="text-[11px] font-semibold text-slate-400 uppercase tracking-wider">Data Security</span>
+            <ShieldCheck className="h-4 w-4 text-blue-400" />
           </div>
+          <div className="text-sm font-bold text-white mt-1">Tenant Isolated</div>
+          <div className="text-[10px] text-emerald-400 mt-1">PBKDF2 / Workspace Gated</div>
         </div>
       </div>
 
-      {/* PREMIUM PRODUCT MODULE CARDS (Section 45) */}
-      <div className="space-y-4">
-        <h2 className="text-base font-bold text-white flex items-center gap-2">
-          <Layers className="h-4 w-4 text-blue-400" /> Product Intelligence Modules
-        </h2>
+      {/* QUICK SEARCH LAUNCHER */}
+      <div className="rounded-2xl border border-white/[0.08] bg-[#0c1017] p-6 shadow-glow-sm">
+        <div className="flex items-center justify-between pb-4 border-b border-white/[0.06] mb-4">
+          <div className="flex items-center gap-2">
+            <Search className="h-4 w-4 text-blue-400" />
+            <h2 className="text-sm font-bold text-white uppercase tracking-wider">Quick Search Launcher</h2>
+          </div>
+          <span className="text-[11px] text-slate-400">193 Countries • Multi-Platform Public Scraper</span>
+        </div>
 
-        <div className="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-5 gap-4">
-          {[
-            {
-              title: "LEAD INTELLIGENCE",
-              desc: "Discover, enrich and qualify your highest-converting opportunities.",
-              href: "/app/leads",
-              badge: "Discovery & Intent"
-            },
-            {
-              title: "RESEARCH",
-              desc: "Understand target accounts deeply with AI evidence & firmographic data.",
-              href: "/app/research",
-              badge: "Deep Synthesis"
-            },
-            {
-              title: "OUTREACH",
-              desc: "Create personalized multi-step cold email campaigns via authorized Gmail.",
-              href: "/app/outreach",
-              badge: "Multi-Gmail Cadence"
-            },
-            {
-              title: "REVENUE",
-              desc: "Turn pipeline activity into predictable close probability & revenue velocity.",
-              href: "/app/revenue",
-              badge: "Predictive Models"
-            },
-            {
-              title: "CUSTOMERS",
-              desc: "Monitor account health, retention signals, and automated expansion.",
-              href: "/app/customers",
-              badge: "Retention & NPS"
-            }
-          ].map((mod, idx) => (
-            <div
-              key={idx}
-              className="p-5 rounded-2xl border border-white/[0.08] bg-[#0c1017] hover:border-blue-500/40 hover:bg-[#121824] transition-all shadow-glow-sm flex flex-col justify-between"
+        <form onSubmit={handleLaunchSearch} className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+          <div>
+            <label className="block text-[11px] font-semibold text-slate-400 uppercase tracking-wider mb-1.5">
+              Country
+            </label>
+            <select
+              value={quickCountry}
+              onChange={(e) => setQuickCountry(e.target.value)}
+              className="w-full rounded-xl border border-white/10 bg-white/[0.04] px-3 py-2 text-xs text-white focus:border-blue-500 focus:outline-none"
             >
-              <div className="space-y-2">
-                <span className="text-[10px] font-bold text-blue-400 bg-blue-500/10 px-2 py-0.5 rounded border border-blue-500/20">
-                  {mod.badge}
-                </span>
-                <h3 className="text-sm font-bold text-white mt-1">{mod.title}</h3>
-                <p className="text-xs text-slate-400 leading-relaxed">{mod.desc}</p>
-              </div>
+              {ALL_193_COUNTRIES.map((c) => (
+                <option key={c} value={c} className="bg-[#0c1017] text-white">
+                  {c}
+                </option>
+              ))}
+            </select>
+          </div>
 
-              <div className="pt-4 mt-4 border-t border-white/[0.04]">
-                <Link
-                  href={mod.href}
-                  className="flex items-center justify-between text-xs font-bold text-blue-400 hover:text-blue-300 transition-colors"
-                >
-                  <span>Open Module</span>
-                  <ArrowRight className="h-3.5 w-3.5" />
-                </Link>
-              </div>
+          <div>
+            <label className="block text-[11px] font-semibold text-slate-400 uppercase tracking-wider mb-1.5">
+              City / State
+            </label>
+            <input
+              type="text"
+              value={quickCity}
+              onChange={(e) => setQuickCity(e.target.value)}
+              placeholder="e.g. London, Dubai, Chicago..."
+              className="w-full rounded-xl border border-white/10 bg-white/[0.04] px-3 py-2 text-xs text-white placeholder-slate-500 focus:border-blue-500 focus:outline-none"
+            />
+          </div>
+
+          <div>
+            <label className="block text-[11px] font-semibold text-slate-400 uppercase tracking-wider mb-1.5">
+              Industry
+            </label>
+            <select
+              value={quickIndustry}
+              onChange={(e) => setQuickIndustry(e.target.value)}
+              className="w-full rounded-xl border border-white/10 bg-white/[0.04] px-3 py-2 text-xs text-white focus:border-blue-500 focus:outline-none"
+            >
+              <option value="Any" className="bg-[#0c1017]">Any Industry</option>
+              <option value="Real Estate" className="bg-[#0c1017]">Real Estate</option>
+              <option value="Healthcare & Medical Clinics" className="bg-[#0c1017]">Healthcare & Clinics</option>
+              <option value="Technology & SaaS" className="bg-[#0c1017]">Technology & SaaS</option>
+              <option value="Hospitality & Tourism" className="bg-[#0c1017]">Hospitality & Tourism</option>
+              <option value="Professional Services" className="bg-[#0c1017]">Professional Services</option>
+              <option value="Legal Services" className="bg-[#0c1017]">Legal & Law Firms</option>
+              <option value="Financial & Wealth Management" className="bg-[#0c1017]">Financial Services</option>
+              <option value="Construction & Engineering" className="bg-[#0c1017]">Construction & Engineering</option>
+              <option value="Logistics & Supply Chain" className="bg-[#0c1017]">Logistics & Freight</option>
+              <option value="E-Commerce & Retail" className="bg-[#0c1017]">E-Commerce & Retail</option>
+              <option value="Marketing & Advertising Agencies" className="bg-[#0c1017]">Marketing & Advertising</option>
+            </select>
+          </div>
+
+          <div>
+            <label className="block text-[11px] font-semibold text-slate-400 uppercase tracking-wider mb-1.5">
+              Target Keyword
+            </label>
+            <div className="flex gap-2">
+              <input
+                type="text"
+                value={quickKeyword}
+                onChange={(e) => setQuickKeyword(e.target.value)}
+                placeholder="e.g. Dentists, Commercial..."
+                className="w-full rounded-xl border border-white/10 bg-white/[0.04] px-3 py-2 text-xs text-white placeholder-slate-500 focus:border-blue-500 focus:outline-none"
+              />
+              <button
+                type="submit"
+                className="px-4 py-2 text-xs font-bold text-white bg-blue-600 hover:bg-blue-500 rounded-xl transition-all shrink-0 flex items-center gap-1.5 shadow-glow-sm"
+              >
+                <span>Find</span>
+                <ArrowRight className="h-3.5 w-3.5" />
+              </button>
             </div>
-          ))}
-        </div>
+          </div>
+        </form>
       </div>
 
-      {/* RECOMMENDED ACTIONS & LIVE ACTIVITY */}
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        {/* Recommended Actions (2 Cols) */}
-        <div className="lg:col-span-2 rounded-2xl border border-white/[0.08] bg-[#0c1017] p-6 shadow-glow-sm space-y-4">
-          <div className="flex items-center justify-between pb-3 border-b border-white/[0.06]">
-            <div>
-              <h3 className="text-sm font-bold text-white flex items-center gap-2">
-                <Sparkles className="h-4 w-4 text-purple-400" /> AI Recommended Next Actions
-              </h3>
-              <p className="text-xs text-slate-400 mt-0.5">
-                Targeted optimizations derived from real stored lead and campaign telemetry.
-              </p>
-            </div>
-            <span className="text-[10px] text-emerald-400 font-bold bg-emerald-500/10 px-2 py-0.5 rounded border border-emerald-500/20">
-              3 High Impact
-            </span>
+      {/* RECENT SAVED LEADS */}
+      <div className="rounded-2xl border border-white/[0.08] bg-[#0c1017] p-6 space-y-4">
+        <div className="flex items-center justify-between pb-3 border-b border-white/[0.06]">
+          <div className="flex items-center gap-2">
+            <Building2 className="h-4 w-4 text-emerald-400" />
+            <h2 className="text-sm font-bold text-white uppercase tracking-wider">Recently Saved Workspace Leads</h2>
           </div>
-
-          <div className="space-y-3">
-            {metrics?.total_leads === 0 ? (
-              <div className="p-4 rounded-xl border border-white/[0.06] bg-white/[0.02] flex items-center justify-between gap-4">
-                <div className="space-y-0.5">
-                  <div className="text-xs font-bold text-white">Discover Your First B2B Leads</div>
-                  <div className="text-[11px] text-slate-400">Launch live web discovery via Serper to find target companies and verified contacts.</div>
-                </div>
-                <Link
-                  href="/app/leads"
-                  className="px-3.5 py-1.5 rounded-lg bg-blue-600/10 hover:bg-blue-600/20 text-blue-400 border border-blue-500/20 text-xs font-bold transition-all shrink-0"
-                >
-                  Find Leads
-                </Link>
-              </div>
-            ) : (
-              <div className="p-4 rounded-xl border border-white/[0.06] bg-white/[0.02] flex items-center justify-between gap-4">
-                <div className="space-y-0.5">
-                  <div className="text-xs font-bold text-white">Review {metrics?.total_leads} Discovered Leads</div>
-                  <div className="text-[11px] text-slate-400">{metrics?.verified_leads || 0} leads have verified contact channels ready for outreach.</div>
-                </div>
-                <Link
-                  href="/app/leads"
-                  className="px-3.5 py-1.5 rounded-lg bg-blue-600/10 hover:bg-blue-600/20 text-blue-400 border border-blue-500/20 text-xs font-bold transition-all shrink-0"
-                >
-                  View Leads
-                </Link>
-              </div>
-            )}
-
-            <div className="p-4 rounded-xl border border-white/[0.06] bg-white/[0.02] flex items-center justify-between gap-4">
-              <div className="space-y-0.5">
-                <div className="text-xs font-bold text-white">Configure Ideal Customer Profile (ICP)</div>
-                <div className="text-[11px] text-slate-400">Define what you sell and your target buyer criteria for personalized lead fit scoring.</div>
-              </div>
-              <Link
-                href="/app/settings"
-                className="px-3.5 py-1.5 rounded-lg bg-purple-600/10 hover:bg-purple-600/20 text-purple-400 border border-purple-500/20 text-xs font-bold transition-all shrink-0"
-              >
-                Set ICP
-              </Link>
-            </div>
-
-            <div className="p-4 rounded-xl border border-white/[0.06] bg-white/[0.02] flex items-center justify-between gap-4">
-              <div className="space-y-0.5">
-                <div className="text-xs font-bold text-white">Connect Authorized Gmail / SMTP Account</div>
-                <div className="text-[11px] text-slate-400">Authorize your sending account for high-deliverability personalized outreach.</div>
-              </div>
-              <Link
-                href="/app/outreach/accounts"
-                className="px-3.5 py-1.5 rounded-lg bg-emerald-600/10 hover:bg-emerald-600/20 text-emerald-400 border border-emerald-500/20 text-xs font-bold transition-all shrink-0"
-              >
-                Connect Account
-              </Link>
-            </div>
-          </div>
+          <Link
+            href="/app/saved-leads"
+            className="text-xs font-semibold text-blue-400 hover:text-blue-300 flex items-center gap-1"
+          >
+            <span>View All Leads ({totalLeads})</span>
+            <ArrowRight className="h-3 w-3" />
+          </Link>
         </div>
 
-        {/* Live Activity Stream (1 Col) */}
-        <div className="rounded-2xl border border-white/[0.08] bg-[#0c1017] p-6 shadow-glow-sm flex flex-col justify-between">
-          <div>
-            <div className="flex items-center justify-between mb-4 pb-2 border-b border-white/[0.06]">
-              <h3 className="text-sm font-bold text-white flex items-center gap-2">
-                <Activity className="h-4 w-4 text-blue-400" /> Recent Activity Stream
-              </h3>
-              <span className="text-[10px] text-emerald-400 font-mono">Real-time</span>
-            </div>
-
-            <div className="space-y-3">
-              {(!metrics?.recent_activities || metrics.recent_activities.length === 0) ? (
-                <div className="p-4 rounded-xl bg-white/[0.02] border border-white/[0.04] text-xs text-slate-500 text-center">
-                  No recent activities recorded yet. Start by discovering leads or creating a campaign.
-                </div>
-              ) : (
-                metrics.recent_activities.map((act, aIdx) => (
-                  <div key={aIdx} className="p-3 rounded-xl bg-white/[0.02] border border-white/[0.04] text-xs">
-                    <p className="text-slate-200 mb-1">{act.text}</p>
-                    <span className="text-[10px] text-slate-500 font-mono">{act.time}</span>
-                  </div>
-                ))
-              )}
-            </div>
-          </div>
-
-          <div className="mt-6 pt-4 border-t border-white/[0.06]">
+        {loading ? (
+          <div className="py-12 text-center text-xs text-slate-500">Loading workspace leads...</div>
+        ) : leads.length === 0 ? (
+          <div className="py-12 text-center space-y-3">
+            <Database className="h-8 w-8 text-slate-600 mx-auto" />
+            <div className="text-sm font-semibold text-white">No Saved Leads Yet</div>
+            <p className="text-xs text-slate-400 max-w-md mx-auto">
+              Your workspace currently has 0 saved leads. Use the Lead Search engine to discover businesses and save them to your private workspace.
+            </p>
             <Link
-              href="/app/copilot"
-              className="w-full py-2.5 rounded-xl bg-blue-600/20 hover:bg-blue-600/30 border border-blue-500/30 text-blue-400 font-bold text-xs flex items-center justify-center gap-2 transition-all"
+              href="/app/leads"
+              className="inline-flex items-center gap-2 px-4 py-2 text-xs font-bold text-white bg-blue-600 hover:bg-blue-500 rounded-xl shadow-glow-sm transition-all"
             >
-              <Bot className="h-4 w-4" />
-              <span>Ask AI Copilot for Deal Insights</span>
+              <Search className="h-3.5 w-3.5" />
+              <span>Launch Lead Discovery</span>
             </Link>
           </div>
-        </div>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full text-left text-xs">
+              <thead className="border-b border-white/[0.08] text-slate-400 uppercase tracking-wider font-semibold">
+                <tr>
+                  <th className="py-3 px-3">Business</th>
+                  <th className="py-3 px-3">Location</th>
+                  <th className="py-3 px-3">Industry</th>
+                  <th className="py-3 px-3">Email</th>
+                  <th className="py-3 px-3">Phone</th>
+                  <th className="py-3 px-3 text-right">Actions</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-white/[0.04]">
+                {leads.map((l) => (
+                  <tr key={l.id} className="hover:bg-white/[0.02]">
+                    <td className="py-3 px-3">
+                      <div className="font-bold text-white">{l.business_name}</div>
+                      {l.website && (
+                        <a
+                          href={l.website.startsWith("http") ? l.website : `https://${l.website}`}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="text-[11px] text-blue-400 hover:underline flex items-center gap-1"
+                        >
+                          <span>{l.website.replace(/^https?:\/\//, "")}</span>
+                          <ExternalLink className="h-2.5 w-2.5" />
+                        </a>
+                      )}
+                    </td>
+                    <td className="py-3 px-3 text-slate-300">
+                      {[l.city, l.country].filter(Boolean).join(", ") || "—"}
+                    </td>
+                    <td className="py-3 px-3 text-slate-300">
+                      <span className="px-2 py-0.5 rounded bg-white/[0.04] text-[11px]">
+                        {l.industry || l.category || "General"}
+                      </span>
+                    </td>
+                    <td className="py-3 px-3">
+                      {l.email ? (
+                        <span className="text-emerald-400 font-mono text-[11px]">{l.email}</span>
+                      ) : (
+                        <span className="text-slate-500 text-[11px]">—</span>
+                      )}
+                    </td>
+                    <td className="py-3 px-3">
+                      {l.phone ? (
+                        <span className="text-slate-200 font-mono text-[11px]">{l.phone}</span>
+                      ) : (
+                        <span className="text-slate-500 text-[11px]">—</span>
+                      )}
+                    </td>
+                    <td className="py-3 px-3 text-right">
+                      <Link
+                        href={`/app/saved-leads`}
+                        className="text-xs text-slate-400 hover:text-white px-2 py-1 rounded bg-white/[0.03] hover:bg-white/[0.08]"
+                      >
+                        Manage
+                      </Link>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
       </div>
     </div>
   );

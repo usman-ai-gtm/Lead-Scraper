@@ -61,18 +61,25 @@ export default function AdminPage() {
 
         <div className="flex items-center gap-2 flex-wrap">
           <Link
-            href="/app/admin/integrations/google"
-            className="flex items-center gap-1.5 px-3.5 py-2 text-xs font-bold text-white bg-blue-600 hover:bg-blue-500 rounded-xl shadow-glow-sm transition-all"
+            href="/app/admin/clients"
+            className="flex items-center gap-1.5 px-3.5 py-2 text-xs font-bold text-white bg-rose-600 hover:bg-rose-500 rounded-xl shadow-glow-sm transition-all"
           >
-            <Key className="h-3.5 w-3.5" />
-            <span>Google & Gmail OAuth</span>
+            <Users className="h-3.5 w-3.5" />
+            <span>Client Accounts (50 Seats)</span>
           </Link>
           <Link
-            href="/app/features-lab"
+            href="/app/admin/providers"
             className="flex items-center gap-1.5 px-3 py-2 text-xs font-semibold text-slate-300 bg-white/[0.04] hover:bg-white/[0.08] border border-white/10 rounded-xl transition-all"
           >
-            <Terminal className="h-3.5 w-3.5 text-purple-400" />
-            <span>Feature Lab (1–600)</span>
+            <Server className="h-3.5 w-3.5 text-blue-400" />
+            <span>API Providers</span>
+          </Link>
+          <Link
+            href="/app/admin/system"
+            className="flex items-center gap-1.5 px-3 py-2 text-xs font-semibold text-slate-300 bg-white/[0.04] hover:bg-white/[0.08] border border-white/10 rounded-xl transition-all"
+          >
+            <Activity className="h-3.5 w-3.5 text-emerald-400" />
+            <span>System Health</span>
           </Link>
           <button
             onClick={fetchAdminData}

@@ -6,7 +6,7 @@ if ROOT_DIR not in sys.path:
     sys.path.insert(0, ROOT_DIR)
 
 from fastapi.testclient import TestClient
-from backend.app.main import app
+from backend.app.main import app 
 from backend.app.core.database import get_db_connection
 
 client = TestClient(app)

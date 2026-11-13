@@ -76,3 +76,4 @@
 
 ## 2. PRODUCTION READINESS SIGN-OFF
 The production website `https://lead-scraper-mxs5.vercel.app/` is operating stably with zero errors, hardened multi-tenant isolation, 50-client capacity controls, and live lead extraction.
+

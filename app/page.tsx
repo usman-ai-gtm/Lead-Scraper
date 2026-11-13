@@ -7,7 +7,7 @@ import { Footer } from "@/components/marketing/Footer";
 import {
   Sparkles, ArrowRight, CheckCircle2, Search, Target, Mail, MessageSquare,
   BarChart3, Zap, Shield, ChevronRight, Layers, Bot, Cpu, LineChart,
-  UserCheck, Database, Award, ArrowUpRight, Flame, PieChart, Users, Building
+  UserCheck, Database, Award, ArrowUpRight, Flame, PieChart, Users, Building, Download
 } from "lucide-react";
 
 export default function HomePage() {
@@ -33,8 +33,8 @@ export default function HomePage() {
     { title: "Personalize outreach", desc: "Generate hyper-personalized emails and WhatsApp copy dynamically.", href: "/app/outreach", icon: Sparkles, badge: "Copywriting" },
     { title: "Automate follow-ups", desc: "Multi-channel cadence across Day 1, 2, 4, 7 with smart reply pauses.", href: "/app/outreach", icon: Zap, badge: "Cadence" },
     { title: "Track conversations", desc: "Unified omnichannel timeline aggregating all email and WhatsApp events.", href: "/app/crm", icon: MessageSquare, badge: "Omnichannel" },
-    { title: "Manage pipeline", desc: "Visual 9-stage Kanban CRM with drag/drop deal movement and stage velocity.", href: "/app/crm", icon: Layers, badge: "Deals" },
-    { title: "Forecast revenue", desc: "Predictive win rates, churn indicators, and quarterly revenue simulation.", href: "/app/revenue", icon: LineChart, badge: "Forecasting" },
+    { title: "Manage pipeline", desc: "Visual 9-stage Kanban CRM with drag/drop deal movement and stage velocity.", href: "/app/leads", icon: Layers, badge: "Deals" },
+    { title: "Export lead intelligence", desc: "Download verified leads and contacts in CSV and native Excel XLSX formats.", href: "/app/exports", icon: Download, badge: "Exports" },
   ];
 
   const howItWorksSteps = [
@@ -137,8 +137,8 @@ export default function HomePage() {
         "Cohort revenue retention matrix and net revenue expansion tracking",
         "Forecast scenario simulator (Conservative, Expected, Best Case)"
       ],
-      ctaText: "View Revenue Intelligence",
-      ctaHref: "/app/revenue",
+      ctaText: "Explore Lead Exports",
+      ctaHref: "/app/exports",
       badgeColor: "text-rose-400 bg-rose-500/10 border-rose-500/20"
     }
   ];

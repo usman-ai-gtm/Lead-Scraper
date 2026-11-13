@@ -10,3 +10,4 @@ for db_path in ["usman_data_analytics.db", "usman_luxury_engine.db"]:
     has_intent = c.fetchone()
     print(f"{db_path} has buying_intent_analysis:", bool(has_intent))
     conn.close()
+

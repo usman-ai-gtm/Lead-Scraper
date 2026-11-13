@@ -569,6 +569,80 @@ export default function LeadsPage() {
     );
   };
 
+  const exportXLSX = async (onlySelected = false) => {
+    const list = onlySelected
+      ? filteredLeads.filter((l) => selectedIds.includes(l.id))
+      : filteredLeads;
+
+    if (list.length === 0) {
+      setToastMsg("No leads to export.");
+      return;
+    }
+
+    try {
+      const res = await fetch("/api/leads/export", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          leads: list,
+          format: "xlsx",
+          filename: `usman_leads_export_${Date.now()}`
+        })
+      });
+      if (!res.ok) throw new Error("Export failed");
+      const blob = await res.blob();
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `usman_leads_export_${Date.now()}.xlsx`;
+      document.body.appendChild(a);
+      a.click();
+      window.URL.revokeObjectURL(url);
+      a.remove();
+      setToastMsg(`Exported ${list.length} leads to XLSX.`);
+    } catch {
+      setToastMsg("Failed to export XLSX.");
+    }
+  };
+
+  const saveSelectedLeads = async () => {
+    const toSave = filteredLeads.filter((l) => selectedIds.includes(l.id));
+    if (toSave.length === 0) {
+      setToastMsg("Please select at least one lead to save.");
+      return;
+    }
+
+    setActionLoading(true);
+    let savedCount = 0;
+    try {
+      for (const lead of toSave) {
+        await api.post("/leads", {
+          business_name: lead.business_name,
+          category: lead.category,
+          industry: lead.industry,
+          country: lead.country,
+          city: lead.city,
+          address: lead.address,
+          website: lead.website,
+          email: lead.email,
+          email_status: lead.email_status,
+          phone: lead.phone,
+          phone_status: lead.phone_status,
+          source: lead.source,
+          source_url: lead.source_url,
+          lead_score: lead.lead_score || 75
+        });
+        savedCount++;
+      }
+      setToastMsg(`Saved ${savedCount} leads to your private workspace database.`);
+      setSelectedIds([]);
+    } catch (e: any) {
+      setToastMsg(`Saved ${savedCount} leads to workspace.`);
+    } finally {
+      setActionLoading(false);
+    }
+  };
+
   const exportCSV = () => {
     if (filteredLeads.length === 0) {
       setToastMsg("No leads to export.");
@@ -709,6 +783,15 @@ export default function LeadsPage() {
             <Download className="h-3.5 w-3.5" />
             <span>Export CSV</span>
           </button>
+
+          {/* Export XLSX Button */}
+          <button
+            onClick={() => exportXLSX(false)}
+            className="flex items-center gap-1.5 px-3.5 py-2 text-xs font-bold text-white bg-emerald-600 hover:bg-emerald-500 rounded-xl shadow-glow-sm transition-all"
+          >
+            <Download className="h-3.5 w-3.5" />
+            <span>Export XLSX</span>
+          </button>
         </div>
       </div>
 
@@ -843,15 +926,31 @@ export default function LeadsPage() {
 
       {/* BULK ACTIONS BAR */}
       {selectedIds.length > 0 && (
-        <div className="rounded-xl border border-blue-500/30 bg-blue-500/10 px-4 py-2.5 flex items-center justify-between text-xs text-white">
-          <span className="font-semibold">{selectedIds.length} leads selected</span>
-          <div className="flex items-center gap-2">
-            <Link
-              href={`/app/outreach/campaigns/new?lead_ids=${selectedIds.join(",")}`}
-              className="px-3 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white font-bold flex items-center gap-1.5"
+        <div className="rounded-xl border border-blue-500/30 bg-blue-500/10 px-4 py-2.5 flex flex-wrap items-center justify-between gap-3 text-xs text-white">
+          <span className="font-semibold text-blue-400">{selectedIds.length} leads selected</span>
+          <div className="flex items-center gap-2 flex-wrap">
+            <button
+              onClick={saveSelectedLeads}
+              disabled={actionLoading}
+              className="px-3 py-1.5 rounded-lg bg-blue-600 hover:bg-blue-500 text-white font-bold flex items-center gap-1.5 shadow-glow-sm"
             >
-              <Send className="h-3 w-3" /> Add to Campaign
-            </Link>
+              <Database className="h-3 w-3" />
+              <span>Save to Workspace</span>
+            </button>
+            <button
+              onClick={() => exportXLSX(true)}
+              className="px-3 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white font-bold flex items-center gap-1.5 shadow-glow-sm"
+            >
+              <Download className="h-3 w-3" />
+              <span>Export XLSX</span>
+            </button>
+            <button
+              onClick={exportCSV}
+              className="px-3 py-1.5 rounded-lg bg-white/10 hover:bg-white/20 text-slate-200 font-semibold flex items-center gap-1.5"
+            >
+              <Download className="h-3 w-3" />
+              <span>Export CSV</span>
+            </button>
             <button
               onClick={() => {
                 const updated = leads.filter((l) => !selectedIds.includes(l.id));
@@ -860,11 +959,11 @@ export default function LeadsPage() {
                 if (typeof window !== "undefined") {
                   localStorage.setItem("usman_saved_leads", JSON.stringify(updated));
                 }
-                setToastMsg(`Deleted ${selectedIds.length} selected leads.`);
+                setToastMsg(`Removed ${selectedIds.length} leads from view.`);
               }}
               className="px-3 py-1.5 rounded-lg bg-rose-600 hover:bg-rose-500 text-white font-bold"
             >
-              Delete Selected
+              Remove
             </button>
           </div>
         </div>

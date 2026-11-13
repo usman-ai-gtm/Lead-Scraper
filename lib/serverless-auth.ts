@@ -127,6 +127,17 @@ export function verifyJwtToken(token: string): any {
   }
 }
 
+export function getCurrentUserFromRequest(req: Request): any {
+  try {
+    const authHeader = req.headers.get("authorization") || req.headers.get("Authorization");
+    if (!authHeader || !authHeader.startsWith("Bearer ")) return null;
+    const token = authHeader.slice(7).trim();
+    return verifyJwtToken(token);
+  } catch {
+    return null;
+  }
+}
+
 export function registerServerlessUser(data: {
   email: string;
   fullName: string;
@@ -297,3 +308,118 @@ export function changeServerlessUserPassword(
   userStore.set(cleanEmail, user);
   return true;
 }
+
+export interface ServerlessLead {
+  id: number;
+  workspace_id: number;
+  business_name: string;
+  category?: string;
+  industry?: string;
+  city?: string;
+  state?: string;
+  country?: string;
+  address?: string;
+  website?: string;
+  email?: string;
+  email_status?: string;
+  phone?: string;
+  phone_status?: string;
+  whatsapp_number?: string;
+  social_links?: any;
+  description?: string;
+  services?: string;
+  lead_score?: number;
+  crm_stage?: string;
+  source?: string;
+  source_url?: string;
+  created_at: string;
+}
+
+const serverlessLeadsStore: ServerlessLead[] = [];
+
+export function getServerlessLeads(
+  workspaceId: number,
+  filters?: { keyword?: string; country?: string; city?: string; page?: number; page_size?: number }
+): { total: number; leads: ServerlessLead[]; page: number; page_size: number; total_pages: number } {
+  let matched = serverlessLeadsStore.filter((l) => l.workspace_id === workspaceId);
+  if (filters?.keyword) {
+    const q = filters.keyword.toLowerCase();
+    matched = matched.filter(
+      (l) =>
+        (l.business_name || "").toLowerCase().includes(q) ||
+        (l.industry || "").toLowerCase().includes(q) ||
+        (l.category || "").toLowerCase().includes(q)
+    );
+  }
+  if (filters?.country && filters.country !== "Any") {
+    matched = matched.filter((l) => (l.country || "").toLowerCase() === filters.country!.toLowerCase());
+  }
+  if (filters?.city && filters.city !== "Any") {
+    matched = matched.filter((l) => (l.city || "").toLowerCase().includes(filters.city!.toLowerCase()));
+  }
+
+  const page = filters?.page || 1;
+  const pageSize = filters?.page_size || 50;
+  const start = (page - 1) * pageSize;
+  const paginated = matched.slice(start, start + pageSize);
+
+  return {
+    total: matched.length,
+    leads: paginated,
+    page,
+    page_size: pageSize,
+    total_pages: Math.ceil(matched.length / pageSize) || 1,
+  };
+}
+
+export function addServerlessLead(workspaceId: number, data: Partial<ServerlessLead>): ServerlessLead {
+  const newLead: ServerlessLead = {
+    id: Number(data.id) || Date.now() + Math.floor(Math.random() * 1000),
+    workspace_id: workspaceId,
+    business_name: data.business_name || "New Business",
+    category: data.category || "General",
+    industry: data.industry || "General",
+    city: data.city || "",
+    state: data.state || "",
+    country: data.country || "",
+    address: data.address || "",
+    website: data.website || "",
+    email: data.email || "",
+    email_status: data.email_status || (data.email ? "UNVERIFIED" : "NOT FOUND"),
+    phone: data.phone || "",
+    phone_status: data.phone_status || (data.phone ? "Valid" : "Unverified"),
+    whatsapp_number: data.whatsapp_number || data.phone || "",
+    social_links: data.social_links || {},
+    description: data.description || "",
+    services: data.services || "",
+    lead_score: data.lead_score || 70,
+    crm_stage: data.crm_stage || "New Lead",
+    source: data.source || "Live Search",
+    source_url: data.source_url || "",
+    created_at: new Date().toISOString(),
+  };
+  serverlessLeadsStore.unshift(newLead);
+  return newLead;
+}
+
+export function deleteServerlessLead(workspaceId: number, leadId: number): boolean {
+  const idx = serverlessLeadsStore.findIndex((l) => l.workspace_id === workspaceId && l.id === leadId);
+  if (idx !== -1) {
+    serverlessLeadsStore.splice(idx, 1);
+    return true;
+  }
+  return false;
+}
+
+export function bulkDeleteServerlessLeads(workspaceId: number, leadIds: number[]): number {
+  const idsSet = new Set(leadIds);
+  let count = 0;
+  for (let i = serverlessLeadsStore.length - 1; i >= 0; i--) {
+    if (serverlessLeadsStore[i].workspace_id === workspaceId && idsSet.has(serverlessLeadsStore[i].id)) {
+      serverlessLeadsStore.splice(i, 1);
+      count++;
+    }
+  }
+  return count;
+}
+

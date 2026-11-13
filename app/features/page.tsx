@@ -6,7 +6,7 @@ import { Header } from "@/components/marketing/Header";
 import { Footer } from "@/components/marketing/Footer";
 import {
   Target, Search, Mail, MessageSquare, Database, LineChart,
-  UserCheck, ShieldCheck, Cpu, Bot, ArrowRight, Zap, CheckCircle2
+  UserCheck, ShieldCheck, Cpu, Bot, ArrowRight, Zap, CheckCircle2, Download
 } from "lucide-react";
 
 export default function FeaturesPage() {
@@ -47,11 +47,11 @@ export default function FeaturesPage() {
       items: ["9-Stage Visual Pipeline (New to Closed-Won)", "Deal Win-Probability Modeling", "Connected Companies & Contacts", "Unified Omnichannel Activity Timeline"]
     },
     {
-      title: "Revenue Intelligence & Churn Shield",
-      desc: "Predictive analytics for ARR growth. Scenario simulation, cohort retention matrices, sales velocity, and churn mitigation.",
-      icon: LineChart,
-      href: "/app/revenue",
-      items: ["Monte Carlo Forecast Simulator", "Predictive Churn Early-Warning Score", "Sales Velocity Index", "Net Revenue Retention Grouping"]
+      title: "Data Export Center & Spreadsheets",
+      desc: "Instant export of verified business contacts in standard CSV and Microsoft Excel (.xlsx) formats with full source URLs.",
+      icon: Download,
+      href: "/app/exports",
+      items: ["RFC 4180 CSV with UTF-8 BOM", "Native Microsoft Excel (.xlsx) generation", "Targeted Country & Industry Filtering", "Direct Single & Bulk Workspace Export"]
     },
     {
       title: "Sales Enablement & Battlecards",

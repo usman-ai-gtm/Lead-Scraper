@@ -4,32 +4,35 @@ import React, { useState, useEffect } from "react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { useAuth } from "@/lib/auth-context";
-import { api } from "@/lib/api";
 import { ForcedPasswordModal } from "@/components/auth/ForcedPasswordModal";
 import {
-  LayoutDashboard, Search, Sparkles, Mail, Database, LineChart,
-  Users2, BarChart3, Bot, ChevronDown, Bell, Settings, LogOut,
-  Menu, X, Command, MessageSquare, Shield, HelpCircle,
-  CheckCircle2, ArrowRight, ExternalLink, SlidersHorizontal, Terminal, Target,
-  Plug, Workflow
+  LayoutDashboard, Search, Database, Download, Settings,
+  Shield, Users2, SlidersHorizontal, Activity, LogOut,
+  Menu, X, Sparkles, Bell, CheckCircle2
 } from "lucide-react";
+
+interface NavItem {
+  name: string;
+  href: string;
+  icon: React.ComponentType<{ className?: string }>;
+}
 
 export default function AppLayout({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
   const router = useRouter();
   const { user, loading, activeWorkspace, workspaces, switchWorkspace, logout } = useAuth();
-  
+
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
   const [commandPaletteOpen, setCommandPaletteOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
-  const [searchResults, setSearchResults] = useState<any[]>([]);
   const [notificationsOpen, setNotificationsOpen] = useState(false);
-  const [notifications, setNotifications] = useState([
-    { id: 1, title: "Campaign Verified", message: "Q4 Enterprise Cadence delivered 42 emails with 0 bounces.", time: "10m ago" },
-    { id: 2, title: "Hot Prospect Detected", message: "Apex Global Tech reached 94/100 score.", time: "35m ago" },
-    { id: 3, title: "Security Audit Telemetry", message: "Automated cryptographic and access audit completed successfully.", time: "2h ago" }
+  const [notifications] = useState([
+    { id: 1, title: "Search Engine Active", message: "Serper API and multi-platform scrapers ready.", time: "10m ago" },
+    { id: 2, title: "Tenant Isolation Guard", message: "Workspace scoping verified for all leads.", time: "1h ago" },
+    { id: 3, title: "Export Ready", message: "CSV and native XLSX export modules loaded.", time: "2h ago" }
   ]);
-  const [moreMenuOpen, setMoreMenuOpen] = useState(false);
+
+  const isAdmin = user?.role === "ADMIN";
 
   // Strict Protected Route Guard: Non-authenticated visitors CANNOT access the dashboard
   useEffect(() => {
@@ -53,92 +56,42 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
     return () => window.removeEventListener("keydown", handleKeyDown);
   }, []);
 
-  const DEFAULT_ACTIONS = [
-    { title: "WhatsApp Outreach Companion", subtitle: "Free WhatsApp Web companion with CRM click-to-chat", url: "/app/whatsapp", badge: "WHATSAPP" },
-    { title: "Find Dentists in Lahore", subtitle: "Target local dental practices with public contact extraction", url: "/app/leads?q=dentists+in+lahore", badge: "LEAD DISCOVERY" },
-    { title: "Create Cold Email Campaign", subtitle: "Launch 11-step personalized cold outreach wizard", url: "/app/outreach/campaigns/new", badge: "OUTREACH" },
-    { title: "Connect Google / Gmail Account", subtitle: "Authorize multiple Gmail accounts via official OAuth", url: "/app/outreach/accounts", badge: "ACCOUNTS" },
-    { title: "Deep Company Research", subtitle: "Synthesize firmographic, financial & tech evidence", url: "/app/research", badge: "RESEARCH" },
-    { title: "Show Hot High-Intent Leads", subtitle: "Filter leads with score >= 85 and buying signals", url: "/app/leads?filter=hot", badge: "CRM" },
-    { title: "Run Buying Intent Radar", subtitle: "Feature #19 / #201: Multi-signal buyer intent detection", url: "/app/features?id=19", badge: "INTENT" },
-    { title: "Buying Committee Mapper", subtitle: "Feature #111: Identify C-level buyers, champions & blockers", url: "/app/features?id=111", badge: "BUYER INTEL" },
-    { title: "Predictive Win Probability Model", subtitle: "Feature #501: Calculate mathematical close probability", url: "/app/features?id=501", badge: "REVENUE" },
-    { title: "Outreach Inbox & AI Reply Analysis", subtitle: "Review prospect responses & approve AI replies", url: "/app/outreach/inbox", badge: "OUTREACH" },
-    { title: "Deliverability & DNS Health", subtitle: "Verify SPF, DKIM, DMARC & suppression lists", url: "/app/outreach/deliverability", badge: "SECURITY" },
-    { title: "Open 600+ Feature Library", subtitle: "Browse all enterprise capabilities by business intent", url: "/app/features", badge: "CAPABILITIES" }
+  // Exactly 5 Client Navigation Items
+  const clientNav: NavItem[] = [
+    { name: "Dashboard", href: "/app", icon: LayoutDashboard },
+    { name: "Lead Search", href: "/app/leads", icon: Search },
+    { name: "Saved Leads", href: "/app/saved-leads", icon: Database },
+    { name: "Exports", href: "/app/exports", icon: Download },
+    { name: "Account Settings", href: "/app/settings", icon: Settings },
   ];
 
-  // Universal Search query execution
-  useEffect(() => {
-    if (!searchQuery.trim()) {
-      setSearchResults(DEFAULT_ACTIONS.slice(0, 6));
-      return;
-    }
-
-    const q = searchQuery.toLowerCase();
-    const matchedStatic = DEFAULT_ACTIONS.filter(
-      (a) =>
-        a.title.toLowerCase().includes(q) ||
-        a.subtitle.toLowerCase().includes(q) ||
-        a.badge.toLowerCase().includes(q)
-    );
-
-    // Dynamic numeric feature jump (e.g. "501" or "feature 111")
-    const numMatch = q.match(/\d+/);
-    if (numMatch) {
-      const fid = parseInt(numMatch[0], 10);
-      if (fid >= 1 && fid <= 600) {
-        matchedStatic.unshift({
-          title: `Open Feature #${fid}`,
-          subtitle: `Launch Feature #${fid} in Universal Execution Studio`,
-          url: `/app/features?id=${fid}`,
-          badge: `FEATURE #${fid}`
-        });
-      }
-    }
-
-    const timer = setTimeout(async () => {
-      try {
-        const res = await api.get<any[]>("/copilot/search", { q: searchQuery });
-        const combined = [...matchedStatic, ...(res || [])];
-        setSearchResults(combined);
-      } catch {
-        setSearchResults(matchedStatic);
-      }
-    }, 150);
-
-    return () => clearTimeout(timer);
-  }, [searchQuery]);
-
-  interface NavItem {
-    name: string;
-    href: string;
-    icon: React.ComponentType<{ className?: string }>;
-  }
-
-  const mainNav: NavItem[] = [
-    { name: "Home", href: "/app", icon: LayoutDashboard },
-    { name: "Find Leads", href: "/app/leads", icon: Search },
-    { name: "Research", href: "/app/research", icon: Bot },
-    { name: "CRM", href: "/app/crm", icon: Database },
-    { name: "Outreach", href: "/app/outreach", icon: Mail },
-    { name: "WhatsApp Companion", href: "/app/whatsapp", icon: MessageSquare },
-    { name: "Automation", href: "/app/workflows", icon: Workflow },
-    { name: "Revenue", href: "/app/revenue", icon: LineChart },
-    { name: "Customers", href: "/app/customers", icon: Users2 },
-    { name: "Analytics", href: "/app/analytics", icon: BarChart3 },
-    { name: "AI Copilot", href: "/app/copilot", icon: Sparkles },
+  // Exactly 4 Admin Navigation Items (Role: ADMIN only)
+  const adminNav: NavItem[] = [
+    { name: "Admin Dashboard", href: "/app/admin", icon: Shield },
+    { name: "Client Accounts", href: "/app/admin/clients", icon: Users2 },
+    { name: "API Configuration", href: "/app/admin/providers", icon: SlidersHorizontal },
+    { name: "System Health", href: "/app/admin/system", icon: Activity },
   ];
 
-  const moreNav: NavItem[] = [
-    { name: "ABM Studio", href: "/app/abm", icon: Target },
-    { name: "Sales Enablement", href: "/app/ai-agents", icon: Bot },
-    { name: "Partners / Channel", href: "/app/integrations", icon: Plug },
-    { name: "Integrations Hub", href: "/app/integrations", icon: Plug },
-    { name: "Feature Library (600+)", href: "/app/features", icon: Terminal },
-    { name: "Sending Accounts", href: "/app/outreach/accounts", icon: Mail },
-    { name: "Admin Center", href: "/app/admin", icon: Shield },
+  const searchShortcuts = [
+    { title: "Lead Discovery & Search", subtitle: "Extract public business contacts across 193 countries", url: "/app/leads", badge: "SEARCH" },
+    { title: "Saved Workspace Leads", subtitle: "Manage saved leads and private company data", url: "/app/saved-leads", badge: "SAVED" },
+    { title: "Export Leads (CSV & XLSX)", subtitle: "Download workspace leads in standard formats", url: "/app/exports", badge: "EXPORT" },
+    { title: "Account & Password Settings", subtitle: "Update profile and change password", url: "/app/settings", badge: "SETTINGS" },
+    ...(isAdmin ? [
+      { title: "50-Client Account Seats", subtitle: "Provision and manage client accounts", url: "/app/admin/clients", badge: "ADMIN" },
+      { title: "API Provider Status", subtitle: "Check Serper, Firecrawl, and OpenAI status", url: "/app/admin/providers", badge: "ADMIN" },
+      { title: "System Health & Audit Logs", subtitle: "Database footprint and security audit trail", url: "/app/admin/system", badge: "ADMIN" },
+    ] : [])
   ];
+
+  const filteredShortcuts = searchQuery.trim()
+    ? searchShortcuts.filter((s) =>
+        s.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
+        s.subtitle.toLowerCase().includes(searchQuery.toLowerCase()) ||
+        s.badge.toLowerCase().includes(searchQuery.toLowerCase())
+      )
+    : searchShortcuts;
 
   if (loading) {
     return (
@@ -153,14 +106,14 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
     return (
       <div className="min-h-screen bg-[#07090e] flex flex-col items-center justify-center text-slate-300">
         <div className="h-9 w-9 animate-spin rounded-full border-2 border-purple-500 border-t-transparent mb-4" />
-        <p className="text-xs font-semibold uppercase tracking-wider text-slate-400">Redirecting to account creation...</p>
+        <p className="text-xs font-semibold uppercase tracking-wider text-slate-400">Redirecting to login...</p>
       </div>
     );
   }
 
   return (
     <div className="min-h-screen bg-[#07090e] text-slate-100 flex flex-col md:flex-row antialiased">
-      {/* SIDEBAR (Desktop) - Independent Scroll Container */}
+      {/* SIDEBAR (Desktop) */}
       <aside className="hidden md:flex w-64 flex-col justify-between border-r border-white/[0.08] bg-[#090d16] p-4 shrink-0 h-screen sticky top-0 overflow-y-auto select-none">
         <div>
           {/* Brand Logo */}
@@ -172,13 +125,18 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
               <span className="text-base font-bold tracking-tight text-white flex items-center gap-1">
                 USMAN <span className="text-blue-500 font-extrabold">AI GTM</span>
               </span>
-              <span className="text-[9px] uppercase tracking-wider text-slate-400">Enterprise SaaS</span>
+              <span className="text-[9px] uppercase tracking-wider text-slate-400">B2B Lead Engine</span>
             </div>
           </Link>
 
-          {/* Primary Nav */}
+          {/* Client Navigation Header */}
+          <div className="px-3 pb-2 text-[10px] font-bold uppercase tracking-wider text-slate-400">
+            Workspace Tools
+          </div>
+
+          {/* Client Nav List (5 Items) */}
           <nav className="space-y-1">
-            {mainNav.map((item) => {
+            {clientNav.map((item) => {
               const Icon = item.icon;
               const isActive = pathname === item.href;
               return (
@@ -198,43 +156,46 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
             })}
           </nav>
 
-          {/* More Expandable Menu */}
-          <div className="mt-4 pt-3 border-t border-white/[0.06]">
-            <button
-              onClick={() => setMoreMenuOpen(!moreMenuOpen)}
-              className="w-full flex items-center justify-between px-3 py-2 text-xs font-semibold text-slate-400 hover:text-white rounded-xl hover:bg-white/[0.04] transition-all"
-            >
-              <span>MORE TOOLS</span>
-              <ChevronDown className={`h-3.5 w-3.5 transform transition-transform ${moreMenuOpen ? "rotate-180" : ""}`} />
-            </button>
-
-            {moreMenuOpen && (
-              <div className="mt-1 space-y-1 pl-2">
-                {moreNav.map((item) => {
+          {/* Admin Navigation (Only if user.role === "ADMIN") */}
+          {isAdmin && (
+            <div className="mt-6 pt-4 border-t border-white/[0.08]">
+              <div className="px-3 pb-2 text-[10px] font-bold uppercase tracking-wider text-rose-400 flex items-center justify-between">
+                <span>Admin Governance</span>
+                <span className="text-[9px] bg-rose-500/20 text-rose-300 px-1.5 py-0.5 rounded font-mono">RBAC</span>
+              </div>
+              <nav className="space-y-1">
+                {adminNav.map((item) => {
                   const Icon = item.icon;
                   const isActive = pathname === item.href;
                   return (
                     <Link
                       key={item.href}
                       href={item.href}
-                      className={`flex items-center gap-2.5 px-3 py-2 rounded-lg text-xs font-medium transition-all ${
+                      className={`flex items-center gap-3 px-3 py-2.5 rounded-xl text-xs font-semibold transition-all ${
                         isActive
-                          ? "bg-blue-600/30 text-blue-400 font-bold"
-                          : "text-slate-400 hover:text-slate-200 hover:bg-white/[0.03]"
+                          ? "bg-rose-600/30 text-rose-300 border border-rose-500/40 font-bold"
+                          : "text-slate-400 hover:text-rose-200 hover:bg-rose-500/[0.06]"
                       }`}
                     >
-                      <Icon className="h-3.5 w-3.5" />
+                      <Icon className={`h-4 w-4 ${isActive ? "text-rose-300" : "text-slate-400"}`} />
                       <span>{item.name}</span>
                     </Link>
                   );
                 })}
-              </div>
-            )}
-          </div>
+              </nav>
+            </div>
+          )}
         </div>
 
         {/* Bottom User & Settings Area */}
         <div className="pt-4 border-t border-white/[0.08] space-y-1">
+          <div className="px-3 py-2 text-xs flex items-center justify-between text-slate-400">
+            <span className="truncate max-w-[140px] font-medium text-slate-300">{user?.full_name || "User"}</span>
+            <span className="text-[10px] uppercase font-bold text-blue-400 bg-blue-500/10 px-1.5 py-0.5 rounded">
+              {user?.role || "CLIENT"}
+            </span>
+          </div>
+
           <Link
             href="/app/settings"
             className={`flex items-center gap-3 px-3 py-2 rounded-xl text-xs font-semibold transition-colors ${
@@ -242,7 +203,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
             }`}
           >
             <Settings className="h-4 w-4" />
-            <span>Settings & Vault</span>
+            <span>Account Settings</span>
           </Link>
 
           <button
@@ -275,7 +236,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
             >
               <span className="flex items-center gap-2">
                 <Search className="h-3.5 w-3.5 text-slate-500" />
-                <span>Search leads, deals, tools...</span>
+                <span>Search leads, tools, settings...</span>
               </span>
               <kbd className="hidden sm:inline-block px-1.5 py-0.5 rounded bg-white/10 text-[10px] font-mono text-slate-400">
                 Ctrl K
@@ -285,20 +246,10 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
 
           {/* Right Top Bar Controls */}
           <div className="flex items-center gap-3">
-            {/* Workspace Selector Dropdown */}
+            {/* Workspace Indicator */}
             <div className="hidden sm:flex items-center gap-2 px-3 py-1.5 rounded-xl border border-white/10 bg-white/[0.02] text-xs">
               <span className="text-slate-400">Workspace:</span>
-              <select
-                value={activeWorkspace?.id || 1}
-                onChange={(e) => switchWorkspace(Number(e.target.value))}
-                className="bg-transparent text-white font-semibold focus:outline-none cursor-pointer"
-              >
-                {workspaces.map((w) => (
-                  <option key={w.id} value={w.id} className="bg-[#0c1017] text-white">
-                    {w.name}
-                  </option>
-                ))}
-              </select>
+              <span className="text-white font-semibold">{activeWorkspace?.name || `Client #${user?.workspace_id || 1}`}</span>
             </div>
 
             {/* Notifications Popover */}
@@ -339,10 +290,10 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
               className="flex items-center gap-2 pl-2 pr-3 py-1 rounded-xl bg-white/[0.04] border border-white/[0.08] hover:border-white/20 transition-all"
             >
               <div className="h-6 w-6 rounded-lg bg-blue-600 flex items-center justify-center text-xs font-bold text-white">
-                {user?.full_name ? user.full_name[0].toUpperCase() : "A"}
+                {user?.full_name ? user.full_name[0].toUpperCase() : "U"}
               </div>
               <span className="text-xs font-semibold text-slate-200 hidden sm:inline">
-                {user?.full_name || "Admin"}
+                {user?.full_name || "Account"}
               </span>
             </Link>
           </div>
@@ -368,7 +319,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
                 autoFocus
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
-                placeholder="Search across leads, deals, companies, and settings..."
+                placeholder="Search leads, exports, settings..."
                 className="w-full bg-transparent text-sm text-white placeholder-slate-500 focus:outline-none"
               />
               <button
@@ -380,8 +331,8 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
             </div>
 
             <div className="max-h-80 overflow-y-auto space-y-1">
-              {searchResults.length > 0 ? (
-                searchResults.map((item, idx) => (
+              {filteredShortcuts.length > 0 ? (
+                filteredShortcuts.map((item, idx) => (
                   <div
                     key={idx}
                     onClick={() => {
@@ -403,7 +354,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
                 ))
               ) : (
                 <div className="text-center py-8 text-xs text-slate-500">
-                  Type to search leads, deals, or navigation pages...
+                  No actions found for "{searchQuery}".
                 </div>
               )}
             </div>
@@ -422,8 +373,9 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
                   <X className="h-6 w-6" />
                 </button>
               </div>
+              <div className="text-[10px] font-bold uppercase tracking-wider text-slate-400 mb-2">Workspace Tools</div>
               <nav className="space-y-1">
-                {mainNav.concat(moreNav).map((item) => (
+                {clientNav.map((item) => (
                   <Link
                     key={item.href}
                     href={item.href}
@@ -434,6 +386,24 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
                   </Link>
                 ))}
               </nav>
+
+              {isAdmin && (
+                <div className="mt-6 pt-4 border-t border-white/[0.08]">
+                  <div className="text-[10px] font-bold uppercase tracking-wider text-rose-400 mb-2">Admin Governance</div>
+                  <nav className="space-y-1">
+                    {adminNav.map((item) => (
+                      <Link
+                        key={item.href}
+                        href={item.href}
+                        onClick={() => setMobileSidebarOpen(false)}
+                        className="block px-3 py-2 text-xs font-semibold text-slate-300 hover:text-white rounded-lg hover:bg-white/5"
+                      >
+                        {item.name}
+                      </Link>
+                    ))}
+                  </nav>
+                </div>
+              )}
             </div>
             <button
               onClick={logout}
