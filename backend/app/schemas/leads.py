@@ -6,13 +6,14 @@ from typing import Optional, List, Dict, Any
 from pydantic import BaseModel, Field
 
 class LeadSearchRequest(BaseModel):
-    keyword: str
-    country: str = "United States"
-    city: str = "All Cities"
-    platform: str = "All Platforms"
-    industry: str = "Any"
-    business_type: str = "Any"
-    target_count: int = 20
+    keyword: Optional[str] = ""
+    country: Optional[str] = "All Supported Countries"
+    city: Optional[str] = "All Cities"
+    platform: Optional[str] = "All Platforms"
+    industry: Optional[str] = "Any"
+    business_type: Optional[str] = "Any"
+    page: Optional[int] = 1
+    target_count: Optional[int] = 20
     business_size: Optional[str] = "Any"
     employee_range: Optional[str] = "Any"
     revenue_range: Optional[str] = "Any"

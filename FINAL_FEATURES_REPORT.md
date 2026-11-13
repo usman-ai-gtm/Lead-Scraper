@@ -98,3 +98,4 @@ Every extracted lead collects only genuinely available public information:
 2. **Client Accounts** (`/app/admin/clients`) — 50-client provisioning and seat management.
 3. **API Configuration** (`/app/admin/providers`) — External search API status and latency tests.
 4. **System Health** (`/app/admin/system`) — System telemetry, uptime, and immutable security audit logs.
+
