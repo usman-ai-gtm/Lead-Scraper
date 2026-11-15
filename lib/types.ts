@@ -79,6 +79,15 @@ export interface Lead {
   crm_stage: string;
   source?: string;
   source_url?: string;
+  source_platform?: string;
+  original_source_url?: string;
+  domain?: string;
+  email_source_url?: string;
+  phone_source_url?: string;
+  saved_date?: string;
+  saved_time?: string;
+  extraction_date?: string;
+  extraction_time?: string;
   created_at?: string;
   updated_at?: string;
 }

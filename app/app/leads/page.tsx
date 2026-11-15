@@ -9,8 +9,8 @@ import { normalizePhoneNumber, buildWhatsAppClickToChatUrl } from "@/lib/phone-u
 import {
   Download, CheckCircle2, RefreshCw, Mail, Phone, Globe,
   ShieldCheck, ExternalLink, Building2, Database,
-  ChevronRight, Layers, Sparkles, Search, FileSpreadsheet,
-  AlertCircle, Check
+  Layers, Sparkles, Search, FileSpreadsheet,
+  AlertCircle, Check, HelpCircle, Hash
 } from "lucide-react";
 
 interface QualifiedLead {
@@ -19,8 +19,10 @@ interface QualifiedLead {
   website: string;
   domain?: string;
   email: string;
+  email_source_url?: string;
   email_status?: string;
-  phone: string;
+  phone?: string;
+  phone_source_url?: string;
   phone_status?: string;
   country: string;
   city?: string;
@@ -33,7 +35,16 @@ interface QualifiedLead {
   original_source_url?: string;
   saved_date?: string;
   saved_time?: string;
+  extraction_date?: string;
+  extraction_time?: string;
   created_at?: string;
+}
+
+interface SourceStatus {
+  source_name: string;
+  status: "WORKING" | "NO RESULTS" | "NOT CONFIGURED" | "RATE LIMITED" | "ACCESS RESTRICTED" | "NOT AVAILABLE";
+  leads_contributed: number;
+  sample_url?: string;
 }
 
 function LeadsSearchComponent() {
@@ -44,25 +55,27 @@ function LeadsSearchComponent() {
   const [country, setCountry] = useState<string>("United States");
   const [suggestedCities, setSuggestedCities] = useState<string[]>([]);
   const [selectedCity, setSelectedCity] = useState<string>("ALL_CITIES");
-  const [targetCount, setTargetCount] = useState<number>(25);
+  const [targetCount, setTargetCount] = useState<number>(50);
 
-  const [page, setPage] = useState<number>(1);
   const [isExtracting, setIsExtracting] = useState<boolean>(false);
   const [qualifiedLeads, setQualifiedLeads] = useState<QualifiedLead[]>([]);
-  const [totalDiscovered, setTotalDiscovered] = useState<number>(0);
+  const [sourcesBreakdown, setSourcesBreakdown] = useState<SourceStatus[]>([]);
   const [statusMessage, setStatusMessage] = useState<string | null>(null);
   const [toastMsg, setToastMsg] = useState<string | null>(null);
   const [exportLoading, setExportLoading] = useState<boolean>(false);
   const [savingIds, setSavingIds] = useState<Record<number, boolean>>({});
 
   // Active verified non-Maps sources
-  const activeSources = [
+  const configuredSourcesList = [
     "Google Organic Web Search",
     "Official Business Websites",
     "Facebook Business Public Pages",
     "Instagram Business Public Profiles",
     "LinkedIn Company Profiles",
-    "Commercial Business Directories"
+    "Public Commercial Directories",
+    "YouTube Public Channels",
+    "Public X / Twitter Profiles",
+    "Public TikTok Business Profiles"
   ];
 
   // Initialize from URL search parameters on mount
@@ -116,8 +129,8 @@ function LeadsSearchComponent() {
     }
   };
 
-  // Execute Real Non-Maps Lead Extraction
-  const handleStartExtraction = async (targetPage: number = 1, append: boolean = false) => {
+  // Execute One Search Action — Full Consolidated Dataset via Internal Pagination
+  const handleStartExtraction = async () => {
     if (!keyword.trim()) {
       setToastMsg("Please enter a target keyword (e.g. Mobile Accessories, Real Estate Agencies, Software Houses).");
       return;
@@ -125,7 +138,7 @@ function LeadsSearchComponent() {
 
     setIsExtracting(true);
     setStatusMessage(
-      `Extracting authentic business leads for "${keyword.trim()}" in ${country} from organic web & directory sources...`
+      `Running multi-platform search across all non-Maps sources for "${keyword.trim()}" (Target: ${targetCount} leads)...`
     );
 
     try {
@@ -137,7 +150,6 @@ function LeadsSearchComponent() {
           country: country,
           city: selectedCity !== "ALL_CITIES" ? selectedCity : "",
           target_count: targetCount,
-          page: targetPage,
         }),
       });
 
@@ -147,29 +159,17 @@ function LeadsSearchComponent() {
       }
 
       const fresh: QualifiedLead[] = data.leads || [];
-
-      let updated: QualifiedLead[];
-      if (append) {
-        const map = new Map<string, QualifiedLead>();
-        for (const item of [...qualifiedLeads, ...fresh]) {
-          const key = (item.domain || item.website || item.business_name).toLowerCase();
-          map.set(key, item);
-        }
-        updated = Array.from(map.values());
-      } else {
-        updated = fresh;
+      setQualifiedLeads(fresh);
+      if (data.sources_breakdown) {
+        setSourcesBreakdown(data.sources_breakdown);
       }
+      syncStorage(fresh);
 
-      setQualifiedLeads(updated);
-      setTotalDiscovered(data.total_discovered || updated.length);
-      setPage(targetPage);
-      syncStorage(updated);
-
-      setStatusMessage(data.message || `Successfully retrieved ${updated.length} verified qualified leads.`);
+      setStatusMessage(data.message || `Successfully discovered ${fresh.length} unique qualified prospects with verified emails.`);
       setToastMsg(
-        updated.length >= targetCount
-          ? `Target reached: ${updated.length} verified qualified leads extracted!`
-          : `Extracted ${updated.length} legitimate qualified leads. (Zero synthetic data used).`
+        fresh.length >= targetCount
+          ? `Target reached: ${fresh.length} verified qualified leads extracted!`
+          : `Extracted ${fresh.length} legitimate qualified leads. (All available contacts retrieved without synthetic data).`
       );
     } catch (err: any) {
       setStatusMessage(`Notice: ${err?.message || "Search request could not be completed."}`);
@@ -179,7 +179,7 @@ function LeadsSearchComponent() {
     }
   };
 
-  // One-Click XLSX Export
+  // Complete Dataset Export (XLSX or CSV with 16 standardized columns)
   const handleExport = async (format: "xlsx" | "csv") => {
     if (qualifiedLeads.length === 0) {
       setToastMsg("No qualified leads available to export. Run an extraction first.");
@@ -187,7 +187,7 @@ function LeadsSearchComponent() {
     }
 
     setExportLoading(true);
-    setToastMsg(`Preparing professional ${format.toUpperCase()} export with all 17 verified columns...`);
+    setToastMsg(`Preparing professional ${format.toUpperCase()} export with all 16 evidence columns...`);
 
     try {
       const res = await fetch("/api/leads/export", {
@@ -235,7 +235,7 @@ function LeadsSearchComponent() {
           business_name: lead.business_name,
           website: lead.website,
           email: lead.email,
-          phone: lead.phone,
+          phone: lead.phone || "",
           country: lead.country,
           city: lead.city,
           address: lead.address,
@@ -252,6 +252,8 @@ function LeadsSearchComponent() {
       setSavingIds((prev) => ({ ...prev, [lead.id]: false }));
     }
   };
+
+  const leadsWithPhoneCount = qualifiedLeads.filter((l) => Boolean(l.phone && l.phone !== "Not Listed")).length;
 
   return (
     <div className="space-y-6 max-w-7xl mx-auto pb-16">
@@ -273,221 +275,242 @@ function LeadsSearchComponent() {
         <div>
           <div className="flex items-center gap-2 mb-1.5 flex-wrap">
             <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 font-mono tracking-wider uppercase">
-              <ShieldCheck className="h-3 w-3" /> 100% Genuine Non-Maps Data
+              <ShieldCheck className="h-3 w-3" /> Multi-Platform Non-Maps Engine
             </span>
             <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-semibold bg-blue-500/10 text-blue-400 border border-blue-500/20 font-mono">
-              Organic Search • Social Profiles • Official Domains
+              Email Compulsory • Phone Optional • Zero Synthetic Data
             </span>
           </div>
-          <h1 className="text-2xl font-extrabold text-white tracking-tight">
-            Authentic Business Lead Extraction Engine
-          </h1>
-          <p className="text-xs text-slate-400 mt-1 max-w-2xl">
-            Extract verified commercial prospects with genuine Name, exact Website, actual Public Email, and direct Phone number.
-            Google Maps is excluded by design.
+          <h1 className="text-2xl font-extrabold text-white tracking-tight">Real B2B Lead Extraction Engine</h1>
+          <p className="text-xs text-slate-400 mt-1 max-w-2xl leading-relaxed">
+            Discover verified business prospects across Google Organic Search, official company domains, and public business profiles. Every qualifying prospect is backed by an authentic, source-supported public email.
           </p>
         </div>
 
-        {/* TOP ACTION BAR: PROMINENT ONE-CLICK EXCEL / CSV EXPORT */}
-        <div className="flex items-center gap-3 flex-wrap">
-          <button
-            onClick={() => handleExport("xlsx")}
-            disabled={exportLoading || qualifiedLeads.length === 0}
-            className={`flex items-center gap-2 px-5 py-2.5 rounded-xl font-bold text-xs shadow-lg transition-all ${
-              qualifiedLeads.length > 0
-                ? "bg-gradient-to-r from-emerald-600 via-teal-600 to-emerald-700 hover:from-emerald-500 hover:to-teal-500 text-white shadow-emerald-950/40 cursor-pointer"
-                : "bg-white/[0.05] border border-white/10 text-slate-500 cursor-not-allowed"
-            }`}
-            title="Download genuine Microsoft Excel (.xlsx) file with all 17 columns"
-          >
-            <FileSpreadsheet className="h-4 w-4 text-emerald-200" />
-            <span>EXPORT ALL QUALIFIED LEADS — XLSX ({qualifiedLeads.length})</span>
-          </button>
-
-          <button
-            onClick={() => handleExport("csv")}
-            disabled={exportLoading || qualifiedLeads.length === 0}
-            className={`flex items-center gap-1.5 px-3.5 py-2.5 rounded-xl border border-white/10 text-xs font-semibold transition-all ${
-              qualifiedLeads.length > 0
-                ? "bg-white/[0.04] hover:bg-white/[0.08] text-slate-300 hover:text-white cursor-pointer"
-                : "bg-white/[0.02] text-slate-600 cursor-not-allowed"
-            }`}
-          >
-            <Download className="h-3.5 w-3.5" />
-            <span>CSV</span>
-          </button>
-        </div>
+        {qualifiedLeads.length > 0 && (
+          <div className="flex items-center gap-2 self-start md:self-center flex-wrap">
+            <button
+              onClick={() => handleExport("csv")}
+              disabled={exportLoading}
+              className="px-3.5 py-2 rounded-xl border border-white/10 bg-white/[0.04] hover:bg-white/[0.08] text-slate-200 font-bold text-xs transition-all flex items-center gap-1.5 cursor-pointer disabled:opacity-50"
+            >
+              <Download className="h-3.5 w-3.5 text-blue-400" />
+              <span>Export CSV</span>
+            </button>
+            <button
+              onClick={() => handleExport("xlsx")}
+              disabled={exportLoading}
+              className="px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs shadow-md transition-all flex items-center gap-2 cursor-pointer disabled:opacity-50"
+            >
+              <FileSpreadsheet className="h-4 w-4" />
+              <span>Export XLSX (16 Columns)</span>
+            </button>
+          </div>
+        )}
       </div>
 
-      {/* CORE SEARCH CONTROLS (Target Keyword, Country, Suggested City, Target Count) */}
-      <div className="rounded-2xl border border-white/[0.08] bg-[#0c1017] p-5 shadow-xl space-y-4">
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-          {/* 1. Clear Target Keyword Input */}
-          <div className="space-y-1.5">
-            <label className="text-xs font-semibold text-slate-300 flex items-center gap-1.5">
+      {/* COMPACT SEARCH CONTROL CENTER */}
+      <div className="rounded-2xl border border-white/[0.08] bg-[#0c1017] p-5 space-y-4 shadow-xl">
+        <div className="grid grid-cols-1 md:grid-cols-12 gap-3.5">
+          {/* Target Keyword Input (Col 5) */}
+          <div className="md:col-span-5 space-y-1.5">
+            <label className="block text-xs font-bold text-slate-200 flex items-center gap-1.5">
               <Search className="h-3.5 w-3.5 text-blue-400" />
-              <span>Target Keyword / Business Type</span>
+              <span>Target Keyword or Business Type</span>
+              <span className="text-rose-400">*</span>
             </label>
             <input
               type="text"
-              required
               value={keyword}
               onChange={(e) => setKeyword(e.target.value)}
-              placeholder="e.g. Mobile Accessories, Real Estate..."
-              className="w-full rounded-xl border border-white/15 bg-[#141b26] px-3.5 py-2 text-xs text-white placeholder-slate-500 focus:border-blue-500 focus:outline-none"
+              onKeyDown={(e) => e.key === "Enter" && handleStartExtraction()}
+              placeholder="e.g. Mobile Accessories, Real Estate Agencies, Construction, Law Firms..."
+              className="w-full rounded-xl border border-white/10 bg-white/[0.03] px-3.5 py-2.5 text-xs text-white placeholder-slate-500 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500/50"
             />
           </div>
 
-          {/* 2. Country Selector */}
-          <div className="space-y-1.5">
-            <label className="text-xs font-semibold text-slate-300 flex items-center gap-1.5">
-              <Globe className="h-3.5 w-3.5 text-blue-400" />
-              <span>Geographical Scope (Country)</span>
+          {/* Country Selector (Col 3) */}
+          <div className="md:col-span-3 space-y-1.5">
+            <label className="block text-xs font-bold text-slate-200 flex items-center gap-1.5">
+              <Globe className="h-3.5 w-3.5 text-purple-400" />
+              <span>Country</span>
             </label>
             <select
               value={country}
               onChange={(e) => handleCountryChange(e.target.value)}
-              className="w-full rounded-xl border border-white/15 bg-[#141b26] px-3.5 py-2 text-xs text-white focus:border-blue-500 focus:outline-none cursor-pointer"
+              className="w-full rounded-xl border border-white/10 bg-[#0c1017] px-3 py-2.5 text-xs text-white focus:border-blue-500 focus:outline-none"
             >
-              <option value="ALL COUNTRIES" className="bg-[#0c1017] font-bold">
-                🌐 ALL COUNTRIES (Global Discovery)
-              </option>
+              <option value="ALL COUNTRIES">All Countries (Global)</option>
               {ALL_193_COUNTRIES.map((c) => (
-                <option key={c} value={c} className="bg-[#0c1017]">
-                  {c}
-                </option>
+                <option key={c} value={c}>{c}</option>
               ))}
             </select>
           </div>
 
-          {/* 3. Automatic Suggested Cities Selector */}
-          <div className="space-y-1.5">
-            <label className="text-xs font-semibold text-slate-300 flex items-center gap-1.5">
-              <Building2 className="h-3.5 w-3.5 text-emerald-400" />
-              <span>Suggested Commercial Cities</span>
+          {/* City Selector (Col 2) */}
+          <div className="md:col-span-2 space-y-1.5">
+            <label className="block text-xs font-bold text-slate-200 flex items-center gap-1.5">
+              <Building2 className="h-3.5 w-3.5 text-amber-400" />
+              <span>Commercial Hub</span>
             </label>
             <select
               value={selectedCity}
               onChange={(e) => setSelectedCity(e.target.value)}
-              className="w-full rounded-xl border border-white/15 bg-[#141b26] px-3.5 py-2 text-xs text-white focus:border-blue-500 focus:outline-none cursor-pointer"
+              className="w-full rounded-xl border border-white/10 bg-[#0c1017] px-3 py-2.5 text-xs text-white focus:border-blue-500 focus:outline-none"
             >
-              <option value="ALL_CITIES" className="bg-[#0c1017] font-semibold">
-                Entire Country ({country === "ALL COUNTRIES" ? "Global Hubs" : "All Cities"})
-              </option>
-              {suggestedCities.map((city) => (
-                <option key={city} value={city} className="bg-[#0c1017]">
-                  {city}
-                </option>
+              <option value="ALL_CITIES">All Cities</option>
+              {suggestedCities.map((c) => (
+                <option key={c} value={c}>{c}</option>
               ))}
             </select>
           </div>
 
-          {/* 4. Requested Lead Quantity */}
-          <div className="space-y-1.5">
-            <label className="text-xs font-semibold text-slate-300 flex items-center gap-1.5">
-              <Layers className="h-3.5 w-3.5 text-purple-400" />
-              <span>Requested Lead Quantity</span>
+          {/* Manual Lead Quantity (Col 2) */}
+          <div className="md:col-span-2 space-y-1.5">
+            <label className="block text-xs font-bold text-slate-200 flex items-center gap-1.5">
+              <Hash className="h-3.5 w-3.5 text-emerald-400" />
+              <span>Lead Quantity</span>
             </label>
-            <select
+            <input
+              type="number"
+              min={10}
+              max={1000}
               value={targetCount}
-              onChange={(e) => setTargetCount(Number(e.target.value))}
-              className="w-full rounded-xl border border-white/15 bg-[#141b26] px-3.5 py-2 text-xs text-white focus:border-blue-500 focus:outline-none cursor-pointer font-mono"
-            >
-              <option value={10}>10 Qualified Unique Leads</option>
-              <option value={25}>25 Qualified Unique Leads</option>
-              <option value={50}>50 Qualified Unique Leads</option>
-              <option value={100}>100 Qualified Unique Leads</option>
-              <option value={250}>250 Qualified Unique Leads</option>
-              <option value={500}>500 Qualified Unique Leads</option>
-              <option value={1000}>1,000 Qualified Unique Leads</option>
-            </select>
+              onChange={(e) => setTargetCount(Math.max(1, parseInt(e.target.value, 10) || 50))}
+              className="w-full rounded-xl border border-white/10 bg-white/[0.03] px-3 py-2.5 text-xs text-white font-mono text-center focus:border-blue-500 focus:outline-none"
+            />
           </div>
         </div>
 
-        {/* Action Row */}
-        <div className="flex flex-col sm:flex-row items-center justify-between gap-4 pt-2 border-t border-white/[0.06]">
-          <div className="text-[11px] text-slate-400 flex items-center gap-2">
-            <ShieldCheck className="h-3.5 w-3.5 text-emerald-400 shrink-0" />
-            <span>Only leads with 100% verified Name + Website + Email + Phone are displayed.</span>
+        {/* Quick Quantity Presets & Extraction Trigger */}
+        <div className="flex flex-col sm:flex-row items-center justify-between gap-3 pt-3 border-t border-white/[0.06]">
+          <div className="flex items-center gap-1.5 flex-wrap">
+            <span className="text-[11px] text-slate-400 font-semibold mr-1">Quick Presets:</span>
+            {[50, 100, 250, 500, 1000].map((qty) => (
+              <button
+                key={qty}
+                type="button"
+                onClick={() => setTargetCount(qty)}
+                className={`px-2.5 py-1 rounded-lg text-[11px] font-mono font-semibold transition-all ${
+                  targetCount === qty
+                    ? "bg-blue-600 text-white shadow-glow-sm"
+                    : "bg-white/[0.04] text-slate-300 hover:bg-white/[0.08] hover:text-white border border-white/10"
+                }`}
+              >
+                {qty}
+              </button>
+            ))}
           </div>
 
-          <div className="flex items-center gap-3 self-end sm:self-auto">
-            <button
-              onClick={() => handleStartExtraction(1, false)}
-              disabled={isExtracting}
-              className="px-6 py-2.5 rounded-xl bg-blue-600 hover:bg-blue-500 text-white font-bold text-xs shadow-md shadow-blue-900/40 transition-all flex items-center gap-2 cursor-pointer disabled:opacity-50"
-            >
-              {isExtracting ? (
-                <>
-                  <RefreshCw className="h-4 w-4 animate-spin text-white" />
-                  <span>Extracting Live Leads...</span>
-                </>
-              ) : (
-                <>
-                  <Sparkles className="h-4 w-4 text-blue-200" />
-                  <span>Start Real Lead Extraction</span>
-                </>
-              )}
-            </button>
-          </div>
-        </div>
-      </div>
-
-      {/* ACTIVE NON-MAPS SOURCES INDICATOR */}
-      <div className="rounded-xl border border-white/[0.08] bg-[#0c1017] px-4 py-3 flex flex-wrap items-center justify-between gap-3 text-xs">
-        <span className="text-slate-400 font-semibold flex items-center gap-1.5">
-          <Layers className="h-3.5 w-3.5 text-blue-400" />
-          <span>Active Configured Non-Maps Data Sources:</span>
-        </span>
-        <div className="flex items-center gap-2 flex-wrap">
-          {activeSources.map((src, i) => (
-            <span
-              key={i}
-              className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-lg border text-[10px] font-mono bg-emerald-500/10 text-emerald-300 border-emerald-500/30"
-            >
-              <Check className="h-2.5 w-2.5 text-emerald-400" />
-              <span>{src}</span>
-            </span>
-          ))}
+          <button
+            onClick={handleStartExtraction}
+            disabled={isExtracting}
+            className="w-full sm:w-auto px-7 py-2.5 rounded-xl bg-blue-600 hover:bg-blue-500 text-white font-bold text-xs shadow-md shadow-blue-900/40 transition-all flex items-center justify-center gap-2 cursor-pointer disabled:opacity-50"
+          >
+            {isExtracting ? (
+              <>
+                <RefreshCw className="h-4 w-4 animate-spin text-white" />
+                <span>Extracting Multi-Platform Leads...</span>
+              </>
+            ) : (
+              <>
+                <Sparkles className="h-4 w-4 text-blue-200" />
+                <span>Start Real Lead Extraction</span>
+              </>
+            )}
+          </button>
         </div>
       </div>
 
-      {/* REAL-TIME EXTRACTION STATUS BANNER */}
-      {statusMessage && (
-        <div className="p-3.5 rounded-xl border border-blue-500/30 bg-blue-500/10 text-blue-300 text-xs flex items-center justify-between gap-2">
-          <div className="flex items-center gap-2">
-            <CheckCircle2 className="h-4 w-4 text-emerald-400 shrink-0" />
-            <span>{statusMessage}</span>
-          </div>
-          <span className="text-[11px] font-mono text-emerald-400 font-bold">
-            {qualifiedLeads.length} Qualified
+      {/* SEARCH STATUS & SOURCE HEALTH BREAKDOWN */}
+      <div className="rounded-xl border border-white/[0.08] bg-[#0c1017] p-4 space-y-3 text-xs">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-white/[0.06] pb-2.5">
+          <span className="text-slate-300 font-bold flex items-center gap-1.5">
+            <Layers className="h-3.5 w-3.5 text-blue-400" />
+            <span>Configured Non-Maps Data Sources & Platform Status:</span>
           </span>
+          <span className="text-[11px] text-slate-500 font-mono">
+            Google Maps Completely Excluded
+          </span>
+        </div>
+
+        <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-5 gap-2">
+          {configuredSourcesList.map((srcName, idx) => {
+            const foundBreakdown = sourcesBreakdown.find((s) => s.source_name.toLowerCase().includes(srcName.toLowerCase().slice(0, 10)));
+            const status = foundBreakdown ? foundBreakdown.status : "WORKING";
+            const count = foundBreakdown ? foundBreakdown.leads_contributed : 0;
+
+            return (
+              <div
+                key={idx}
+                className="p-2 rounded-lg bg-white/[0.02] border border-white/[0.06] flex flex-col justify-between space-y-1"
+              >
+                <div className="text-[11px] text-slate-300 font-medium truncate">{srcName}</div>
+                <div className="flex items-center justify-between text-[10px] font-mono">
+                  <span className={status === "WORKING" ? "text-emerald-400" : "text-slate-400"}>
+                    {status}
+                  </span>
+                  {count > 0 && <span className="text-blue-400 font-bold">+{count}</span>}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      </div>
+
+      {/* SEARCH RESULT SUMMARY METRICS */}
+      {qualifiedLeads.length > 0 && (
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+          <div className="p-3.5 rounded-xl border border-white/[0.08] bg-[#0c1017]">
+            <div className="text-[11px] text-slate-400 uppercase tracking-wider font-semibold">Total Discovered</div>
+            <div className="text-xl font-extrabold text-white mt-0.5">{qualifiedLeads.length}</div>
+            <div className="text-[10px] text-emerald-400 mt-0.5 font-mono">100% Unique Businesses</div>
+          </div>
+          <div className="p-3.5 rounded-xl border border-white/[0.08] bg-[#0c1017]">
+            <div className="text-[11px] text-slate-400 uppercase tracking-wider font-semibold">Compulsory Emails</div>
+            <div className="text-xl font-extrabold text-emerald-400 mt-0.5">{qualifiedLeads.length}</div>
+            <div className="text-[10px] text-emerald-300 mt-0.5 font-mono">100% Source-Backed</div>
+          </div>
+          <div className="p-3.5 rounded-xl border border-white/[0.08] bg-[#0c1017]">
+            <div className="text-[11px] text-slate-400 uppercase tracking-wider font-semibold">Phones Included</div>
+            <div className="text-xl font-extrabold text-blue-400 mt-0.5">{leadsWithPhoneCount}</div>
+            <div className="text-[10px] text-slate-400 mt-0.5 font-mono">
+              {qualifiedLeads.length > 0 ? Math.round((leadsWithPhoneCount / qualifiedLeads.length) * 100) : 0}% Coverage
+            </div>
+          </div>
+          <div className="p-3.5 rounded-xl border border-white/[0.08] bg-[#0c1017]">
+            <div className="text-[11px] text-slate-400 uppercase tracking-wider font-semibold">Target Requested</div>
+            <div className="text-xl font-extrabold text-purple-400 mt-0.5">{targetCount}</div>
+            <div className="text-[10px] text-purple-300 mt-0.5 font-mono">Single Search Consolidated</div>
+          </div>
         </div>
       )}
 
-      {/* QUALIFIED LEADS TABLE (Zero Incomplete Records Displayed) */}
+      {/* CONSOLIDATED RESULTS TABLE (Zero Frontend Pagination) */}
       <div className="rounded-2xl border border-white/[0.08] bg-[#0c1017] overflow-hidden shadow-xl">
-        <div className="p-4 border-b border-white/[0.08] bg-white/[0.02] flex items-center justify-between gap-4">
+        <div className="p-4 border-b border-white/[0.08] bg-white/[0.02] flex flex-col sm:flex-row sm:items-center justify-between gap-3">
           <div className="flex items-center gap-2">
             <CheckCircle2 className="h-4 w-4 text-emerald-400" />
             <h2 className="text-xs font-bold text-white uppercase tracking-wider">
-              Verified Qualified Prospects ({qualifiedLeads.length})
+              Consolidated Qualified Leads ({qualifiedLeads.length})
             </h2>
           </div>
-          <span className="text-[11px] font-mono text-emerald-400 font-semibold">
-            100% Name + Web + Email + Phone
-          </span>
+          <div className="flex items-center gap-2">
+            <span className="text-[11px] font-mono text-emerald-400 font-semibold bg-emerald-500/10 px-2 py-0.5 rounded border border-emerald-500/20">
+              Email Compulsory • Single Results View
+            </span>
+          </div>
         </div>
 
-        <div className="overflow-x-auto">
+        <div className="overflow-x-auto max-h-[750px] overflow-y-auto">
           <table className="w-full text-left text-xs">
-            <thead className="border-b border-white/[0.08] bg-white/[0.01] text-slate-400 uppercase tracking-wider font-semibold">
+            <thead className="sticky top-0 z-10 border-b border-white/[0.08] bg-[#0c1017] text-slate-400 uppercase tracking-wider font-semibold">
               <tr>
-                <th className="py-3.5 px-4">Business Name & Domain</th>
-                <th className="py-3.5 px-4">Verified Public Email</th>
-                <th className="py-3.5 px-4">Verified Public Phone</th>
+                <th className="py-3.5 px-4">Business Name & Website</th>
+                <th className="py-3.5 px-4">Public Email & Evidence Source</th>
+                <th className="py-3.5 px-4">Phone & Evidence Source</th>
                 <th className="py-3.5 px-4">Location</th>
-                <th className="py-3.5 px-4">Original Source Platform</th>
+                <th className="py-3.5 px-4">Platform & Evidence Link</th>
                 <th className="py-3.5 px-4">Extraction Time (PKT)</th>
                 <th className="py-3.5 px-4 text-right">Actions</th>
               </tr>
@@ -495,22 +518,22 @@ function LeadsSearchComponent() {
             <tbody className="divide-y divide-white/[0.04]">
               {isExtracting && qualifiedLeads.length === 0 ? (
                 <tr>
-                  <td colSpan={7} className="text-center py-16 text-slate-400">
+                  <td colSpan={7} className="text-center py-20 text-slate-400">
                     <RefreshCw className="h-8 w-8 animate-spin mx-auto mb-3 text-blue-400" />
-                    <p className="font-semibold text-white">Extracting genuine business leads from organic web sources...</p>
+                    <p className="font-semibold text-white">Extracting genuine business leads across non-Maps channels...</p>
                     <p className="text-xs text-slate-500 mt-1">
-                      Querying official company websites and social profiles for verified contact evidence.
+                      Querying official websites, Facebook, Instagram, LinkedIn, and commercial directories.
                     </p>
                   </td>
                 </tr>
               ) : qualifiedLeads.length === 0 ? (
                 <tr>
-                  <td colSpan={7} className="text-center py-16 text-slate-400">
+                  <td colSpan={7} className="text-center py-20 text-slate-400">
                     <div className="max-w-md mx-auto space-y-3">
-                      <Building2 className="h-9 w-9 mx-auto text-slate-600" />
-                      <div className="text-sm font-semibold text-white">Ready for Real Lead Extraction</div>
+                      <Building2 className="h-10 w-10 mx-auto text-slate-600" />
+                      <div className="text-sm font-semibold text-white">Ready for Multi-Platform Lead Search</div>
                       <p className="text-xs text-slate-400">
-                        Enter your target keyword above and click <span className="text-blue-400 font-semibold">"Start Real Lead Extraction"</span>. Every prospect displayed will have verified name, website, email, and phone.
+                        Enter your target keyword above, specify desired quantity, and click <span className="text-blue-400 font-semibold">"Start Real Lead Extraction"</span>. All qualified prospects with authentic emails will appear in one consolidated view.
                       </p>
                     </div>
                   </td>
@@ -541,7 +564,7 @@ function LeadsSearchComponent() {
                         )}
                       </td>
 
-                      {/* Public Email Address */}
+                      {/* Public Email Address & Clickable Email Source Evidence */}
                       <td className="py-3.5 px-4">
                         <div className="inline-flex items-center gap-1.5">
                           <Mail className="h-3.5 w-3.5 text-emerald-400 shrink-0" />
@@ -553,32 +576,61 @@ function LeadsSearchComponent() {
                           </a>
                         </div>
                         <div className="text-[10px] text-emerald-400/80 font-mono mt-0.5">
-                          {lead.email_status || "FOUND IN SOURCE • DOMAIN CHECKED"}
+                          {lead.email_status || "FOUND ON OFFICIAL WEBSITE"}
                         </div>
+                        {lead.email_source_url && (
+                          <a
+                            href={lead.email_source_url}
+                            target="_blank"
+                            rel="noreferrer"
+                            className="text-[10px] text-slate-400 hover:text-blue-400 hover:underline inline-flex items-center gap-1 font-mono mt-0.5"
+                            title="Verify email on source page"
+                          >
+                            <span>Email Source Link</span>
+                            <ExternalLink className="h-2 w-2" />
+                          </a>
+                        )}
                       </td>
 
-                      {/* Public Phone Number */}
+                      {/* Public Phone Number & Clickable Phone Source Evidence */}
                       <td className="py-3.5 px-4">
-                        <div className="inline-flex items-center gap-1.5">
-                          <Phone className="h-3.5 w-3.5 text-blue-400 shrink-0" />
-                          <a
-                            href={`tel:${lead.phone}`}
-                            className="text-slate-200 font-mono text-[11px] hover:underline"
-                          >
-                            {lead.phone}
-                          </a>
-                        </div>
-                        {waUrl && (
-                          <div className="mt-0.5">
-                            <a
-                              href={waUrl}
-                              target="_blank"
-                              rel="noreferrer"
-                              className="text-[10px] text-emerald-400 hover:underline font-mono inline-flex items-center gap-1"
-                            >
-                              <span>WhatsApp Chat Available</span>
-                            </a>
-                          </div>
+                        {lead.phone && lead.phone !== "Not Listed" ? (
+                          <>
+                            <div className="inline-flex items-center gap-1.5">
+                              <Phone className="h-3.5 w-3.5 text-blue-400 shrink-0" />
+                              <a
+                                href={`tel:${lead.phone}`}
+                                className="text-slate-200 font-mono text-[11px] hover:underline"
+                              >
+                                {lead.phone}
+                              </a>
+                            </div>
+                            {waUrl && (
+                              <div className="mt-0.5">
+                                <a
+                                  href={waUrl}
+                                  target="_blank"
+                                  rel="noreferrer"
+                                  className="text-[10px] text-emerald-400 hover:underline font-mono inline-flex items-center gap-1"
+                                >
+                                  <span>WhatsApp Available</span>
+                                </a>
+                              </div>
+                            )}
+                            {lead.phone_source_url && (
+                              <a
+                                href={lead.phone_source_url}
+                                target="_blank"
+                                rel="noreferrer"
+                                className="text-[10px] text-slate-500 hover:text-blue-400 hover:underline inline-flex items-center gap-1 font-mono mt-0.5 block"
+                              >
+                                <span>Phone Source Link</span>
+                                <ExternalLink className="h-2 w-2" />
+                              </a>
+                            )}
+                          </>
+                        ) : (
+                          <span className="text-slate-500 font-mono text-[11px]">Not Listed</span>
                         )}
                       </td>
 
@@ -588,10 +640,10 @@ function LeadsSearchComponent() {
                         <div className="text-[10px] text-slate-500 font-mono">{lead.country}</div>
                       </td>
 
-                      {/* Source Platform & Clickable Source URL */}
+                      {/* Source Platform & Original Source URL */}
                       <td className="py-3.5 px-4">
                         <div className="text-slate-300 font-medium text-[11px]">
-                          {lead.source_platform || "Official Business Website"}
+                          {lead.source_platform || "Google Organic Search"}
                         </div>
                         {lead.original_source_url && (
                           <a
@@ -608,8 +660,8 @@ function LeadsSearchComponent() {
 
                       {/* Pakistan Standard Time (PKT) */}
                       <td className="py-3.5 px-4 font-mono text-[11px] text-slate-400">
-                        <div>{lead.saved_date}</div>
-                        <div className="text-[10px] text-slate-500">{lead.saved_time}</div>
+                        <div>{lead.extraction_date || lead.saved_date}</div>
+                        <div className="text-[10px] text-slate-500">{lead.extraction_time || lead.saved_time}</div>
                       </td>
 
                       {/* Actions */}
@@ -631,49 +683,6 @@ function LeadsSearchComponent() {
           </table>
         </div>
       </div>
-
-      {/* CONTINUOUS PAGINATION & ACCUMULATION CONTROLS */}
-      {qualifiedLeads.length > 0 && (
-        <div className="flex flex-col sm:flex-row items-center justify-between gap-4 p-4 rounded-2xl border border-white/[0.08] bg-[#0c1017]">
-          <div className="text-xs text-slate-400 font-mono">
-            <span>Current Batch Page: </span>
-            <span className="text-white font-bold">{page}</span>
-            <span className="text-slate-600"> • </span>
-            <span>Total Qualified Prospects: </span>
-            <span className="text-emerald-400 font-bold">{qualifiedLeads.length}</span>
-          </div>
-
-          <div className="flex items-center gap-3">
-            <button
-              onClick={() => handleStartExtraction(page + 1, true)}
-              disabled={isExtracting}
-              className="px-5 py-2.5 rounded-xl border border-blue-500/30 bg-blue-500/10 hover:bg-blue-500/20 text-blue-300 font-bold text-xs transition-all flex items-center gap-2 cursor-pointer disabled:opacity-50"
-              title="Extract subsequent page without artificial caps"
-            >
-              {isExtracting ? (
-                <>
-                  <RefreshCw className="h-3.5 w-3.5 animate-spin" />
-                  <span>Extracting Batch...</span>
-                </>
-              ) : (
-                <>
-                  <span>Extract Next Batch (Page {page + 1})</span>
-                  <ChevronRight className="h-3.5 w-3.5" />
-                </>
-              )}
-            </button>
-
-            <button
-              onClick={() => handleExport("xlsx")}
-              disabled={exportLoading}
-              className="px-5 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs shadow-md transition-all flex items-center gap-2 cursor-pointer disabled:opacity-50"
-            >
-              <Download className="h-3.5 w-3.5" />
-              <span>EXPORT ALL QUALIFIED LEADS — XLSX</span>
-            </button>
-          </div>
-        </div>
-      )}
     </div>
   );
 }

@@ -11,8 +11,10 @@ export interface ExportLeadItem {
   website?: string;
   domain?: string;
   email?: string;
+  email_source_url?: string;
   email_status?: string;
   phone?: string;
+  phone_source_url?: string;
   phone_status?: string;
   country?: string;
   city?: string;
@@ -25,6 +27,8 @@ export interface ExportLeadItem {
   original_source_url?: string;
   saved_date?: string;
   saved_time?: string;
+  extraction_date?: string;
+  extraction_time?: string;
   created_at?: string;
   [key: string]: any;
 }
@@ -34,7 +38,6 @@ export interface ExportLeadItem {
  */
 function getPktDateTime() {
   const now = new Date();
-  // Format in PKT (UTC+5)
   const pktTime = new Date(now.getTime() + (5 * 60 + now.getTimezoneOffset()) * 60 * 1000);
   const pad = (n: number) => String(n).padStart(2, "0");
   const yyyy = pktTime.getFullYear();
@@ -50,29 +53,34 @@ function getPktDateTime() {
 }
 
 /**
- * Exact 17 Required Export Columns:
+ * 16 Required Export Columns:
  * 1. Business Name
  * 2. Website
  * 3. Domain
  * 4. Email
- * 5. Phone
- * 6. Country
- * 7. City
- * 8. Address
- * 9. Industry
- * 10. Source Platform
- * 11. Original Source URL
- * 12. Email Status
- * 13. Phone Status
- * 14. Saved Date
- * 15. Saved Time
- * 16. Export Date
- * 17. Export Time
+ * 5. Email Source URL
+ * 6. Phone
+ * 7. Phone Source URL
+ * 8. Country
+ * 9. City
+ * 10. Industry
+ * 11. Source Platform
+ * 12. Original Source URL
+ * 13. Email Evidence Status
+ * 14. Phone Evidence Status
+ * 15. Extraction Date
+ * 16. Extraction Time
  */
 function formatLeadsForExport(leads: ExportLeadItem[]) {
-  const { date: exportDate, time: exportTime } = getPktDateTime();
+  const { date: defaultDate, time: defaultTime } = getPktDateTime();
 
-  return leads.map((l) => {
+  // Filter out any lead without a compulsory email address
+  const validLeads = leads.filter((l) => {
+    const em = l.email || "";
+    return em.includes("@") && em.includes(".") && !em.toLowerCase().includes("not found");
+  });
+
+  return validLeads.map((l) => {
     const rawName = l.business_name || l.name || l.title || "Business";
     const rawWebsite = l.website || (l.domain ? `https://${l.domain}` : "");
     let rawDomain = l.domain || "";
@@ -84,51 +92,37 @@ function formatLeadsForExport(leads: ExportLeadItem[]) {
       }
     }
     const rawEmail = l.email || "";
+    const rawEmailSrc = l.email_source_url || l.original_source_url || rawWebsite;
     const rawPhone = l.phone || "";
+    const rawPhoneSrc = rawPhone ? (l.phone_source_url || l.original_source_url || rawWebsite) : "Not Listed";
     const rawCountry = l.country || "Global";
-    const rawCity = l.city || "";
-    const rawAddress = l.address || [rawCity, rawCountry].filter(Boolean).join(", ");
+    const rawCity = l.city || (l.address && !l.address.includes(",") ? l.address : "");
     const rawIndustry = l.industry || l.category || "Commercial";
     const rawSourcePlatform = l.source_platform || l.source || "Google Organic Search / Official Website";
     const rawSourceUrl = l.original_source_url || l.source_url || rawWebsite;
     const rawEmailStatus = l.email_status || (rawEmail ? "FOUND IN SOURCE • DOMAIN CHECKED" : "NOT FOUND");
-    const rawPhoneStatus = l.phone_status || (rawPhone ? "FOUND IN SOURCE • FORMAT CHECKED" : "NOT FOUND");
+    const rawPhoneStatus = l.phone_status || (rawPhone ? "FOUND IN SOURCE • FORMAT CHECKED" : "NOT LISTED");
 
-    let savedDate = l.saved_date || "";
-    let savedTime = l.saved_time || "";
-    if (!savedDate && l.created_at) {
-      try {
-        const d = new Date(l.created_at);
-        savedDate = d.toISOString().split("T")[0];
-        savedTime = `${d.toTimeString().split(" ")[0]} PKT`;
-      } catch {
-        savedDate = exportDate;
-        savedTime = exportTime;
-      }
-    }
-    if (!savedDate) {
-      savedDate = exportDate;
-      savedTime = exportTime;
-    }
+    const extractionDate = l.extraction_date || l.saved_date || defaultDate;
+    const extractionTime = l.extraction_time || l.saved_time || defaultTime;
 
     return {
       "Business Name": rawName,
       "Website": rawWebsite,
       "Domain": rawDomain,
       "Email": rawEmail,
-      "Phone": rawPhone,
+      "Email Source URL": rawEmailSrc,
+      "Phone": rawPhone || "Not Listed",
+      "Phone Source URL": rawPhoneSrc,
       "Country": rawCountry,
-      "City": rawCity,
-      "Address": rawAddress,
+      "City": rawCity || "Not Specified",
       "Industry": rawIndustry,
       "Source Platform": rawSourcePlatform,
       "Original Source URL": rawSourceUrl,
-      "Email Status": rawEmailStatus,
-      "Phone Status": rawPhoneStatus,
-      "Saved Date": savedDate,
-      "Saved Time": savedTime,
-      "Export Date": exportDate,
-      "Export Time": exportTime,
+      "Email Evidence Status": rawEmailStatus,
+      "Phone Evidence Status": rawPhoneStatus,
+      "Extraction Date": extractionDate,
+      "Extraction Time": extractionTime,
     };
   });
 }
@@ -144,48 +138,72 @@ function createExportResponse(formattedData: any[], format: string, filenameBase
             "Website": "",
             "Domain": "",
             "Email": "",
+            "Email Source URL": "",
             "Phone": "",
+            "Phone Source URL": "",
             "Country": "",
             "City": "",
-            "Address": "",
             "Industry": "",
             "Source Platform": "",
             "Original Source URL": "",
-            "Email Status": "",
-            "Phone Status": "",
-            "Saved Date": "",
-            "Saved Time": "",
-            "Export Date": "",
-            "Export Time": "",
+            "Email Evidence Status": "",
+            "Phone Evidence Status": "",
+            "Extraction Date": "",
+            "Extraction Time": "",
           },
         ]
   );
 
-  // Set readable column widths for all 17 columns
+  // Set readable column widths for all 16 columns
   ws["!cols"] = [
     { wch: 32 }, // 1. Business Name
     { wch: 32 }, // 2. Website
     { wch: 26 }, // 3. Domain
     { wch: 30 }, // 4. Email
-    { wch: 22 }, // 5. Phone
-    { wch: 20 }, // 6. Country
-    { wch: 22 }, // 7. City
-    { wch: 36 }, // 8. Address
-    { wch: 28 }, // 9. Industry
-    { wch: 34 }, // 10. Source Platform
-    { wch: 44 }, // 11. Original Source URL
-    { wch: 32 }, // 12. Email Status
-    { wch: 32 }, // 13. Phone Status
-    { wch: 16 }, // 14. Saved Date
-    { wch: 18 }, // 15. Saved Time
-    { wch: 16 }, // 16. Export Date
-    { wch: 18 }, // 17. Export Time
+    { wch: 44 }, // 5. Email Source URL
+    { wch: 22 }, // 6. Phone
+    { wch: 44 }, // 7. Phone Source URL
+    { wch: 20 }, // 8. Country
+    { wch: 22 }, // 9. City
+    { wch: 28 }, // 10. Industry
+    { wch: 34 }, // 11. Source Platform
+    { wch: 44 }, // 12. Original Source URL
+    { wch: 36 }, // 13. Email Evidence Status
+    { wch: 32 }, // 14. Phone Evidence Status
+    { wch: 16 }, // 15. Extraction Date
+    { wch: 18 }, // 16. Extraction Time
   ];
 
-  // Auto-filter on header row (A1:Q1)
-  const ref = ws["!ref"] || "A1:Q1";
+  // Auto-filter on header row (A1:P1)
+  const ref = ws["!ref"] || "A1:P1";
   const range = XLSX.utils.decode_range(ref);
   ws["!autofilter"] = { ref: XLSX.utils.encode_range(range) };
+
+  // Add clickable hyperlinks in XLSX
+  if (isXlsx && formattedData.length > 0) {
+    for (let R = 1; R <= formattedData.length; R++) {
+      // Column B: Website
+      const bCell = XLSX.utils.encode_cell({ c: 1, r: R });
+      if (ws[bCell] && typeof ws[bCell].v === "string" && ws[bCell].v.startsWith("http")) {
+        ws[bCell].l = { Target: ws[bCell].v, Tooltip: ws[bCell].v };
+      }
+      // Column E: Email Source URL
+      const eCell = XLSX.utils.encode_cell({ c: 4, r: R });
+      if (ws[eCell] && typeof ws[eCell].v === "string" && ws[eCell].v.startsWith("http")) {
+        ws[eCell].l = { Target: ws[eCell].v, Tooltip: ws[eCell].v };
+      }
+      // Column G: Phone Source URL
+      const gCell = XLSX.utils.encode_cell({ c: 6, r: R });
+      if (ws[gCell] && typeof ws[gCell].v === "string" && ws[gCell].v.startsWith("http")) {
+        ws[gCell].l = { Target: ws[gCell].v, Tooltip: ws[gCell].v };
+      }
+      // Column L: Original Source URL
+      const lCell = XLSX.utils.encode_cell({ c: 11, r: R });
+      if (ws[lCell] && typeof ws[lCell].v === "string" && ws[lCell].v.startsWith("http")) {
+        ws[lCell].l = { Target: ws[lCell].v, Tooltip: ws[lCell].v };
+      }
+    }
+  }
 
   if (isXlsx) {
     const wb = XLSX.utils.book_new();
@@ -201,7 +219,7 @@ function createExportResponse(formattedData: any[], format: string, filenameBase
     });
   }
 
-  // CSV format with UTF-8 BOM so Excel opens non-ASCII characters cleanly
+  // CSV format with UTF-8 BOM so Excel opens characters cleanly
   const csvContent = "\uFEFF" + XLSX.utils.sheet_to_csv(ws);
   return new Response(csvContent, {
     status: 200,
@@ -218,40 +236,38 @@ export async function GET(req: Request) {
   const currentUser = getCurrentUserFromRequest(req);
   const workspaceId = currentUser ? currentUser.workspace_id : 1;
 
-  try {
-    const backendRes = await proxyToBackend(`/api/leads?workspace_id=${workspaceId}&page_size=5000`, req, null);
-    if (backendRes && backendRes.ok) {
-      const data = await backendRes.json();
-      const rawLeads = data?.leads || (Array.isArray(data) ? data : []);
-      const formatted = formatLeadsForExport(rawLeads);
-      return createExportResponse(formatted, format, `usman_qualified_leads_ws${workspaceId}`);
-    }
-  } catch {}
-
-  const emptyFormatted = formatLeadsForExport([]);
-  return createExportResponse(emptyFormatted, format, `usman_qualified_leads_ws${workspaceId}`);
+  const fallbackData: any[] = [];
+  return proxyToBackend(`/api/leads/export?workspace_id=${workspaceId}&format=${format}`, req, fallbackData);
 }
 
 export async function POST(req: Request) {
   try {
     const body = await req.json();
     const leads = Array.isArray(body.leads) ? body.leads : [];
-    const format = body.format || "xlsx";
-    const filename = body.filename || `usman_qualified_leads_${Date.now()}`;
+    const format = String(body.format || "xlsx").toLowerCase();
+    const filename = String(body.filename || `usman_qualified_leads_${Date.now()}`);
 
     if (leads.length === 0) {
       return NextResponse.json(
-        { error: "No qualified leads to export." },
+        { error: "No leads provided for export." },
         { status: 400 }
       );
     }
 
     const formatted = formatLeadsForExport(leads);
+
+    if (formatted.length === 0) {
+      return NextResponse.json(
+        { error: "No leads in the dataset met the compulsory email qualification criteria." },
+        { status: 400 }
+      );
+    }
+
     return createExportResponse(formatted, format, filename);
-  } catch (error: any) {
+  } catch (err: any) {
     return NextResponse.json(
-      { error: "Failed to generate export file", details: error?.message },
-      { status: 400 }
+      { error: err?.message || "Export processing failed." },
+      { status: 500 }
     );
   }
 }

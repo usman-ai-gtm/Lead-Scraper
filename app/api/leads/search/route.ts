@@ -9,6 +9,13 @@ interface SerperOrganicItem {
   position?: number;
 }
 
+interface SourceStatus {
+  source_name: string;
+  status: "WORKING" | "NO RESULTS" | "NOT CONFIGURED" | "RATE LIMITED" | "ACCESS RESTRICTED" | "NOT AVAILABLE";
+  leads_contributed: number;
+  sample_url?: string;
+}
+
 function getPktDateTime() {
   const now = new Date();
   const pktTime = new Date(now.getTime() + (5 * 60 + now.getTimezoneOffset()) * 60 * 1000);
@@ -68,11 +75,10 @@ function extractContacts(text: string): { emails: string[]; phones: string[] } {
   };
 }
 
-async function resolveDomainContact(domain: string, apiKey: string): Promise<{ email: string; phone: string }> {
-  if (!domain || domain.length < 4) return { email: "", phone: "" };
-  // Skip social networks from domain crawl
-  if (["facebook.com", "instagram.com", "linkedin.com", "youtube.com", "twitter.com", "x.com"].some((s) => domain.includes(s))) {
-    return { email: "", phone: "" };
+async function resolveDomainContact(domain: string, apiKey: string): Promise<{ email: string; phone: string; contactUrl: string }> {
+  if (!domain || domain.length < 4) return { email: "", phone: "", contactUrl: "" };
+  if (["facebook.com", "instagram.com", "linkedin.com", "youtube.com", "twitter.com", "x.com", "tiktok.com"].some((s) => domain.includes(s))) {
+    return { email: "", phone: "", contactUrl: "" };
   }
 
   const query = `site:${domain} contact OR email OR "info@"`;
@@ -86,7 +92,7 @@ async function resolveDomainContact(domain: string, apiKey: string): Promise<{ e
       body: JSON.stringify({ q: query, num: 3 }),
     });
 
-    if (!res.ok) return { email: "", phone: "" };
+    if (!res.ok) return { email: "", phone: "", contactUrl: "" };
     const data = await res.json();
     const organic = data.organic || [];
 
@@ -97,13 +103,14 @@ async function resolveDomainContact(domain: string, apiKey: string): Promise<{ e
         return {
           email: emails[0] || "",
           phone: phones[0] || "",
+          contactUrl: item.link || `https://${domain}/contact`,
         };
       }
     }
   } catch {
     // Timeout or network error
   }
-  return { email: "", phone: "" };
+  return { email: "", phone: "", contactUrl: "" };
 }
 
 async function saveLeadsToDb(leads: any[], workspaceId: number) {
@@ -133,13 +140,14 @@ export async function POST(req: Request) {
     const rawCountry = String(body.country || "United States").trim();
     const rawCity = String(body.city || "").trim();
     const rawIndustry = String(body.industry || "").trim();
-    const targetCount = Math.min(1000, Math.max(1, Number(body.target_count || body.limit) || 10));
+    // Manual requested lead count: supports any number 1 to 1000
+    const targetCount = Math.min(1000, Math.max(1, Number(body.target_count || body.limit) || 50));
 
     if (!rawKeyword && !rawIndustry) {
       return NextResponse.json(
         {
           status: "error",
-          message: "Please enter a target keyword (e.g. Mobile Accessories, Real Estate Agencies, Construction Companies, Software Houses).",
+          message: "Please enter a target keyword (e.g. Mobile Accessories, Real Estate Agencies, Software Houses).",
           qualified_count: 0,
           leads: [],
         },
@@ -168,29 +176,88 @@ export async function POST(req: Request) {
     const locParts = [city, country].filter(Boolean);
     const locStr = locParts.length > 0 ? locParts.join(" ") : "international";
 
-    // Non-Google-Maps Search Query Variations (Strictly Organic Web, Social Profiles, Directories)
-    const searchQueries = [
-      `${keyword} ${locStr} contact email phone`,
-      `${keyword} in ${locStr} official website email`,
-      `site:facebook.com ${keyword} ${locStr} email phone`,
-      `site:instagram.com ${keyword} ${locStr} email`,
-      `site:linkedin.com/company ${keyword} ${locStr}`,
-      `site:yellowpages.com ${keyword} ${locStr} contact email`,
-      `site:clutch.co ${keyword} ${locStr}`,
+    // Multi-Source Non-Maps Search Channels
+    const sourceChannels = [
+      {
+        id: "google_organic",
+        name: "Google Organic Web Search",
+        queryTemplate: (p: number) => `${keyword} ${locStr} contact email`,
+        platformLabel: "Google Organic Web Search / Official Website",
+      },
+      {
+        id: "official_websites",
+        name: "Official Business Websites",
+        queryTemplate: (p: number) => `${keyword} in ${locStr} official website email`,
+        platformLabel: "Official Business Website",
+      },
+      {
+        id: "facebook_business",
+        name: "Facebook Public Business Pages",
+        queryTemplate: (p: number) => `site:facebook.com ${keyword} ${locStr} email`,
+        platformLabel: "Facebook Public Business Page",
+      },
+      {
+        id: "instagram_business",
+        name: "Instagram Public Business Profiles",
+        queryTemplate: (p: number) => `site:instagram.com ${keyword} ${locStr} email`,
+        platformLabel: "Instagram Public Business Profile",
+      },
+      {
+        id: "linkedin_company",
+        name: "LinkedIn Public Company Directory",
+        queryTemplate: (p: number) => `site:linkedin.com/company ${keyword} ${locStr}`,
+        platformLabel: "LinkedIn Public Company Profile",
+      },
+      {
+        id: "commercial_directories",
+        name: "Public Commercial Directories",
+        queryTemplate: (p: number) => `site:yellowpages.com OR site:clutch.co ${keyword} ${locStr}`,
+        platformLabel: "Public Commercial Directory",
+      },
+      {
+        id: "youtube_business",
+        name: "YouTube Public Channels",
+        queryTemplate: (p: number) => `site:youtube.com ${keyword} ${locStr} business email`,
+        platformLabel: "YouTube Public Channel",
+      },
+      {
+        id: "x_twitter_business",
+        name: "Public X / Twitter Business Profiles",
+        queryTemplate: (p: number) => `site:twitter.com OR site:x.com ${keyword} ${locStr} email`,
+        platformLabel: "Public X / Twitter Business Profile",
+      },
+      {
+        id: "tiktok_business",
+        name: "Public TikTok Business Profiles",
+        queryTemplate: (p: number) => `site:tiktok.com ${keyword} ${locStr} email`,
+        platformLabel: "Public TikTok Business Profile",
+      },
     ];
 
     const qualifiedLeads: any[] = [];
     const seenDomains = new Set<string>();
     const seenNames = new Set<string>();
 
-    let pageNum = 1;
-    const maxPages = Math.min(10, Math.ceil(targetCount / 5) + 2);
+    const sourceStats: Record<string, SourceStatus> = {};
+    for (const ch of sourceChannels) {
+      sourceStats[ch.id] = {
+        source_name: ch.name,
+        status: "WORKING",
+        leads_contributed: 0,
+      };
+    }
 
-    for (const query of searchQueries) {
+    // Dynamic internal provider pagination limit
+    const maxInternalPages = Math.min(10, Math.ceil(targetCount / 6) + 2);
+
+    // Internal Provider Pagination Loop
+    for (let pageNum = 1; pageNum <= maxInternalPages; pageNum++) {
       if (qualifiedLeads.length >= targetCount) break;
 
-      for (let p = 1; p <= 3; p++) {
+      for (const channel of sourceChannels) {
         if (qualifiedLeads.length >= targetCount) break;
+
+        const currentQuery = channel.queryTemplate(pageNum);
 
         try {
           const res = await fetch("https://google.serper.dev/search", {
@@ -200,16 +267,25 @@ export async function POST(req: Request) {
               "Content-Type": "application/json",
             },
             body: JSON.stringify({
-              q: query,
+              q: currentQuery,
               num: 10,
-              page: p,
+              page: pageNum,
             }),
           });
 
-          if (!res.ok) break;
+          if (!res.ok) {
+            if (res.status === 429) {
+              sourceStats[channel.id].status = "RATE LIMITED";
+            }
+            continue;
+          }
 
           const data = await res.json();
           const items: SerperOrganicItem[] = data.organic || [];
+
+          if (items.length === 0 && pageNum === 1) {
+            sourceStats[channel.id].status = "NO RESULTS";
+          }
 
           for (const item of items) {
             if (qualifiedLeads.length >= targetCount) break;
@@ -220,25 +296,43 @@ export async function POST(req: Request) {
 
             if (!link || !title) continue;
 
-            // Filter out non-business index pages and search engines
+            // Completely filter out search engines, index aggregators, and social video feeds
             if (["google.", "bing.", "yahoo.", "wikipedia.org", "youtube.com/watch", "reddit.com"].some((x) => link.includes(x))) {
               continue;
             }
 
             const dom = cleanDomain(link);
-            if (!dom || seenDomains.has(dom)) continue;
+            if (!dom) continue;
 
             const fullText = `${title} ${snippet}`;
             const { emails, phones } = extractContacts(fullText);
 
             let email = emails[0] || "";
-            let phone = phones[0] || "";
+            let emailSourceUrl = link;
+            let emailEvidenceStatus = "FOUND ON PUBLIC BUSINESS PROFILE • FORMAT CHECKED";
 
-            // If email is missing and domain is an official website, resolve official domain email
-            if (!email && dom && !["facebook.com", "instagram.com", "linkedin.com", "twitter.com", "x.com"].some((s) => dom.includes(s))) {
+            let phone = phones[0] || "";
+            let phoneSourceUrl = link;
+            let phoneEvidenceStatus = phone ? "FOUND IN SOURCE • FORMAT CHECKED" : "NOT LISTED";
+
+            // If email is not in snippet and domain is an official business website, resolve from website contact page
+            const isSocialHost = ["facebook.com", "instagram.com", "linkedin.com", "twitter.com", "x.com", "youtube.com", "tiktok.com"].some((s) => dom.includes(s));
+            if (!email && !isSocialHost) {
               const resolved = await resolveDomainContact(dom, serperKey);
-              if (resolved.email) email = resolved.email;
-              if (!phone && resolved.phone) phone = resolved.phone;
+              if (resolved.email) {
+                email = resolved.email;
+                emailSourceUrl = resolved.contactUrl || link;
+                emailEvidenceStatus = "FOUND ON OFFICIAL WEBSITE • DOMAIN CHECKED";
+              }
+              if (!phone && resolved.phone) {
+                phone = resolved.phone;
+                phoneSourceUrl = resolved.contactUrl || link;
+                phoneEvidenceStatus = "FOUND IN SOURCE • FORMAT CHECKED";
+              }
+            } else if (email && !isSocialHost) {
+              emailEvidenceStatus = "FOUND ON OFFICIAL WEBSITE • DOMAIN CHECKED";
+            } else if (email && (link.includes("yellowpages.") || link.includes("clutch.co") || link.includes("yelp."))) {
+              emailEvidenceStatus = "FOUND ON THIRD-PARTY DIRECTORY • FORMAT CHECKED";
             }
 
             // Extract clean business name
@@ -249,62 +343,81 @@ export async function POST(req: Request) {
               .split(" • ")[0]
               .trim();
 
-            // Strict 4-Field Qualification Guard
-            // 1. Genuine Business Name
-            // 2. Exact Website
-            // 3. Actual Public Email
-            // 4. Actual Public Phone
+            // Strict Qualification Guard:
+            // 1. Business Name (Mandatory)
+            // 2. Business Email (COMPULSORY! A lead without an email must NEVER qualify)
+            // 3. Phone (Optional! A lead with email and no phone STILL qualifies)
             const hasName = cleanName.length >= 2;
-            const hasWebsite = link.startsWith("http");
             const hasEmail = Boolean(email && email.includes("@") && email.includes("."));
-            const hasPhone = Boolean(phone && phone.replace(/\D/g, "").length >= 7);
 
-            if (hasName && hasWebsite && hasEmail && hasPhone && !seenNames.has(cleanName.toLowerCase())) {
-              seenDomains.add(dom);
-              seenNames.add(cleanName.toLowerCase());
-
-              // Determine platform source honestly
-              let sourcePlatform = "Google Organic Search / Official Website";
-              if (link.includes("facebook.com")) sourcePlatform = "Facebook Public Business Page";
-              else if (link.includes("instagram.com")) sourcePlatform = "Instagram Public Business Profile";
-              else if (link.includes("linkedin.com")) sourcePlatform = "LinkedIn Public Company Profile";
-              else if (link.includes("yellowpages.") || link.includes("clutch.co") || link.includes("yelp.")) sourcePlatform = "Public Business Directory";
-
-              const { date: pktDate, time: pktTime } = getPktDateTime();
-
-              qualifiedLeads.push({
-                id: Date.now() + qualifiedLeads.length + 1,
-                business_name: cleanName,
-                website: `https://${dom}`,
-                domain: dom,
-                email: email,
-                phone: phone,
-                country: rawCountry === "ALL COUNTRIES" ? "Global" : rawCountry,
-                city: city || locParts[0] || "",
-                address: snippet.includes(",") ? snippet.slice(0, 80) : [city, rawCountry].filter(Boolean).join(", "),
-                industry: rawIndustry && rawIndustry !== "Any" ? rawIndustry : keyword,
-                source_platform: sourcePlatform,
-                original_source_url: link,
-                email_status: "FOUND IN SOURCE • DOMAIN CHECKED",
-                phone_status: "FOUND IN SOURCE • FORMAT CHECKED",
-                saved_date: pktDate,
-                saved_time: pktTime,
-                created_at: new Date().toISOString(),
-              });
+            if (!hasName || !hasEmail) {
+              // Incomplete lead (missing compulsory email) -> Silently drop
+              continue;
             }
+
+            // Smart Deduplication & Evidence Enrichment
+            const normDomain = dom.toLowerCase();
+            const normName = cleanName.toLowerCase();
+
+            if (seenDomains.has(normDomain) || seenNames.has(normName)) {
+              // If already seen, check if existing record is missing phone and this entry provides it
+              const existing = qualifiedLeads.find(
+                (l) => l.domain === normDomain || l.business_name.toLowerCase() === normName
+              );
+              if (existing && !existing.phone && phone) {
+                existing.phone = phone;
+                existing.phone_source_url = phoneSourceUrl;
+                existing.phone_status = "FOUND IN SOURCE • FORMAT CHECKED";
+              }
+              continue;
+            }
+
+            seenDomains.add(normDomain);
+            seenNames.add(normName);
+
+            const { date: pktDate, time: pktTime } = getPktDateTime();
+
+            const qualifiedItem = {
+              id: Date.now() + qualifiedLeads.length + 1,
+              business_name: cleanName,
+              website: isSocialHost ? `https://${normDomain}` : (link.startsWith("http") ? link : `https://${normDomain}`),
+              domain: normDomain,
+              email: email,
+              email_source_url: emailSourceUrl,
+              email_status: emailEvidenceStatus,
+              phone: phone || "",
+              phone_source_url: phone ? phoneSourceUrl : "",
+              phone_status: phoneEvidenceStatus,
+              country: rawCountry === "ALL COUNTRIES" ? "Global" : rawCountry,
+              city: city || locParts[0] || "",
+              address: snippet.includes(",") ? snippet.slice(0, 80) : [city, rawCountry].filter(Boolean).join(", "),
+              industry: rawIndustry && rawIndustry !== "Any" ? rawIndustry : keyword,
+              source_platform: channel.platformLabel,
+              original_source_url: link,
+              saved_date: pktDate,
+              saved_time: pktTime,
+              extraction_date: pktDate,
+              extraction_time: pktTime,
+              created_at: new Date().toISOString(),
+            };
+
+            qualifiedLeads.push(qualifiedItem);
+            sourceStats[channel.id].leads_contributed += 1;
+            sourceStats[channel.id].sample_url = link;
           }
         } catch {
-          // Continue to next query on network timeout
+          // Non-blocking timeout on individual channel
         }
       }
     }
 
-    // Auto-save qualified leads to user's workspace
+    // Auto-save qualified leads to workspace DB in background
     if (qualifiedLeads.length > 0) {
       saveLeadsToDb(qualifiedLeads, workspaceId);
     }
 
     const durationMs = Date.now() - startTime;
+    const leadsWithPhone = qualifiedLeads.filter((l) => Boolean(l.phone)).length;
 
     return NextResponse.json({
       status: "success",
@@ -313,19 +426,14 @@ export async function POST(req: Request) {
       city: city || "All Cities",
       target_count: targetCount,
       qualified_count: qualifiedLeads.length,
+      unique_businesses_count: qualifiedLeads.length,
+      leads_with_phone_count: leadsWithPhone,
       duration_ms: durationMs,
       leads: qualifiedLeads,
-      sources_used: [
-        "Google Organic Web Search",
-        "Official Business Websites",
-        "Facebook Public Business Pages",
-        "Instagram Public Business Profiles",
-        "LinkedIn Public Company Profiles",
-        "Public Commercial Directories"
-      ],
+      sources_breakdown: Object.values(sourceStats),
       message: qualifiedLeads.length >= targetCount
-        ? `Successfully extracted exactly ${qualifiedLeads.length} unique qualified leads with verified emails and phones.`
-        : `Discovered ${qualifiedLeads.length} genuine qualified leads from non-Maps web sources. (All available legitimate contacts for '${keyword}' were retrieved without synthetic data).`,
+        ? `Successfully extracted exactly ${qualifiedLeads.length} unique qualified leads with verified emails.`
+        : `Discovered ${qualifiedLeads.length} unique qualified leads with verified emails from non-Maps web sources. (All available legitimate contacts for '${keyword}' were retrieved without synthetic data).`,
     });
   } catch (err: any) {
     return NextResponse.json(

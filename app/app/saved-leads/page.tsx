@@ -417,6 +417,17 @@ export default function SavedLeadsPage() {
                             <span className="text-[9px] font-bold text-emerald-400 uppercase tracking-wider">
                               {l.email_status || "VERIFIED"}
                             </span>
+                            {l.email_source_url && (
+                              <a
+                                href={l.email_source_url}
+                                target="_blank"
+                                rel="noreferrer"
+                                className="text-[9px] text-slate-500 hover:text-blue-400 hover:underline inline-flex items-center gap-0.5 font-mono mt-0.5"
+                              >
+                                <span>Email Source</span>
+                                <ExternalLink className="h-2 w-2" />
+                              </a>
+                            )}
                           </div>
                         ) : (
                           <span className="text-slate-500 text-[11px]">Not Found</span>
@@ -424,23 +435,36 @@ export default function SavedLeadsPage() {
                       </td>
                       <td className="py-3 px-3">
                         {l.phone && l.phone !== "Not Found" ? (
-                          <div className="flex items-center gap-2">
-                            <a
-                              href={`tel:${l.phone}`}
-                              className="text-slate-200 hover:text-blue-400 font-mono text-[11px] flex items-center gap-1"
-                            >
-                              <Phone className="h-3 w-3 text-slate-400" />
-                              <span>{l.phone}</span>
-                            </a>
-                            {waUrl && (
+                          <div className="flex flex-col gap-0.5">
+                            <div className="flex items-center gap-2">
                               <a
-                                href={waUrl}
+                                href={`tel:${l.phone}`}
+                                className="text-slate-200 hover:text-blue-400 font-mono text-[11px] flex items-center gap-1"
+                              >
+                                <Phone className="h-3 w-3 text-slate-400" />
+                                <span>{l.phone}</span>
+                              </a>
+                              {waUrl && (
+                                <a
+                                  href={waUrl}
+                                  target="_blank"
+                                  rel="noreferrer"
+                                  className="text-emerald-400 hover:text-emerald-300 text-[10px] font-bold bg-emerald-500/10 px-1.5 py-0.5 rounded flex items-center gap-0.5"
+                                >
+                                  <MessageSquare className="h-2.5 w-2.5" />
+                                  <span>WA</span>
+                                </a>
+                              )}
+                            </div>
+                            {l.phone_source_url && (
+                              <a
+                                href={l.phone_source_url}
                                 target="_blank"
                                 rel="noreferrer"
-                                className="text-emerald-400 hover:text-emerald-300 text-[10px] font-bold bg-emerald-500/10 px-1.5 py-0.5 rounded flex items-center gap-0.5"
+                                className="text-[9px] text-slate-500 hover:text-blue-400 hover:underline inline-flex items-center gap-0.5 font-mono"
                               >
-                                <MessageSquare className="h-2.5 w-2.5" />
-                                <span>WA</span>
+                                <span>Phone Source</span>
+                                <ExternalLink className="h-2 w-2" />
                               </a>
                             )}
                           </div>
