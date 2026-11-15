@@ -7,11 +7,31 @@ import { api } from "@/lib/api";
 import { useAuth } from "@/lib/auth-context";
 import { Lead } from "@/lib/types";
 import { ALL_193_COUNTRIES } from "@/lib/countries";
+import { getSuggestedCitiesForCountry } from "@/lib/cities";
 import {
-  Search, Database, Download, Settings, RefreshCw,
+  Search, Database, Download, RefreshCw,
   Building2, Globe, Mail, Phone, CheckCircle2,
-  ExternalLink, ArrowRight, ShieldCheck, Zap
+  ExternalLink, ArrowRight, ShieldCheck, Layers, Sparkles
 } from "lucide-react";
+
+const STANDARD_INDUSTRIES = [
+  "Technology & SaaS",
+  "Real Estate Agencies",
+  "Construction & Engineering",
+  "Healthcare & Medical Clinics",
+  "Hospitality & Tourism",
+  "Professional Services & Consulting",
+  "Legal Services & Law Firms",
+  "Financial & Wealth Management",
+  "Logistics & Freight Supply",
+  "E-Commerce & Retail",
+  "Marketing & Advertising Agencies",
+  "Automotive & Transport",
+  "Manufacturing & Industrial",
+  "Mobile Accessories & Electronics",
+  "Restaurants & Food Services",
+  "OTHER"
+];
 
 export default function DashboardPage() {
   const router = useRouter();
@@ -22,16 +42,25 @@ export default function DashboardPage() {
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
 
-  // Quick Search launcher inputs
+  // Quick Search launcher state
   const [quickCountry, setQuickCountry] = useState("United States");
-  const [quickCity, setQuickCity] = useState("");
+  const [suggestedCities, setSuggestedCities] = useState<string[]>([]);
+  const [selectedCity, setSelectedCity] = useState("ALL_CITIES");
   const [quickIndustry, setQuickIndustry] = useState("Technology & SaaS");
+  const [customIndustry, setCustomIndustry] = useState("");
   const [quickKeyword, setQuickKeyword] = useState("");
+
+  // Update suggested cities when country changes
+  useEffect(() => {
+    const cities = getSuggestedCitiesForCountry(quickCountry);
+    setSuggestedCities(cities);
+    setSelectedCity("ALL_CITIES");
+  }, [quickCountry]);
 
   const fetchWorkspaceOverview = async () => {
     try {
       setRefreshing(true);
-      const res = await api.get<any>("/leads", { page: 1, page_size: 5 });
+      const res = await api.get<any>("/leads", { page: 1, page_size: 10 });
       const items = res?.leads || (Array.isArray(res) ? res : []);
       setLeads(items);
       setTotalLeads(res?.total !== undefined ? res.total : items.length);
@@ -51,16 +80,26 @@ export default function DashboardPage() {
     e.preventDefault();
     const params = new URLSearchParams();
     if (quickCountry) params.set("country", quickCountry);
-    if (quickCity) params.set("city", quickCity);
-    if (quickIndustry && quickIndustry !== "Any") params.set("industry", quickIndustry);
-    if (quickKeyword) params.set("keyword", quickKeyword);
+    if (selectedCity && selectedCity !== "ALL_CITIES") {
+      params.set("city", selectedCity);
+    }
+    const finalIndustry = quickIndustry === "OTHER" ? customIndustry.trim() : quickIndustry;
+    if (finalIndustry && finalIndustry !== "Any") {
+      params.set("industry", finalIndustry);
+    }
+    if (quickKeyword.trim()) {
+      params.set("keyword", quickKeyword.trim());
+    }
     router.push(`/app/leads?${params.toString()}`);
   };
 
-  // Calculate actual verified emails and phones
-  const leadsWithEmail = leads.filter((l) => l.email && l.email !== "Not Found").length;
+  // Calculate actual verified contact rate from real leads (never hardcode 100%)
+  const leadsWithEmail = leads.filter((l) => l.email && l.email !== "Not Found" && l.email.includes("@")).length;
   const leadsWithPhone = leads.filter((l) => l.phone && l.phone !== "Not Found").length;
-  const contactRate = totalLeads > 0 ? Math.round(((leadsWithEmail + leadsWithPhone) / (totalLeads * 2)) * 100) : 100;
+  const contactRate = totalLeads > 0 ? Math.round(((leadsWithEmail + leadsWithPhone) / (totalLeads * 2)) * 100) : 0;
+
+  // Active verified non-Maps sources configured in system
+  const activeSourcesCount = 8; // Google Organic, Official Websites, Facebook, Instagram, YouTube, TikTok, X, Directories
 
   return (
     <div className="space-y-8 max-w-7xl mx-auto pb-16">
@@ -72,14 +111,14 @@ export default function DashboardPage() {
               B2B Lead Extraction Engine
             </span>
             <span className="text-xs text-slate-500 font-mono">
-              Workspace #{user?.workspace_id || 1} • Tenant Isolated
+              Workspace #{user?.workspace_id || 1} • Data Isolated
             </span>
           </div>
           <h1 className="text-2xl sm:text-3xl font-extrabold text-white tracking-tight">
             Lead Extraction Command Center
           </h1>
           <p className="text-xs text-slate-400">
-            Real public business discovery, verified contacts, and multi-format exports across 193 countries.
+            Discover verified commercial leads, authentic public emails, and direct phone lines from official sources.
           </p>
         </div>
 
@@ -87,7 +126,7 @@ export default function DashboardPage() {
           <button
             onClick={fetchWorkspaceOverview}
             disabled={refreshing}
-            className="flex items-center gap-1.5 px-3 py-2 text-xs font-semibold text-slate-300 bg-white/[0.04] hover:bg-white/[0.08] border border-white/10 rounded-xl transition-all"
+            className="flex items-center gap-1.5 px-3 py-2 text-xs font-semibold text-slate-300 bg-white/[0.04] hover:bg-white/[0.08] border border-white/10 rounded-xl transition-all cursor-pointer"
           >
             <RefreshCw className={`h-3.5 w-3.5 ${refreshing ? "animate-spin text-blue-400" : ""}`} />
             <span>Sync</span>
@@ -109,130 +148,163 @@ export default function DashboardPage() {
         </div>
       </div>
 
-      {/* Real Workspace Metric Cards */}
+      {/* Real Workspace Metric Cards (Zero Fake Statistics) */}
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
+        {/* Card 1: Actual Saved Leads in Workspace */}
         <div className="p-4 rounded-2xl border border-white/[0.08] bg-[#0c1017] hover:border-blue-500/30 transition-all">
           <div className="flex items-center justify-between mb-2">
             <span className="text-[11px] font-semibold text-slate-400 uppercase tracking-wider">Saved Leads</span>
             <Database className="h-4 w-4 text-blue-400" />
           </div>
-          <div className="text-2xl font-extrabold text-white">{totalLeads}</div>
+          <div className="text-2xl font-extrabold text-white font-mono">{totalLeads}</div>
           <div className="text-[10px] text-slate-500 mt-1">In your private workspace</div>
         </div>
 
+        {/* Card 2: Contact Rate calculated from real leads */}
         <div className="p-4 rounded-2xl border border-white/[0.08] bg-[#0c1017] hover:border-emerald-500/30 transition-all">
           <div className="flex items-center justify-between mb-2">
             <span className="text-[11px] font-semibold text-slate-400 uppercase tracking-wider">Contact Rate</span>
             <CheckCircle2 className="h-4 w-4 text-emerald-400" />
           </div>
-          <div className="text-2xl font-extrabold text-emerald-400">{contactRate}%</div>
-          <div className="text-[10px] text-slate-500 mt-1">Leads with verified contact</div>
+          <div className="text-2xl font-extrabold text-emerald-400 font-mono">{contactRate}%</div>
+          <div className="text-[10px] text-slate-500 mt-1">Verified email & phone presence</div>
         </div>
 
+        {/* Card 3: Active Data Sources (Replaced artificial search quota) */}
         <div className="p-4 rounded-2xl border border-white/[0.08] bg-[#0c1017] hover:border-purple-500/30 transition-all">
           <div className="flex items-center justify-between mb-2">
-            <span className="text-[11px] font-semibold text-slate-400 uppercase tracking-wider">Search Quota</span>
-            <Zap className="h-4 w-4 text-purple-400" />
+            <span className="text-[11px] font-semibold text-slate-400 uppercase tracking-wider">Active Data Sources</span>
+            <Layers className="h-4 w-4 text-purple-400" />
           </div>
-          <div className="text-2xl font-extrabold text-purple-400">5,000</div>
-          <div className="text-[10px] text-slate-500 mt-1">Monthly extraction limit</div>
+          <div className="text-2xl font-extrabold text-purple-400 font-mono">{activeSourcesCount}</div>
+          <div className="text-[10px] text-slate-500 mt-1">Organic search, social, directories</div>
         </div>
 
+        {/* Card 4: DATA ISOLATED (Truthful tenant isolation) */}
         <div className="p-4 rounded-2xl border border-white/[0.08] bg-[#0c1017] hover:border-blue-500/30 transition-all">
           <div className="flex items-center justify-between mb-2">
-            <span className="text-[11px] font-semibold text-slate-400 uppercase tracking-wider">Data Security</span>
+            <span className="text-[11px] font-semibold text-slate-400 uppercase tracking-wider">Security Posture</span>
             <ShieldCheck className="h-4 w-4 text-blue-400" />
           </div>
-          <div className="text-sm font-bold text-white mt-1">Tenant Isolated</div>
-          <div className="text-[10px] text-emerald-400 mt-1">PBKDF2 / Workspace Gated</div>
+          <div className="text-base font-extrabold text-white mt-1">DATA ISOLATED</div>
+          <div className="text-[10px] text-emerald-400 mt-1">Multi-tenant workspace isolation</div>
         </div>
       </div>
 
       {/* QUICK SEARCH LAUNCHER */}
-      <div className="rounded-2xl border border-white/[0.08] bg-[#0c1017] p-6 shadow-glow-sm">
-        <div className="flex items-center justify-between pb-4 border-b border-white/[0.06] mb-4">
+      <div className="rounded-2xl border border-white/[0.08] bg-[#0c1017] p-6 shadow-glow-sm space-y-4">
+        <div className="flex items-center justify-between pb-4 border-b border-white/[0.06]">
           <div className="flex items-center gap-2">
             <Search className="h-4 w-4 text-blue-400" />
             <h2 className="text-sm font-bold text-white uppercase tracking-wider">Quick Search Launcher</h2>
           </div>
-          <span className="text-[11px] text-slate-400">193 Countries • Multi-Platform Public Scraper</span>
+          <span className="text-[11px] text-slate-400">193 Nations • Multi-Source Public Web Scraper</span>
         </div>
 
-        <form onSubmit={handleLaunchSearch} className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-          <div>
-            <label className="block text-[11px] font-semibold text-slate-400 uppercase tracking-wider mb-1.5">
-              Country
-            </label>
-            <select
-              value={quickCountry}
-              onChange={(e) => setQuickCountry(e.target.value)}
-              className="w-full rounded-xl border border-white/10 bg-white/[0.04] px-3 py-2 text-xs text-white focus:border-blue-500 focus:outline-none"
-            >
-              {ALL_193_COUNTRIES.map((c) => (
-                <option key={c} value={c} className="bg-[#0c1017] text-white">
-                  {c}
+        <form onSubmit={handleLaunchSearch} className="space-y-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+            {/* Country Selector with ALL COUNTRIES */}
+            <div>
+              <label className="block text-[11px] font-semibold text-slate-400 uppercase tracking-wider mb-1.5 flex items-center gap-1">
+                <Globe className="h-3 w-3 text-blue-400" /> Country
+              </label>
+              <select
+                value={quickCountry}
+                onChange={(e) => setQuickCountry(e.target.value)}
+                className="w-full rounded-xl border border-white/10 bg-white/[0.04] px-3 py-2 text-xs text-white focus:border-blue-500 focus:outline-none cursor-pointer"
+              >
+                <option value="ALL COUNTRIES" className="bg-[#0c1017] text-white font-bold">
+                  🌐 ALL COUNTRIES (Global Search)
                 </option>
-              ))}
-            </select>
-          </div>
+                {ALL_193_COUNTRIES.map((c) => (
+                  <option key={c} value={c} className="bg-[#0c1017] text-white">
+                    {c}
+                  </option>
+                ))}
+              </select>
+            </div>
 
-          <div>
-            <label className="block text-[11px] font-semibold text-slate-400 uppercase tracking-wider mb-1.5">
-              City / State
-            </label>
-            <input
-              type="text"
-              value={quickCity}
-              onChange={(e) => setQuickCity(e.target.value)}
-              placeholder="e.g. London, Dubai, Chicago..."
-              className="w-full rounded-xl border border-white/10 bg-white/[0.04] px-3 py-2 text-xs text-white placeholder-slate-500 focus:border-blue-500 focus:outline-none"
-            />
-          </div>
+            {/* City Selection (15-20 Suggested Cities, No Manual Typing Required) */}
+            <div>
+              <label className="block text-[11px] font-semibold text-slate-400 uppercase tracking-wider mb-1.5 flex items-center gap-1">
+                <Building2 className="h-3 w-3 text-emerald-400" /> Suggested Cities
+              </label>
+              <select
+                value={selectedCity}
+                onChange={(e) => setSelectedCity(e.target.value)}
+                className="w-full rounded-xl border border-white/10 bg-white/[0.04] px-3 py-2 text-xs text-white focus:border-blue-500 focus:outline-none cursor-pointer"
+              >
+                <option value="ALL_CITIES" className="bg-[#0c1017] text-white font-semibold">
+                  Entire Country ({quickCountry === "ALL COUNTRIES" ? "Global Hubs" : "All Cities"})
+                </option>
+                {suggestedCities.map((city) => (
+                  <option key={city} value={city} className="bg-[#0c1017] text-white">
+                    {city}
+                  </option>
+                ))}
+              </select>
+            </div>
 
-          <div>
-            <label className="block text-[11px] font-semibold text-slate-400 uppercase tracking-wider mb-1.5">
-              Industry
-            </label>
-            <select
-              value={quickIndustry}
-              onChange={(e) => setQuickIndustry(e.target.value)}
-              className="w-full rounded-xl border border-white/10 bg-white/[0.04] px-3 py-2 text-xs text-white focus:border-blue-500 focus:outline-none"
-            >
-              <option value="Any" className="bg-[#0c1017]">Any Industry</option>
-              <option value="Real Estate" className="bg-[#0c1017]">Real Estate</option>
-              <option value="Healthcare & Medical Clinics" className="bg-[#0c1017]">Healthcare & Clinics</option>
-              <option value="Technology & SaaS" className="bg-[#0c1017]">Technology & SaaS</option>
-              <option value="Hospitality & Tourism" className="bg-[#0c1017]">Hospitality & Tourism</option>
-              <option value="Professional Services" className="bg-[#0c1017]">Professional Services</option>
-              <option value="Legal Services" className="bg-[#0c1017]">Legal & Law Firms</option>
-              <option value="Financial & Wealth Management" className="bg-[#0c1017]">Financial Services</option>
-              <option value="Construction & Engineering" className="bg-[#0c1017]">Construction & Engineering</option>
-              <option value="Logistics & Supply Chain" className="bg-[#0c1017]">Logistics & Freight</option>
-              <option value="E-Commerce & Retail" className="bg-[#0c1017]">E-Commerce & Retail</option>
-              <option value="Marketing & Advertising Agencies" className="bg-[#0c1017]">Marketing & Advertising</option>
-            </select>
-          </div>
+            {/* Industry Selector with OTHER option */}
+            <div>
+              <label className="block text-[11px] font-semibold text-slate-400 uppercase tracking-wider mb-1.5 flex items-center gap-1">
+                <Layers className="h-3 w-3 text-purple-400" /> Industry
+              </label>
+              <select
+                value={quickIndustry}
+                onChange={(e) => setQuickIndustry(e.target.value)}
+                className="w-full rounded-xl border border-white/10 bg-white/[0.04] px-3 py-2 text-xs text-white focus:border-blue-500 focus:outline-none cursor-pointer"
+              >
+                <option value="Any" className="bg-[#0c1017]">Any Industry</option>
+                {STANDARD_INDUSTRIES.map((ind) => (
+                  <option key={ind} value={ind} className="bg-[#0c1017]">
+                    {ind === "OTHER" ? "✏️ OTHER (Custom Industry / Term)" : ind}
+                  </option>
+                ))}
+              </select>
+            </div>
 
-          <div>
-            <label className="block text-[11px] font-semibold text-slate-400 uppercase tracking-wider mb-1.5">
-              Target Keyword
-            </label>
-            <div className="flex gap-2">
+            {/* Target Keyword */}
+            <div>
+              <label className="block text-[11px] font-semibold text-slate-400 uppercase tracking-wider mb-1.5 flex items-center gap-1">
+                <Sparkles className="h-3 w-3 text-blue-400" /> Target Keyword
+              </label>
               <input
                 type="text"
                 value={quickKeyword}
                 onChange={(e) => setQuickKeyword(e.target.value)}
-                placeholder="e.g. Dentists, Commercial..."
+                placeholder="e.g. Mobile Accessories, Software..."
                 className="w-full rounded-xl border border-white/10 bg-white/[0.04] px-3 py-2 text-xs text-white placeholder-slate-500 focus:border-blue-500 focus:outline-none"
               />
-              <button
-                type="submit"
-                className="px-4 py-2 text-xs font-bold text-white bg-blue-600 hover:bg-blue-500 rounded-xl transition-all shrink-0 flex items-center gap-1.5 shadow-glow-sm"
-              >
-                <span>Find</span>
-                <ArrowRight className="h-3.5 w-3.5" />
-              </button>
             </div>
+          </div>
+
+          {/* Custom Industry Input when "OTHER" is selected */}
+          {quickIndustry === "OTHER" && (
+            <div className="p-3 rounded-xl border border-purple-500/30 bg-purple-500/10 animate-in fade-in">
+              <label className="block text-[11px] font-semibold text-purple-300 uppercase tracking-wider mb-1">
+                Enter Custom Industry / Target Category:
+              </label>
+              <input
+                type="text"
+                required
+                value={customIndustry}
+                onChange={(e) => setCustomIndustry(e.target.value)}
+                placeholder="e.g. Solar Energy Contractors, Drone Videographers, Textile Importers..."
+                className="w-full rounded-xl border border-purple-500/30 bg-[#0c1017] px-3 py-2 text-xs text-white placeholder-slate-500 focus:border-purple-400 focus:outline-none"
+              />
+            </div>
+          )}
+
+          {/* Action Row */}
+          <div className="flex justify-end pt-2">
+            <button
+              type="submit"
+              className="px-6 py-2.5 text-xs font-bold text-white bg-blue-600 hover:bg-blue-500 rounded-xl transition-all flex items-center gap-2 shadow-glow-sm cursor-pointer"
+            >
+              <span>Find Qualified Leads</span>
+              <ArrowRight className="h-4 w-4" />
+            </button>
           </div>
         </form>
       </div>
@@ -260,7 +332,7 @@ export default function DashboardPage() {
             <Database className="h-8 w-8 text-slate-600 mx-auto" />
             <div className="text-sm font-semibold text-white">No Saved Leads Yet</div>
             <p className="text-xs text-slate-400 max-w-md mx-auto">
-              Your workspace currently has 0 saved leads. Use the Lead Search engine to discover businesses and save them to your private workspace.
+              Your workspace currently has 0 saved leads. Use the Lead Search engine to discover authentic businesses and save them to your private workspace.
             </p>
             <Link
               href="/app/leads"
@@ -293,9 +365,9 @@ export default function DashboardPage() {
                           href={l.website.startsWith("http") ? l.website : `https://${l.website}`}
                           target="_blank"
                           rel="noreferrer"
-                          className="text-[11px] text-blue-400 hover:underline flex items-center gap-1"
+                          className="text-[11px] text-blue-400 hover:underline flex items-center gap-1 font-mono"
                         >
-                          <span>{l.website.replace(/^https?:\/\//, "")}</span>
+                          <span>{l.website.replace(/^https?:\/\//, "").replace(/\/$/, "")}</span>
                           <ExternalLink className="h-2.5 w-2.5" />
                         </a>
                       )}
@@ -324,7 +396,7 @@ export default function DashboardPage() {
                     </td>
                     <td className="py-3 px-3 text-right">
                       <Link
-                        href={`/app/saved-leads`}
+                        href="/app/saved-leads"
                         className="text-xs text-slate-400 hover:text-white px-2 py-1 rounded bg-white/[0.03] hover:bg-white/[0.08]"
                       >
                         Manage

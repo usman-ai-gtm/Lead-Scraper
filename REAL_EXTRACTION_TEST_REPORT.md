@@ -136,3 +136,4 @@ The export engine (`app/api/leads/export/route.ts`) produces native XLSX binary 
 ## 5. Conclusion & DevSecOps Sign-off
 
 The Real Extraction Engine operates with absolute data integrity. No simulated records, synthetic emails, or guessed telephone numbers exist within the pipeline. Production readiness is 100% verified.
+

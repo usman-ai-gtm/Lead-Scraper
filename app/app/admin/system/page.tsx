@@ -17,9 +17,10 @@ export default function AdminSystemHealthPage() {
     setLoading(true);
     try {
       const ov = await api.get<any>("/admin/overview");
-      setOverview(ov);
-      const logs = await api.get<any[]>("/admin/audit-logs");
-      setAuditLogs(logs || []);
+      setOverview(ov || {});
+      const logs = await api.get<any>("/admin/audit-logs");
+      const logList = Array.isArray(logs) ? logs : (logs?.audit_logs || logs?.logs || []);
+      setAuditLogs(logList);
     } catch (e) {
       console.warn("Failed to fetch system metrics", e);
     } finally {

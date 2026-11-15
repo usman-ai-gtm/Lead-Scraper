@@ -51,3 +51,4 @@ flowchart TD
    - When a geographical query exhausts available results on page `N`, the engine returns `NO RESULTS` with count `0`, allowing the user to select another region without crashes or synthetic padding.
 4. **Zero Fabrication Policy:**
    - If a business domain has no publicly indexed contact email or phone number, the engine **never** generates guesses like `info@...` or placeholder phones. The record is honestly logged under `incomplete_records`.
+

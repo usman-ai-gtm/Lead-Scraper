@@ -56,12 +56,12 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
     return () => window.removeEventListener("keydown", handleKeyDown);
   }, []);
 
-  // Exactly 5 Client Navigation Items
+  // Exactly 5 Client Navigation Items (Single, clean navigation destinations)
   const clientNav: NavItem[] = [
     { name: "Dashboard", href: "/app", icon: LayoutDashboard },
-    { name: "Lead Search", href: "/app/leads", icon: Search },
+    { name: "Leads", href: "/app/leads", icon: Search },
     { name: "Saved Leads", href: "/app/saved-leads", icon: Database },
-    { name: "Exports", href: "/app/exports", icon: Download },
+    { name: "Export", href: "/app/exports", icon: Download },
     { name: "Account Settings", href: "/app/settings", icon: Settings },
   ];
 
@@ -187,7 +187,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
           )}
         </div>
 
-        {/* Bottom User & Settings Area */}
+        {/* Bottom User & Logout Area */}
         <div className="pt-4 border-t border-white/[0.08] space-y-1">
           <div className="px-3 py-2 text-xs flex items-center justify-between text-slate-400">
             <span className="truncate max-w-[140px] font-medium text-slate-300">{user?.full_name || "User"}</span>
@@ -196,19 +196,9 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
             </span>
           </div>
 
-          <Link
-            href="/app/settings"
-            className={`flex items-center gap-3 px-3 py-2 rounded-xl text-xs font-semibold transition-colors ${
-              pathname === "/app/settings" ? "bg-white/10 text-white" : "text-slate-400 hover:text-white hover:bg-white/[0.04]"
-            }`}
-          >
-            <Settings className="h-4 w-4" />
-            <span>Account Settings</span>
-          </Link>
-
           <button
             onClick={logout}
-            className="w-full flex items-center gap-3 px-3 py-2 rounded-xl text-xs font-semibold text-rose-400/80 hover:text-rose-400 hover:bg-rose-500/10 transition-colors"
+            className="w-full flex items-center gap-3 px-3 py-2 rounded-xl text-xs font-semibold text-rose-400/80 hover:text-rose-400 hover:bg-rose-500/10 transition-colors cursor-pointer"
           >
             <LogOut className="h-4 w-4" />
             <span>Sign Out</span>

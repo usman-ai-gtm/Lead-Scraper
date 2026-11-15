@@ -4,7 +4,7 @@ import React, { useState, useEffect, Suspense } from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useAuth } from "@/lib/auth-context";
-import { Sparkles, Lock, Mail, ArrowRight, ShieldCheck, AlertCircle, X } from "lucide-react";
+import { Sparkles, Lock, Mail, ArrowRight, AlertCircle, X } from "lucide-react";
 
 function LoginForm() {
   const router = useRouter();
@@ -27,10 +27,11 @@ function LoginForm() {
     setLoading(true);
     setError(null);
     try {
-      await login(email, password);
+      await login(email.trim(), password);
+      // Successful authentication: Chrome Password Manager will natively prompt to save
       router.push("/app");
     } catch (err: any) {
-      setError(err.message || "Invalid email or password");
+      setError(err?.message || "Invalid email or password");
     } finally {
       setLoading(false);
     }
@@ -58,7 +59,7 @@ function LoginForm() {
           </Link>
         </div>
 
-        {/* Card */}
+        {/* Login Card */}
         <div className="rounded-2xl border border-white/[0.08] bg-[#0c1017]/90 p-8 shadow-glass backdrop-blur-xl">
           <h1 className="text-2xl font-bold text-white mb-1.5 text-center">Welcome Back</h1>
           <p className="text-xs text-slate-400 text-center mb-6">
@@ -75,21 +76,30 @@ function LoginForm() {
                 type="button"
                 onClick={() => setError(null)}
                 className="text-rose-400 hover:text-white p-0.5 rounded transition"
+                aria-label="Dismiss error"
               >
                 <X className="h-3.5 w-3.5" />
               </button>
             </div>
           )}
 
-          {/* Secure Email/Password Sign-In */}
-          <form onSubmit={handleSubmit} className="space-y-4">
+          {/* Standard HTML Login Form with full Chrome Password Manager support */}
+          <form method="POST" onSubmit={handleSubmit} autoComplete="on" className="space-y-4">
             <div>
-              <label className="block text-xs font-semibold text-slate-300 mb-1.5">Work Email</label>
+              <label htmlFor="username" className="block text-xs font-semibold text-slate-300 mb-1.5">
+                Work Email / Username
+              </label>
               <div className="relative">
-                <Mail className="absolute left-3.5 top-3 h-4 w-4 text-slate-500" />
+                <Mail className="absolute left-3.5 top-3 h-4 w-4 text-slate-500 pointer-events-none" />
                 <input
+                  id="username"
+                  name="username"
                   type="email"
                   required
+                  autoComplete="username"
+                  autoCapitalize="none"
+                  autoCorrect="off"
+                  spellCheck="false"
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
                   className="w-full rounded-xl border border-white/10 bg-white/[0.03] pl-10 pr-4 py-2.5 text-sm text-white placeholder-slate-500 focus:border-blue-500 focus:outline-none"
@@ -100,16 +110,21 @@ function LoginForm() {
 
             <div>
               <div className="flex justify-between items-center mb-1.5">
-                <label className="block text-xs font-semibold text-slate-300">Password</label>
+                <label htmlFor="password" className="block text-xs font-semibold text-slate-300">
+                  Password
+                </label>
                 <Link href="/forgot-password" className="text-xs text-blue-400 hover:text-blue-300">
-                  Forgot?
+                  Forgot Password?
                 </Link>
               </div>
               <div className="relative">
-                <Lock className="absolute left-3.5 top-3 h-4 w-4 text-slate-500" />
+                <Lock className="absolute left-3.5 top-3 h-4 w-4 text-slate-500 pointer-events-none" />
                 <input
+                  id="password"
+                  name="password"
                   type="password"
                   required
+                  autoComplete="current-password"
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
                   className="w-full rounded-xl border border-white/10 bg-white/[0.03] pl-10 pr-4 py-2.5 text-sm text-white placeholder-slate-500 focus:border-blue-500 focus:outline-none"
@@ -121,7 +136,7 @@ function LoginForm() {
             <button
               type="submit"
               disabled={loading}
-              className="w-full py-3 rounded-xl bg-gradient-to-r from-blue-600 to-indigo-600 text-white font-bold text-sm shadow-glow-sm hover:from-blue-500 hover:to-indigo-500 transition-all flex items-center justify-center gap-2 disabled:opacity-50"
+              className="w-full py-3 rounded-xl bg-gradient-to-r from-blue-600 to-indigo-600 text-white font-bold text-sm shadow-glow-sm hover:from-blue-500 hover:to-indigo-500 transition-all flex items-center justify-center gap-2 disabled:opacity-50 cursor-pointer"
             >
               <span>{loading ? "Authenticating..." : "Sign In to Dashboard"}</span>
               <ArrowRight className="h-4 w-4" />
@@ -129,12 +144,9 @@ function LoginForm() {
           </form>
         </div>
 
-        {/* Footer Link */}
+        {/* Assistance Information */}
         <p className="text-center text-xs text-slate-400 mt-6">
-          Don't have an account?{" "}
-          <Link href="/signup" className="text-blue-400 font-semibold hover:text-blue-300">
-            Create an account
-          </Link>
+          Managed enterprise access. For seat provisioning, contact your workspace administrator.
         </p>
       </div>
     </div>

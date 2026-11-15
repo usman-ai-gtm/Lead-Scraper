@@ -3,29 +3,25 @@
 import React, { useState } from "react";
 import Link from "next/link";
 import { api } from "@/lib/api";
-import { Sparkles, Mail, ArrowRight, CheckCircle2, AlertCircle } from "lucide-react";
+import { Sparkles, Mail, ArrowRight, CheckCircle2, AlertCircle, ShieldAlert, KeyRound, UserCheck } from "lucide-react";
 
 export default function ForgotPasswordPage() {
   const [email, setEmail] = useState("");
   const [loading, setLoading] = useState(false);
-  const [submitted, setSubmitted] = useState(false);
+  const [result, setResult] = useState<any | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [testToken, setTestToken] = useState<string | null>(null);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setLoading(true);
     setError(null);
     try {
-      const res = await api.post<{ status: string; message: string; token_available_for_local_test?: string }>("/auth/forgot-password", {
+      const res = await api.post<any>("/auth/forgot-password", {
         email: email.trim().toLowerCase(),
       });
-      setSubmitted(true);
-      if (res.token_available_for_local_test) {
-        setTestToken(res.token_available_for_local_test);
-      }
+      setResult(res);
     } catch (err: any) {
-      setError(err.message || "Failed to submit password reset request.");
+      setError(err?.message || "Failed to process recovery request.");
     } finally {
       setLoading(false);
     }
@@ -46,9 +42,9 @@ export default function ForgotPasswordPage() {
         </div>
 
         <div className="rounded-2xl border border-white/[0.08] bg-[#0c1017]/90 p-8 shadow-glass backdrop-blur-xl">
-          <h1 className="text-2xl font-bold text-white mb-2 text-center">Reset Password</h1>
+          <h1 className="text-2xl font-bold text-white mb-2 text-center">Password Recovery</h1>
           <p className="text-xs text-slate-400 text-center mb-6">
-            Enter your work email address to receive secure password recovery instructions
+            Enter your work email address to initiate genuine credentials recovery
           </p>
 
           {error && (
@@ -58,29 +54,64 @@ export default function ForgotPasswordPage() {
             </div>
           )}
 
-          {submitted ? (
-            <div className="text-center py-6">
-              <CheckCircle2 className="h-12 w-12 text-emerald-400 mx-auto mb-3" />
-              <h3 className="text-lg font-bold text-white mb-1">Check Your Inbox</h3>
-              <p className="text-xs text-slate-400 mb-6 leading-relaxed">
-                If an account exists for <span className="text-white font-medium">{email}</span>, we have dispatched a single-use recovery link valid for 60 minutes.
-              </p>
+          {result ? (
+            <div className="space-y-4">
+              {result.smtp_configured ? (
+                <div className="text-center py-4">
+                  <CheckCircle2 className="h-10 w-10 text-emerald-400 mx-auto mb-3" />
+                  <h3 className="text-base font-bold text-white mb-1">Recovery Link Dispatched</h3>
+                  <p className="text-xs text-slate-400 leading-relaxed">
+                    A secure password reset link has been dispatched to <span className="text-white font-medium">{email}</span>.
+                  </p>
+                </div>
+              ) : (
+                <div className="space-y-3">
+                  <div className="p-3.5 rounded-xl border border-amber-500/30 bg-amber-500/10 text-amber-300 text-xs flex items-start gap-2.5">
+                    <ShieldAlert className="h-4 w-4 shrink-0 mt-0.5 text-amber-400" />
+                    <div className="space-y-1">
+                      <div className="font-bold">Transparent Recovery Notice:</div>
+                      <div className="text-[11px] leading-relaxed text-amber-200/90">
+                        {result.message}
+                      </div>
+                    </div>
+                  </div>
 
-              {testToken && (
-                <div className="mb-6 p-3 rounded-xl bg-blue-500/10 border border-blue-500/20 text-left">
-                  <div className="text-[11px] font-bold text-blue-400 mb-1">Local Diagnostic Recovery Link:</div>
-                  <Link
-                    href={`/reset-password?token=${testToken}`}
-                    className="text-xs text-blue-300 underline break-all hover:text-white"
-                  >
-                    Open Password Reset Form →
-                  </Link>
+                  {result.is_admin_account ? (
+                    <div className="p-4 rounded-xl border border-blue-500/30 bg-blue-500/10 space-y-2">
+                      <div className="flex items-center gap-2 text-xs font-bold text-blue-300">
+                        <KeyRound className="h-4 w-4 text-blue-400" />
+                        <span>Administrator Secure Reset Link</span>
+                      </div>
+                      <p className="text-[11px] text-slate-300">
+                        As the registered platform administrator, a cryptographically signed one-time token has been generated:
+                      </p>
+                      <Link
+                        href={result.reset_url}
+                        className="inline-flex items-center justify-center w-full py-2.5 px-3 rounded-xl bg-blue-600 hover:bg-blue-500 text-white font-bold text-xs transition-colors"
+                      >
+                        <span>Set New Password Now →</span>
+                      </Link>
+                    </div>
+                  ) : (
+                    <div className="p-4 rounded-xl border border-white/10 bg-white/[0.03] space-y-2 text-xs">
+                      <div className="flex items-center gap-2 font-bold text-white">
+                        <UserCheck className="h-4 w-4 text-emerald-400" />
+                        <span>Client Account Password Reset</span>
+                      </div>
+                      <p className="text-[11px] text-slate-400 leading-relaxed">
+                        To maintain zero-knowledge workspace security, please ask your administrator to generate a new temporary password for your seat via:
+                      </p>
+                      <div className="bg-[#141b26] p-2 rounded-lg font-mono text-[10px] text-slate-300">
+                        Admin Governance &gt; Client Accounts &gt; Reset Password
+                      </div>
+                    </div>
+                  )}
                 </div>
               )}
 
               <Link
                 href="/login"
-                className="inline-block w-full py-2.5 rounded-xl bg-white/10 hover:bg-white/15 text-white font-bold text-xs transition-colors"
+                className="inline-block w-full py-2.5 rounded-xl bg-white/10 hover:bg-white/15 text-white font-bold text-xs transition-colors text-center"
               >
                 Back to Sign In
               </Link>
@@ -105,9 +136,9 @@ export default function ForgotPasswordPage() {
               <button
                 type="submit"
                 disabled={loading}
-                className="w-full py-3 rounded-xl bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-500 hover:to-indigo-500 text-white font-bold text-sm shadow-glow-sm transition-all disabled:opacity-50"
+                className="w-full py-3 rounded-xl bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-500 hover:to-indigo-500 text-white font-bold text-sm shadow-glow-sm transition-all disabled:opacity-50 cursor-pointer"
               >
-                {loading ? "Generating Recovery Link..." : "Send Reset Link"}
+                {loading ? "Verifying Account..." : "Initiate Recovery"}
               </button>
             </form>
           )}

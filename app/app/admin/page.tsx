@@ -19,11 +19,13 @@ export default function AdminPage() {
     setLoading(true);
     try {
       const ov = await api.get<any>("/admin/overview");
-      setOverview(ov);
-      const uList = await api.get<any[]>("/admin/users");
-      setUsers(uList || []);
-      const logs = await api.get<any[]>("/admin/audit-logs");
-      setAuditLogs(logs || []);
+      setOverview(ov || {});
+      const uList = await api.get<any>("/admin/users");
+      const normalizedUsers = Array.isArray(uList) ? uList : (uList?.users || []);
+      setUsers(normalizedUsers);
+      const logs = await api.get<any>("/admin/audit-logs");
+      const normalizedLogs = Array.isArray(logs) ? logs : (logs?.audit_logs || logs?.logs || []);
+      setAuditLogs(normalizedLogs);
     } catch (e) {
       console.warn("Failed to load admin data", e);
     } finally {
@@ -139,33 +141,43 @@ export default function AdminPage() {
               </tr>
             </thead>
             <tbody className="divide-y divide-white/[0.04]">
-              {users.map((u) => (
-                <tr key={u.id} className="hover:bg-white/[0.02]">
-                  <td className="py-3 px-3">
-                    <div className="font-bold text-white">{u.full_name}</div>
-                    <div className="text-[10px] text-slate-400 font-mono">{u.email}</div>
+              {Array.isArray(users) && users.length > 0 ? (
+                users.map((u) => (
+                  <tr key={u.id || u.email} className="hover:bg-white/[0.02]">
+                    <td className="py-3 px-3">
+                      <div className="font-bold text-white">{u.full_name || "User"}</div>
+                      <div className="text-[10px] text-slate-400 font-mono">{u.email}</div>
+                    </td>
+                    <td className="py-3 px-3 text-slate-300">{u.company || "Independent"}</td>
+                    <td className="py-3 px-3">
+                      <select
+                        value={u.role || "USER"}
+                        onChange={(e) => handleRoleChange(u.id, e.target.value)}
+                        className="rounded bg-white/5 border border-white/10 px-2 py-1 text-xs text-white font-semibold cursor-pointer focus:outline-none"
+                      >
+                        <option value="ADMIN" className="bg-[#0c1017]">ADMIN</option>
+                        <option value="MANAGER" className="bg-[#0c1017]">MANAGER</option>
+                        <option value="USER" className="bg-[#0c1017]">USER</option>
+                        <option value="VIEWER" className="bg-[#0c1017]">VIEWER</option>
+                      </select>
+                    </td>
+                    <td className="py-3 px-3">
+                      <span className="text-[10px] font-bold text-emerald-400 bg-emerald-500/10 px-2 py-0.5 rounded border border-emerald-500/20">
+                        {u.status || "ACTIVE"}
+                      </span>
+                    </td>
+                    <td className="py-3 px-3 text-slate-400 font-mono text-[11px]">
+                      {u.last_login ? u.last_login.slice(0, 16) : "Just now"}
+                    </td>
+                  </tr>
+                ))
+              ) : (
+                <tr>
+                  <td colSpan={5} className="py-6 text-center text-slate-500 text-xs">
+                    No active platform users found.
                   </td>
-                  <td className="py-3 px-3 text-slate-300">{u.company || "Independent"}</td>
-                  <td className="py-3 px-3">
-                    <select
-                      value={u.role}
-                      onChange={(e) => handleRoleChange(u.id, e.target.value)}
-                      className="rounded bg-white/5 border border-white/10 px-2 py-1 text-xs text-white font-semibold cursor-pointer focus:outline-none"
-                    >
-                      <option value="ADMIN" className="bg-[#0c1017]">ADMIN</option>
-                      <option value="MANAGER" className="bg-[#0c1017]">MANAGER</option>
-                      <option value="USER" className="bg-[#0c1017]">USER</option>
-                      <option value="VIEWER" className="bg-[#0c1017]">VIEWER</option>
-                    </select>
-                  </td>
-                  <td className="py-3 px-3">
-                    <span className="text-[10px] font-bold text-emerald-400 bg-emerald-500/10 px-2 py-0.5 rounded border border-emerald-500/20">
-                      ACTIVE
-                    </span>
-                  </td>
-                  <td className="py-3 px-3 text-slate-400 font-mono text-[11px]">{u.last_login ? u.last_login.slice(0, 16) : "Just now"}</td>
                 </tr>
-              ))}
+              )}
             </tbody>
           </table>
         </div>

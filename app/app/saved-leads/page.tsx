@@ -129,8 +129,10 @@ export default function SavedLeadsPage() {
   };
 
   // Export handlers
-  const handleExport = async (format: "csv" | "xlsx", onlySelected = false) => {
-    const leadsToExport = onlySelected
+  const handleExport = async (format: "csv" | "xlsx", onlySelected = false, specificLeads?: Lead[]) => {
+    const leadsToExport = specificLeads
+      ? specificLeads
+      : onlySelected
       ? leads.filter((l) => selectedIds.includes(l.id))
       : leads;
 
@@ -146,7 +148,9 @@ export default function SavedLeadsPage() {
         body: JSON.stringify({
           leads: leadsToExport,
           format,
-          filename: `workspace_leads_${Date.now()}`,
+          filename: specificLeads && specificLeads.length === 1
+            ? `${(specificLeads[0].business_name || "lead").replace(/[^a-zA-Z0-9_-]/g, "_")}_${Date.now()}`
+            : `workspace_leads_${Date.now()}`,
         }),
       });
 
@@ -156,14 +160,34 @@ export default function SavedLeadsPage() {
       const url = window.URL.createObjectURL(blob);
       const a = document.createElement("a");
       a.href = url;
-      a.download = `workspace_leads_${Date.now()}.${format}`;
+      a.download = specificLeads && specificLeads.length === 1
+        ? `${(specificLeads[0].business_name || "lead").replace(/[^a-zA-Z0-9_-]/g, "_")}_${Date.now()}.${format}`
+        : `workspace_leads_${Date.now()}.${format}`;
       document.body.appendChild(a);
       a.click();
       window.URL.revokeObjectURL(url);
       a.remove();
-      setToastMsg(`Downloaded ${leadsToExport.length} leads as .${format.toUpperCase()}`);
+      setToastMsg(`Downloaded ${leadsToExport.length} lead${leadsToExport.length > 1 ? "s" : ""} as .${format.toUpperCase()}`);
     } catch (e) {
       setToastMsg("Export failed. Please try again.");
+    }
+  };
+
+  const formatPKT = (dateStr?: string) => {
+    if (!dateStr) return "—";
+    try {
+      const d = new Date(dateStr.endsWith("Z") || dateStr.includes("+") ? dateStr : dateStr + "Z");
+      return new Intl.DateTimeFormat("en-PK", {
+        timeZone: "Asia/Karachi",
+        year: "numeric",
+        month: "short",
+        day: "numeric",
+        hour: "2-digit",
+        minute: "2-digit",
+        hour12: true,
+      }).format(d);
+    } catch {
+      return dateStr;
     }
   };
 
@@ -340,7 +364,8 @@ export default function SavedLeadsPage() {
                   <th className="py-3 px-3">Email Contact</th>
                   <th className="py-3 px-3">Phone & WhatsApp</th>
                   <th className="py-3 px-3">Source</th>
-                  <th className="py-3 px-3 text-right">Action</th>
+                  <th className="py-3 px-3">Saved (PKT)</th>
+                  <th className="py-3 px-3 text-right">Actions</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-white/[0.04]">
@@ -437,14 +462,26 @@ export default function SavedLeadsPage() {
                           </a>
                         )}
                       </td>
+                      <td className="py-3 px-3 text-slate-400 font-mono text-[10px]">
+                        {formatPKT(l.created_at)}
+                      </td>
                       <td className="py-3 px-3 text-right">
-                        <button
-                          onClick={() => handleDeleteSingle(l.id)}
-                          className="p-1.5 rounded-lg text-slate-400 hover:text-rose-400 hover:bg-rose-500/10 transition-colors"
-                          title="Delete Lead"
-                        >
-                          <Trash2 className="h-3.5 w-3.5" />
-                        </button>
+                        <div className="flex items-center justify-end gap-1">
+                          <button
+                            onClick={() => handleExport("xlsx", false, [l])}
+                            className="p-1.5 rounded-lg text-emerald-400 hover:text-emerald-300 hover:bg-emerald-500/10 transition-colors"
+                            title="Export this lead (XLSX - 17 Columns)"
+                          >
+                            <Download className="h-3.5 w-3.5" />
+                          </button>
+                          <button
+                            onClick={() => handleDeleteSingle(l.id)}
+                            className="p-1.5 rounded-lg text-slate-400 hover:text-rose-400 hover:bg-rose-500/10 transition-colors"
+                            title="Delete Lead"
+                          >
+                            <Trash2 className="h-3.5 w-3.5" />
+                          </button>
+                        </div>
                       </td>
                     </tr>
                   );

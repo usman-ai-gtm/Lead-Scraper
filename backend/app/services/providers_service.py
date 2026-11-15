@@ -104,10 +104,10 @@ class ProvidersService:
         try:
             # Dispatch provider-specific zero-cost bounded probe (timeout=4.0s)
             if "serper" in p_name_lower:
-                # Serper credits endpoint is zero-cost account ping
                 resp = requests.post(
-                    "https://google.serper.dev/credits",
+                    "https://google.serper.dev/search",
                     headers={"X-API-KEY": raw_key, "Content-Type": "application/json"},
+                    json={"q": "ping", "num": 1},
                     timeout=4.0
                 )
                 if resp.status_code == 200:
