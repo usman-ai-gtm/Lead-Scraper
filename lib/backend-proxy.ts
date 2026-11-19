@@ -49,13 +49,14 @@ export async function proxyToBackend(
       const res = await fetch(url, init);
       clearTimeout(timeout);
 
-      const data = await res.json().catch(() => null);
-      if (data !== null) {
-        return NextResponse.json(data, { status: res.status });
+      if (res.ok) {
+        const data = await res.json().catch(() => null);
+        if (data !== null) {
+          return NextResponse.json(data, { status: res.status });
+        }
       }
-      return new Response(null, { status: res.status });
     } catch {
-      // Backend offline or timeout -> proceed to fallback for read requests only
+      // Backend offline or timeout -> proceed to fallback
     }
   }
 
