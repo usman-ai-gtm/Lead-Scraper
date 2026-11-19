@@ -55,7 +55,7 @@ export async function POST(req: Request) {
   let body: any = {};
   try {
     body = await req.clone().json();
-  } catch {}
+  } catch { }
 
   const fallbackHandler = async () => {
     if (isNeonConfigured()) {

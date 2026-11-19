@@ -247,8 +247,8 @@ export async function saveNeonSearchRecordAndLeads(
             workspace_id, business_name, email, phone, website,
             source, source_url, search_keyword, search_location,
             lead_score, fit_score, lead_temperature, crm_stage,
-            saved_date, saved_time, date_discovered, created_at, updated_at
-          ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18)
+            date_discovered, created_at, updated_at
+          ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16)
           RETURNING id`,
           [
             workspaceId,
@@ -264,8 +264,6 @@ export async function saveNeonSearchRecordAndLeads(
             lead.fit_score || 50,
             "HOT",
             "Lead Discovered",
-            pkt.date,
-            pkt.time,
             pkt.date,
             nowIso,
             nowIso,
@@ -432,8 +430,8 @@ export async function addNeonLead(workspaceId: number, data: any) {
         workspace_id, business_name, email, phone, website,
         category, industry, city, state, country, address,
         source, source_url, search_keyword, lead_score,
-        crm_stage, saved_date, saved_time, date_discovered, created_at, updated_at
-      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21)
+        crm_stage, date_discovered, created_at, updated_at
+      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19)
       RETURNING *`,
       [
         workspaceId,
@@ -452,8 +450,6 @@ export async function addNeonLead(workspaceId: number, data: any) {
         data.search_keyword || "",
         data.lead_score || 70,
         data.crm_stage || "New Lead",
-        pkt.date,
-        pkt.time,
         pkt.date,
         nowIso,
         nowIso,
