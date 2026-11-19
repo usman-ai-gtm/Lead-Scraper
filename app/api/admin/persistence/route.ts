@@ -1,27 +1,81 @@
-import { proxyToBackend } from "@/lib/backend-proxy";
+import { NextResponse } from "next/server";
+import { getNeonSql, isNeonConfigured } from "@/lib/neon-db";
+
+export const dynamic = "force-dynamic";
+export const revalidate = 0;
 
 export async function GET(req: Request) {
   const isVercel = Boolean(process.env.VERCEL || process.env.NEXT_PUBLIC_VERCEL_ENV);
   const dbUrl = process.env.DATABASE_URL || process.env.POSTGRES_URL || "";
   const isNeon = dbUrl.toLowerCase().includes("neon.tech");
   const isPostgres = dbUrl.startsWith("postgres://") || dbUrl.startsWith("postgresql://");
-  const configured = Boolean(dbUrl);
+  const hasEnv = Boolean(dbUrl);
 
-  const fallback = {
-    mode: configured ? "cloud_database" : (isVercel ? "serverless_local" : "local_sqlite"),
-    driver: isNeon
-      ? "Neon PostgreSQL (Serverless Cloud Hosted)"
-      : isPostgres
-      ? "PostgreSQL (Cloud Hosted)"
-      : isVercel
-      ? "Vercel Serverless (Ephemeral / LocalStorage Fallback)"
-      : "SQLite 3 (Local Embedded)",
-    configured,
-    message: configured
-      ? "Authoritative cloud database configured via DATABASE_URL."
-      : (isVercel
-        ? "Running on Vercel Serverless. External DATABASE_URL is required for multi-tenant cloud persistence."
-        : "Running on local SQLite. In serverless deployments without DATABASE_URL, persistent multi-user data requires an external database connection.")
+  let dbConnected = false;
+  let latencyMs = 0;
+  let totalLeads = 0;
+  let totalSearchRecords = 0;
+  let totalWorkspaces = 0;
+  let dbError: string | null = null;
+
+  if (isNeonConfigured()) {
+    try {
+      const sql = getNeonSql();
+      if (sql) {
+        const start = Date.now();
+        const pingRes = await sql`SELECT 1 as ping`;
+        latencyMs = Date.now() - start;
+
+        if (pingRes && pingRes.length > 0) {
+          dbConnected = true;
+          const leadsRes = await sql`SELECT COUNT(*) as cnt FROM leads`;
+          totalLeads = parseInt(leadsRes[0]?.cnt || "0", 10);
+
+          const searchesRes = await sql`SELECT COUNT(*) as cnt FROM search_records`;
+          totalSearchRecords = parseInt(searchesRes[0]?.cnt || "0", 10);
+
+          const wsRes = await sql`SELECT COUNT(*) as cnt FROM workspaces`;
+          totalWorkspaces = parseInt(wsRes[0]?.cnt || "0", 10);
+        }
+      }
+    } catch (err: any) {
+      dbError = err?.message || String(err);
+      console.error("Neon live persistence probe error:", dbError);
+    }
+  }
+
+  const responseData = {
+    mode: dbConnected ? "cloud_database" : (isVercel ? "serverless_local" : "local_sqlite"),
+    driver: dbConnected
+      ? (isNeon ? "Neon PostgreSQL (Serverless Cloud Hosted)" : "PostgreSQL (Cloud Hosted)")
+      : (isVercel ? "Vercel Serverless (Ephemeral / LocalStorage Fallback)" : "SQLite 3 (Local Embedded)"),
+    configured: dbConnected,
+    database_connected: dbConnected,
+    latency_ms: latencyMs,
+    stats: dbConnected
+      ? {
+          total_leads: totalLeads,
+          total_search_records: totalSearchRecords,
+          total_workspaces: totalWorkspaces,
+        }
+      : null,
+    error: dbError,
+    message: dbConnected
+      ? `Authoritative Neon PostgreSQL connected and actively responding (${latencyMs}ms latency).`
+      : (hasEnv
+        ? `DATABASE_URL environment variable is detected, but connection query failed: ${dbError}`
+        : (isVercel
+          ? "Running on Vercel Serverless. External DATABASE_URL is required for multi-tenant cloud persistence."
+          : "Running on local SQLite. In serverless deployments without DATABASE_URL, persistent multi-user data requires an external database connection."))
   };
-  return proxyToBackend("/api/admin/persistence", req, fallback);
+
+  return new NextResponse(JSON.stringify(responseData), {
+    status: 200,
+    headers: {
+      "Content-Type": "application/json",
+      "Cache-Control": "no-store, no-cache, must-revalidate, proxy-revalidate, max-age=0",
+      "Pragma": "no-cache",
+      "Expires": "0",
+    },
+  });
 }

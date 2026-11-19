@@ -461,3 +461,33 @@ export async function addNeonLead(workspaceId: number, data: any) {
     return null;
   }
 }
+
+export async function getNeonLeadById(workspaceId: number, leadId: number) {
+  const sql = getNeonSql();
+  if (!sql) return null;
+  try {
+    const rows = await sql.query(
+      "SELECT * FROM leads WHERE workspace_id = $1 AND id = $2 LIMIT 1",
+      [workspaceId, leadId]
+    );
+    return rows[0] || null;
+  } catch (e) {
+    console.error("Neon getLeadById error:", e);
+    return null;
+  }
+}
+
+export async function deleteNeonLead(workspaceId: number, leadId: number): Promise<boolean> {
+  const sql = getNeonSql();
+  if (!sql) return false;
+  try {
+    const res = await sql.query(
+      "DELETE FROM leads WHERE workspace_id = $1 AND id = $2 RETURNING id",
+      [workspaceId, leadId]
+    );
+    return res.length > 0;
+  } catch (e) {
+    console.error("Neon deleteLead error:", e);
+    return false;
+  }
+}
