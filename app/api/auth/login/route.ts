@@ -1,42 +1,109 @@
 import { NextResponse } from "next/server";
-import { authenticateServerlessUser } from "@/lib/serverless-auth";
+import { getNeonSql, isNeonConfigured } from "@/lib/neon-db";
+import {
+  verifyPassword,
+  createJwtToken,
+  authenticateServerlessUser,
+} from "@/lib/serverless-auth";
+
+export const dynamic = "force-dynamic";
 
 export async function POST(request: Request) {
   try {
     const body = await request.json();
-    const { email, password } = body;
+    const email = String(body.email || "").trim().toLowerCase();
+    const password = String(body.password || "").trim();
 
     if (!email || !password) {
-      return NextResponse.json({ detail: "Email and password are required" }, { status: 400 });
+      return NextResponse.json(
+        { detail: "Email and password are required" },
+        { status: 400 }
+      );
     }
 
-    const isVercel = Boolean(process.env.VERCEL || process.env.NEXT_PUBLIC_VERCEL_ENV);
-    const backendUrl = process.env.BACKEND_URL || (isVercel ? "" : "http://127.0.0.1:8000");
-
-    // 1. Attempt connection to FastAPI backend if available
-    if (backendUrl) {
+    // 1. Authoritative Neon PostgreSQL Authentication
+    if (isNeonConfigured()) {
       try {
-        const controller = new AbortController();
-        const timeoutId = setTimeout(() => controller.abort(), 15000);
+        const sql = getNeonSql();
+        if (sql) {
+          const users = await sql`
+            SELECT id, email, full_name, role, workspace_id, status, password_hash, tenant_id
+            FROM users
+            WHERE LOWER(email) = LOWER(${email})
+            LIMIT 1
+          `;
 
-        const backendRes = await fetch(`${backendUrl}/api/auth/login`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(body),
-          signal: controller.signal,
-        });
-        clearTimeout(timeoutId);
+          if (users && users.length > 0) {
+            const user = users[0];
 
-        const data = await backendRes.json().catch(() => ({}));
-        if (backendRes.status !== 503 && backendRes.status !== 502 && backendRes.status !== 504) {
-          return NextResponse.json(data, { status: backendRes.status });
+            if (user.status && user.status.toUpperCase() !== "ACTIVE") {
+              return NextResponse.json(
+                { detail: "Account is inactive or suspended. Please contact your administrator." },
+                { status: 403 }
+              );
+            }
+
+            const isValid = verifyPassword(password, user.password_hash);
+            if (!isValid) {
+              return NextResponse.json(
+                { detail: "Incorrect email or password" },
+                { status: 401 }
+              );
+            }
+
+            // Password verified successfully!
+            const token = createJwtToken({
+              sub: String(user.id),
+              email: user.email,
+              full_name: user.full_name,
+              role: user.role || "ADMIN",
+              workspace_id: user.workspace_id || 1,
+              tenant_id: user.tenant_id || 1,
+            });
+
+            // Fetch workspace metadata
+            let wsName = `${user.full_name}'s Workspace`;
+            let wsCreated = new Date().toISOString();
+            try {
+              const wsRows = await sql`
+                SELECT id, name, created_at
+                FROM workspaces
+                WHERE id = ${user.workspace_id || 1}
+                LIMIT 1
+              `;
+              if (wsRows && wsRows.length > 0) {
+                wsName = wsRows[0].name || wsName;
+                wsCreated = wsRows[0].created_at || wsCreated;
+              }
+            } catch {}
+
+            return NextResponse.json({
+              access_token: token,
+              token_type: "bearer",
+              user: {
+                id: user.id,
+                email: user.email,
+                full_name: user.full_name,
+                role: user.role || "ADMIN",
+                workspace_id: user.workspace_id || 1,
+              },
+              workspace: {
+                id: user.workspace_id || 1,
+                name: wsName,
+                plan: "ENTERPRISE",
+                ai_credits: 50000,
+                search_credits: 25000,
+                created_at: wsCreated,
+              },
+            });
+          }
         }
-      } catch {
-        // Backend is unreachable or running in standalone Vercel serverless mode
+      } catch (dbErr: any) {
+        console.error("Neon authentication lookup error:", dbErr?.message);
       }
     }
 
-    // 2. Resilient Serverless Auth Engine
+    // 2. Resilient Serverless Auth Engine Fallback (in-memory store)
     const result = authenticateServerlessUser(email, password);
     if (!result) {
       return NextResponse.json({ detail: "Incorrect email or password" }, { status: 401 });
