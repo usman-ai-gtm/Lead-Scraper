@@ -15,6 +15,14 @@ from backend.app.core.config import settings
 
 logger = logging.getLogger("USMAN_BACKEND_DB")
 
+def is_postgres() -> bool:
+    url = os.getenv("DATABASE_URL") or os.getenv("POSTGRES_URL") or ""
+    return url.startswith("postgres://") or url.startswith("postgresql://")
+
+def get_postgres_connection():
+    from backend.app.core.cloud_db import get_cloud_connection
+    return get_cloud_connection()
+
 def get_db_connection(db_path: Optional[str] = None) -> sqlite3.Connection:
     target = db_path or settings.DATABASE_PATH
     os.makedirs(os.path.dirname(os.path.abspath(target)), exist_ok=True)
@@ -23,34 +31,98 @@ def get_db_connection(db_path: Optional[str] = None) -> sqlite3.Connection:
     return conn
 
 def execute_query(sql: str, params: tuple = (), fetch_all: bool = True, db_path: Optional[str] = None) -> Any:
-    conn = get_db_connection(db_path)
-    cur = conn.cursor()
-    try:
-        cur.execute(sql, params)
-        if fetch_all:
-            rows = cur.fetchall()
-            return [dict(r) for r in rows]
-        else:
-            row = cur.fetchone()
-            return dict(row) if row else None
-    finally:
-        conn.close()
+    if is_postgres():
+        from psycopg2.extras import RealDictCursor
+        conn = get_postgres_connection()
+        cur = conn.cursor(cursor_factory=RealDictCursor)
+        try:
+            pg_sql = sql.replace('?', '%s')
+            cur.execute(pg_sql, params)
+            if fetch_all:
+                rows = cur.fetchall()
+                return [dict(r) for r in rows]
+            else:
+                row = cur.fetchone()
+                return dict(row) if row else None
+        finally:
+            cur.close()
+            conn.close()
+    else:
+        conn = get_db_connection(db_path)
+        cur = conn.cursor()
+        try:
+            cur.execute(sql, params)
+            if fetch_all:
+                rows = cur.fetchall()
+                return [dict(r) for r in rows]
+            else:
+                row = cur.fetchone()
+                return dict(row) if row else None
+        finally:
+            conn.close()
 
 def execute_write(sql: str, params: tuple = (), db_path: Optional[str] = None) -> int:
-    conn = get_db_connection(db_path)
-    cur = conn.cursor()
-    try:
-        cur.execute(sql, params)
-        conn.commit()
-        return cur.lastrowid
-    finally:
-        conn.close()
+    if is_postgres():
+        conn = get_postgres_connection()
+        cur = conn.cursor()
+        try:
+            pg_sql = sql.replace('?', '%s')
+            pg_sql = re.sub(r'INSERT\s+OR\s+IGNORE\s+INTO', 'INSERT INTO', pg_sql, flags=re.IGNORECASE)
+            is_insert = bool(re.match(r'^\s*INSERT\s+INTO', pg_sql, re.IGNORECASE))
+            if is_insert and "ON CONFLICT" not in pg_sql.upper():
+                pg_sql = f"{pg_sql.rstrip(';')} ON CONFLICT DO NOTHING"
+            if is_insert and "RETURNING" not in pg_sql.upper():
+                pg_sql = f"{pg_sql.rstrip(';')} RETURNING id"
+
+            cur.execute(pg_sql, params)
+            last_id = 0
+            if is_insert:
+                try:
+                    row = cur.fetchone()
+                    if row:
+                        last_id = row[0]
+                except Exception:
+                    pass
+            conn.commit()
+            return last_id
+        except Exception:
+            conn.rollback()
+            raise
+        finally:
+            cur.close()
+            conn.close()
+    else:
+        conn = get_db_connection(db_path)
+        cur = conn.cursor()
+        try:
+            cur.execute(sql, params)
+            conn.commit()
+            return cur.lastrowid
+        finally:
+            conn.close()
+
 
 def init_app_database():
     """
     Non-destructive initialization of users, tenants, workspaces, and system settings.
-    Preserves all existing data in usman_data_analytics.db and tables created previously.
+    Preserves all existing data in usman_data_analytics.db or Cloud PostgreSQL.
     """
+    if is_postgres():
+        schema_path = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", "..", "docs", "cloud_postgres_schema.sql"))
+        if os.path.exists(schema_path):
+            try:
+                conn = get_postgres_connection()
+                cur = conn.cursor()
+                with open(schema_path, "r", encoding="utf-8") as f:
+                    cur.execute(f.read())
+                conn.commit()
+                cur.close()
+                conn.close()
+                logger.info("Cloud PostgreSQL schema initialized and verified.")
+            except Exception as e:
+                logger.warning(f"Cloud PostgreSQL schema init warning: {e}")
+        return
+
     conn = get_db_connection()
     cur = conn.cursor()
     now_iso = datetime.now(timezone.utc).isoformat()
