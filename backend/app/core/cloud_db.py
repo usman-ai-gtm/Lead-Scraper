@@ -17,6 +17,12 @@ def get_database_url() -> Optional[str]:
     url = os.getenv("DATABASE_URL") or os.getenv("POSTGRES_URL") or os.getenv("SUPABASE_DB_URL")
     return url.strip() if url else None
 
+def mask_database_url(url: Optional[str]) -> str:
+    """Safely mask password in a database connection URL for secure display."""
+    if not url:
+        return "None"
+    return re.sub(r'(:)[^:@/]+(@)', r'\1***\2', url)
+
 def get_persistence_info() -> Dict[str, Any]:
     """
     Returns public metadata about current database persistence layer.
@@ -25,7 +31,13 @@ def get_persistence_info() -> Dict[str, Any]:
     db_url = get_database_url()
     if db_url:
         is_pg = db_url.startswith("postgres://") or db_url.startswith("postgresql://")
-        driver = "PostgreSQL (Cloud Hosted)" if is_pg else "External Cloud Database"
+        is_neon = "neon.tech" in db_url.lower()
+        if is_neon:
+            driver = "Neon PostgreSQL (Serverless Cloud Hosted)"
+        elif is_pg:
+            driver = "PostgreSQL (Cloud Hosted)"
+        else:
+            driver = "External Cloud Database"
         return {
             "mode": "cloud_database",
             "driver": driver,
@@ -39,6 +51,51 @@ def get_persistence_info() -> Dict[str, Any]:
             "configured": False,
             "message": "Running on local SQLite. In serverless deployments without DATABASE_URL, persistent multi-user data requires an external database connection."
         }
+
+def get_cloud_connection(db_url: Optional[str] = None):
+    """
+    Establish a connection to cloud PostgreSQL (e.g. Neon) via psycopg2.
+    Automatically ensures SSL mode for cloud endpoints.
+    """
+    url = db_url or get_database_url()
+    if not url:
+        raise ValueError("DATABASE_URL is not configured.")
+    import psycopg2
+    if "sslmode=" not in url and ("neon.tech" in url or "supabase" in url):
+        sep = "&" if "?" in url else "?"
+        url = f"{url}{sep}sslmode=require"
+    return psycopg2.connect(url, connect_timeout=15)
+
+def test_cloud_connection(db_url: Optional[str] = None) -> Tuple[bool, str, Dict[str, Any]]:
+    """
+    Safely test connectivity to cloud database with zero credential leakage.
+    Returns (success: bool, message: str, meta: dict).
+    """
+    url = db_url or get_database_url()
+    if not url:
+        return False, "DATABASE_URL is not set.", {}
+    try:
+        conn = get_cloud_connection(url)
+        cur = conn.cursor()
+        cur.execute("SELECT version();")
+        version_str = cur.fetchone()[0]
+        cur.execute("""
+            SELECT table_name 
+            FROM information_schema.tables 
+            WHERE table_schema = 'public' 
+            ORDER BY table_name;
+        """)
+        tables = [r[0] for r in cur.fetchall()]
+        cur.close()
+        conn.close()
+        return True, "Cloud database connection verified successfully.", {
+            "version": version_str.split(",")[0],
+            "tables_found": len(tables),
+            "tables": tables
+        }
+    except Exception as e:
+        return False, f"Connection failed: {type(e).__name__}: {str(e)}", {}
+
 
 def inspect_sqlite_tables(sqlite_path: str) -> List[Dict[str, Any]]:
     """Inspects all tables and row counts in a SQLite database."""

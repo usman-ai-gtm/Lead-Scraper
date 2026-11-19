@@ -1,10 +1,3 @@
-databases:
-  - name: usman-ai-gtm-db
-    databaseName: usman_ai_gtm
-    user: usman
-    plan: free
-    region: oregon
-
 services:
   - type: web
     name: usman-ai-gtm-backend
@@ -25,6 +18,4 @@ services:
       - key: CORS_ORIGINS
         value: "https://lead-scraper-mxs5.vercel.app,http://localhost:3000"
       - key: DATABASE_URL
-        fromDatabase:
-          name: usman-ai-gtm-db
-          property: connectionString
+        sync: false
