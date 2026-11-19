@@ -256,3 +256,52 @@ CREATE TABLE IF NOT EXISTS system_notifications (
             link TEXT,
             created_at TEXT NOT NULL
         );
+
+-- ============================================================
+-- SEARCH HISTORY, RECORD ASSOCIATIONS & EXPORT AUDITING (TASK 1)
+-- ============================================================
+
+CREATE TABLE IF NOT EXISTS search_records (
+    id TEXT PRIMARY KEY,
+    workspace_id INTEGER NOT NULL DEFAULT 1,
+    user_id INTEGER NOT NULL DEFAULT 1,
+    keyword TEXT NOT NULL,
+    country TEXT NOT NULL,
+    city TEXT,
+    sources TEXT NOT NULL,
+    requested_quantity INTEGER NOT NULL DEFAULT 0,
+    qualified_quantity INTEGER NOT NULL DEFAULT 0,
+    leads_with_phone INTEGER NOT NULL DEFAULT 0,
+    search_status TEXT NOT NULL DEFAULT 'COMPLETED',
+    search_date TEXT NOT NULL,
+    search_time TEXT NOT NULL,
+    completion_time TEXT NOT NULL,
+    created_at TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS search_record_leads (
+    id SERIAL PRIMARY KEY,
+    search_record_id TEXT NOT NULL,
+    lead_id INTEGER NOT NULL,
+    workspace_id INTEGER NOT NULL DEFAULT 1,
+    lead_snapshot TEXT NOT NULL,
+    created_at TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS export_history (
+    id SERIAL PRIMARY KEY,
+    workspace_id INTEGER NOT NULL DEFAULT 1,
+    user_id INTEGER NOT NULL DEFAULT 1,
+    export_target TEXT NOT NULL,
+    search_record_id TEXT,
+    export_date_filter TEXT,
+    format TEXT NOT NULL,
+    record_count INTEGER NOT NULL DEFAULT 0,
+    export_date TEXT NOT NULL,
+    export_time TEXT NOT NULL,
+    created_at TEXT NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_search_records_ws_date ON search_records(workspace_id, search_date);
+CREATE INDEX IF NOT EXISTS idx_search_record_leads_rec ON search_record_leads(search_record_id, workspace_id);
+CREATE INDEX IF NOT EXISTS idx_export_history_ws ON export_history(workspace_id, id DESC);

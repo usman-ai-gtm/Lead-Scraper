@@ -33,7 +33,7 @@ CORE_TABLES = [
     "contacts", "crm_deals", "email_campaigns", "email_accounts",
     "whatsapp_templates", "whatsapp_activities", "whatsapp_settings",
     "whatsapp_suppressions", "user_activity_logs", "account_audit_logs",
-    "system_notifications"
+    "system_notifications", "search_records", "search_record_leads", "export_history"
 ]
 
 def print_status():
