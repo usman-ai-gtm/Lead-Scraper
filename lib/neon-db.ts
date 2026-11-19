@@ -1,13 +1,29 @@
 import { neon } from "@neondatabase/serverless";
 
-export function getNeonSql() {
-  const dbUrl = process.env.DATABASE_URL || process.env.POSTGRES_URL;
+function getConnectionString(): string | null {
+  let dbUrl = process.env.DATABASE_URL || process.env.POSTGRES_URL;
+  if (!dbUrl || !dbUrl.includes("postgres")) {
+    try {
+      // Local fallback for local development and test scripts
+      const fs = require("fs");
+      const p = "C:/Users/Dell/.config/neon/db_url.txt";
+      if (fs.existsSync(p)) {
+        dbUrl = fs.readFileSync(p, "utf8").trim();
+      }
+    } catch {}
+  }
   if (!dbUrl || !dbUrl.includes("postgres")) return null;
+  return dbUrl;
+}
+
+export function getNeonSql() {
+  const dbUrl = getConnectionString();
+  if (!dbUrl) return null;
   return neon(dbUrl);
 }
 
 export function isNeonConfigured(): boolean {
-  const dbUrl = process.env.DATABASE_URL || process.env.POSTGRES_URL;
+  const dbUrl = getConnectionString();
   return Boolean(dbUrl && dbUrl.includes("postgres"));
 }
 
@@ -241,14 +257,31 @@ export async function saveNeonSearchRecordAndLeads(
       );
 
       let leadId = existing.length > 0 ? existing[0].id : null;
-      if (!leadId) {
+      if (leadId) {
+        if (phone) {
+          try {
+            await sql.query(
+              "UPDATE leads SET phone = $1, phone_status = $2, updated_at = $3 WHERE id = $4 AND (phone IS NULL OR phone = '' OR phone = 'Not Listed')",
+              [phone, lead.phone_status || "FOUND IN SOURCE EVIDENCE", nowIso, leadId]
+            );
+          } catch {}
+        }
+      } else {
+        const dom = String(lead.domain || "").trim().toLowerCase();
+        const city = String(lead.city || searchMeta.city || "").trim();
+        const country = String(lead.country || searchMeta.country || "").trim();
+        const address = String(lead.address || "").trim();
+        const emailStatus = String(lead.email_status || "FOUND IN SOURCE EVIDENCE").trim();
+        const phoneStatus = String(lead.phone_status || (phone ? "FOUND IN SOURCE EVIDENCE" : "NOT LISTED")).trim();
+
         const ins = await sql.query(
           `INSERT INTO leads (
             workspace_id, business_name, email, phone, website,
             source, source_url, search_keyword, search_location,
             lead_score, fit_score, lead_temperature, crm_stage,
-            date_discovered, created_at, updated_at
-          ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16)
+            date_discovered, created_at, updated_at,
+            domain, city, country, address, email_status, phone_status
+          ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22)
           RETURNING id`,
           [
             workspaceId,
@@ -256,10 +289,10 @@ export async function saveNeonSearchRecordAndLeads(
             email,
             phone,
             website,
-            lead.source || "Google Organic Web Search",
-            lead.source_url || website,
+            lead.source_platform || lead.source || "Google Organic Web Search",
+            lead.original_source_url || lead.source_url || website,
             searchMeta.keyword,
-            searchMeta.city || searchMeta.country,
+            city || country,
             lead.lead_score || 50,
             lead.fit_score || 50,
             "HOT",
@@ -267,6 +300,12 @@ export async function saveNeonSearchRecordAndLeads(
             pkt.date,
             nowIso,
             nowIso,
+            dom,
+            city,
+            country,
+            address,
+            emailStatus,
+            phoneStatus,
           ]
         );
         leadId = ins[0]?.id;

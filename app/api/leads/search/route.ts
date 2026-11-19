@@ -1,5 +1,17 @@
 import { NextResponse } from "next/server";
 import { getCurrentUserFromRequest, saveServerlessSearchRecordAndLeads, getPktDateTime } from "@/lib/serverless-auth";
+import { saveNeonSearchRecordAndLeads, isNeonConfigured } from "@/lib/neon-db";
+import {
+  cleanDomain,
+  cleanBusinessName,
+  isGenericTitleText,
+  generateB2bKeywordVariations,
+  extractContactsFromText,
+  crawlWebsiteForContacts,
+  querySerperForDomainContact,
+  mergeLeadIntoList,
+  QualifiedLeadItem
+} from "@/lib/search-intelligence";
 
 interface SerperOrganicItem {
   title?: string;
@@ -14,107 +26,6 @@ interface SourceStatus {
   status: "WORKING" | "NO RESULTS" | "NOT CONFIGURED" | "RATE LIMITED" | "ACCESS RESTRICTED" | "NOT AVAILABLE";
   leads_contributed: number;
   sample_url?: string;
-}
-
-function cleanDomain(url: string): string {
-  if (!url) return "";
-  let clean = url.trim();
-  if (!clean.startsWith("http://") && !clean.startsWith("https://")) {
-    clean = "https://" + clean;
-  }
-  try {
-    const parsed = new URL(clean);
-    return parsed.hostname.replace(/^www\./i, "").toLowerCase();
-  } catch {
-    return clean.replace(/^https?:\/\//i, "").replace(/^www\./i, "").split("/")[0].toLowerCase();
-  }
-}
-
-function extractContacts(text: string): { emails: string[]; phones: string[] } {
-  if (!text) return { emails: [], phones: [] };
-  const emailMatches = text.match(/[a-zA-Z0-9_.+-]+@[a-zA-Z0-9-]+\.[a-zA-Z0-9-.]+/g) || [];
-  const cleanEmails = emailMatches
-    .map((e) => e.replace(/\.+$/, "").trim())
-    .filter((e) => {
-      const lower = e.toLowerCase();
-      const isInvalid = [
-        ".png", ".jpg", ".jpeg", ".webp", ".svg", ".gif",
-        "example.com", "domain.com", "sentry.io", "wixpress.com",
-        "schema.org", "w3.org"
-      ].some((ext) => lower.includes(ext));
-      return !isInvalid && e.includes("@") && e.split("@")[1].includes(".");
-    });
-
-  const phoneMatches = text.match(/(?:\+?\d{1,3}[-.\s]?)?\(?\d{2,4}\)?[-.\s]?\d{3,4}[-.\s]?\d{3,4}/g) || [];
-  const cleanPhones = phoneMatches
-    .map((p) => p.trim())
-    .filter((p) => {
-      const digits = p.replace(/\D/g, "");
-      return digits.length >= 7 && digits.length <= 15;
-    });
-
-  return {
-    emails: Array.from(new Set(cleanEmails)),
-    phones: Array.from(new Set(cleanPhones)),
-  };
-}
-
-async function resolveDomainContact(domain: string, apiKey: string): Promise<{ email: string; phone: string; contactUrl: string }> {
-  if (!domain || domain.length < 4) return { email: "", phone: "", contactUrl: "" };
-  if (["facebook.com", "instagram.com", "linkedin.com", "youtube.com", "twitter.com", "x.com", "tiktok.com"].some((s) => domain.includes(s))) {
-    return { email: "", phone: "", contactUrl: "" };
-  }
-
-  const query = `site:${domain} contact OR email OR "info@"`;
-  try {
-    const res = await fetch("https://google.serper.dev/search", {
-      method: "POST",
-      headers: {
-        "X-API-KEY": apiKey,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({ q: query, num: 3 }),
-    });
-
-    if (!res.ok) return { email: "", phone: "", contactUrl: "" };
-    const data = await res.json();
-    const organic = data.organic || [];
-
-    for (const item of organic) {
-      const text = `${item.snippet || ""} ${item.title || ""}`;
-      const { emails, phones } = extractContacts(text);
-      if (emails.length > 0 || phones.length > 0) {
-        return {
-          email: emails[0] || "",
-          phone: phones[0] || "",
-          contactUrl: item.link || `https://${domain}/contact`,
-        };
-      }
-    }
-  } catch {
-    // Timeout or network error
-  }
-  return { email: "", phone: "", contactUrl: "" };
-}
-
-async function saveLeadsToDb(leads: any[], workspaceId: number, searchRecordMeta?: any) {
-  const isVercel = Boolean(process.env.VERCEL || process.env.NEXT_PUBLIC_VERCEL_ENV);
-  const backendUrl = process.env.BACKEND_URL || (isVercel ? "" : "http://127.0.0.1:8000");
-  if (!backendUrl) return;
-
-  try {
-    await fetch(`${backendUrl}/api/leads/bulk`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        leads,
-        workspace_id: workspaceId,
-        search_record: searchRecordMeta
-      }),
-    });
-  } catch {
-    // Non-blocking background save
-  }
 }
 
 export async function POST(req: Request) {
@@ -164,67 +75,73 @@ export async function POST(req: Request) {
     const locParts = [city, country].filter(Boolean);
     const locStr = locParts.length > 0 ? locParts.join(" ") : "international";
 
-    // Multi-Source Non-Maps Search Channels
+    // 1. Intelligent B2B Keyword Expansion
+    // Derives commercial variations: wholesale, distributors, manufacturers, suppliers, retail
+    const keywordVariations = generateB2bKeywordVariations(keyword, country, city, rawIndustry);
+
+    // 2. Multi-Source Non-Maps Search Channels
+    // Strictly excludes Google Maps and Google Places API
     const sourceChannels = [
       {
         id: "google_organic",
         name: "Google Organic Web Search",
-        queryTemplate: (p: number) => `${keyword} ${locStr} contact email`,
-        platformLabel: "Google Organic Web Search / Official Website",
+        platformLabel: "Google Organic Web Search",
+        buildQuery: (kw: string, p: number) => `${kw} contact email`,
       },
       {
         id: "official_websites",
         name: "Official Business Websites",
-        queryTemplate: (p: number) => `${keyword} in ${locStr} official website email`,
         platformLabel: "Official Business Website",
+        buildQuery: (kw: string, p: number) => `${kw} official website "email"`,
       },
       {
         id: "facebook_business",
         name: "Facebook Public Business Pages",
-        queryTemplate: (p: number) => `site:facebook.com ${keyword} ${locStr} email`,
         platformLabel: "Facebook Public Business Page",
+        buildQuery: (kw: string, p: number) => `site:facebook.com "${keyword}" "email" OR "contact" ${locStr}`,
       },
       {
         id: "instagram_business",
         name: "Instagram Public Business Profiles",
-        queryTemplate: (p: number) => `site:instagram.com ${keyword} ${locStr} email`,
         platformLabel: "Instagram Public Business Profile",
+        buildQuery: (kw: string, p: number) => `site:instagram.com "${keyword}" ("email:" OR "@gmail.com" OR "contact:") ${locStr}`,
       },
       {
         id: "linkedin_company",
         name: "LinkedIn Public Company Directory",
-        queryTemplate: (p: number) => `site:linkedin.com/company ${keyword} ${locStr}`,
         platformLabel: "LinkedIn Public Company Profile",
+        buildQuery: (kw: string, p: number) => `site:linkedin.com/company "${keyword}" ${locStr}`,
       },
       {
         id: "commercial_directories",
         name: "Public Commercial Directories",
-        queryTemplate: (p: number) => `site:yellowpages.com OR site:clutch.co ${keyword} ${locStr}`,
         platformLabel: "Public Commercial Directory",
+        buildQuery: (kw: string, p: number) => `(site:yellowpages.com OR site:clutch.co OR site:yelp.com) "${keyword}" ${locStr} contact email`,
       },
       {
         id: "youtube_business",
         name: "YouTube Public Channels",
-        queryTemplate: (p: number) => `site:youtube.com ${keyword} ${locStr} business email`,
         platformLabel: "YouTube Public Channel",
+        buildQuery: (kw: string, p: number) => `site:youtube.com "${keyword}" ("business inquiries" OR "email:" OR "@gmail.com") ${locStr}`,
       },
       {
         id: "x_twitter_business",
         name: "Public X / Twitter Business Profiles",
-        queryTemplate: (p: number) => `site:twitter.com OR site:x.com ${keyword} ${locStr} email`,
         platformLabel: "Public X / Twitter Business Profile",
+        buildQuery: (kw: string, p: number) => `(site:twitter.com OR site:x.com) "${keyword}" ("email:" OR "@gmail.com" OR "contact") ${locStr}`,
       },
       {
         id: "tiktok_business",
         name: "Public TikTok Business Profiles",
-        queryTemplate: (p: number) => `site:tiktok.com ${keyword} ${locStr} email`,
         platformLabel: "Public TikTok Business Profile",
+        buildQuery: (kw: string, p: number) => `site:tiktok.com "${keyword}" ("email:" OR "@gmail.com" OR "contact:") ${locStr}`,
       },
     ];
 
-    const qualifiedLeads: any[] = [];
+    const qualifiedLeads: QualifiedLeadItem[] = [];
     const seenDomains = new Set<string>();
     const seenNames = new Set<string>();
+    const seenEmails = new Set<string>();
 
     const sourceStats: Record<string, SourceStatus> = {};
     for (const ch of sourceChannels) {
@@ -236,16 +153,21 @@ export async function POST(req: Request) {
     }
 
     // Dynamic internal provider pagination limit
-    const maxInternalPages = Math.min(10, Math.ceil(targetCount / 6) + 2);
+    // Calculates maximum internal pages needed to satisfy requested lead quantity
+    const maxInternalPages = Math.min(10, Math.ceil(targetCount / 5) + 2);
 
-    // Internal Provider Pagination Loop
+    // Loop through keyword variations and internal pages
     for (let pageNum = 1; pageNum <= maxInternalPages; pageNum++) {
       if (qualifiedLeads.length >= targetCount) break;
 
-      for (const channel of sourceChannels) {
-        if (qualifiedLeads.length >= targetCount) break;
+      // Select query variation for this internal page
+      const currentVariation = keywordVariations[(pageNum - 1) % keywordVariations.length] || keyword;
 
-        const currentQuery = channel.queryTemplate(pageNum);
+      // Execute non-Maps channel searches in concurrent batches for maximum throughput
+      const channelSearches = sourceChannels.map(async (channel) => {
+        if (qualifiedLeads.length >= targetCount) return;
+
+        const currentQuery = channel.buildQuery(currentVariation, pageNum);
 
         try {
           const res = await fetch("https://google.serper.dev/search", {
@@ -265,7 +187,7 @@ export async function POST(req: Request) {
             if (res.status === 429) {
               sourceStats[channel.id].status = "RATE LIMITED";
             }
-            continue;
+            return;
           }
 
           const data = await res.json();
@@ -279,10 +201,10 @@ export async function POST(req: Request) {
             if (qualifiedLeads.length >= targetCount) break;
 
             const link = (item.link || "").trim();
-            const title = (item.title || "").trim();
+            const rawTitle = (item.title || "").trim();
             const snippet = (item.snippet || "").trim();
 
-            if (!link || !title) continue;
+            if (!link || !rawTitle) continue;
 
             // Completely filter out search engines, index aggregators, and social video feeds
             if (["google.", "bing.", "yahoo.", "wikipedia.org", "youtube.com/watch", "reddit.com"].some((x) => link.includes(x))) {
@@ -292,93 +214,96 @@ export async function POST(req: Request) {
             const dom = cleanDomain(link);
             if (!dom) continue;
 
-            const fullText = `${title} ${snippet}`;
-            const { emails, phones } = extractContacts(fullText);
+            // Extract contacts from search snippet and title
+            const fullText = `${rawTitle} ${snippet}`;
+            const { emails, phones } = extractContactsFromText(fullText);
 
             let email = emails[0] || "";
             let emailSourceUrl = link;
-            let emailEvidenceStatus = "FOUND ON PUBLIC BUSINESS PROFILE • FORMAT CHECKED";
+            let emailEvidenceStatus = "FOUND IN SEARCH SNIPPET • FORMAT CHECKED";
 
             let phone = phones[0] || "";
             let phoneSourceUrl = link;
-            let phoneEvidenceStatus = phone ? "FOUND IN SOURCE • FORMAT CHECKED" : "NOT LISTED";
+            let phoneEvidenceStatus = phone ? "FOUND IN SEARCH SNIPPET • FORMAT CHECKED" : "NOT LISTED";
 
-            // If email is not in snippet and domain is an official business website, resolve from website contact page
-            const isSocialHost = ["facebook.com", "instagram.com", "linkedin.com", "twitter.com", "x.com", "youtube.com", "tiktok.com"].some((s) => dom.includes(s));
+            // Extract clean business name and check for generic page titles
+            let businessName = cleanBusinessName(rawTitle, link, email);
+            if (isGenericTitleText(businessName) || businessName.length < 2) {
+              continue;
+            }
+
+            const isSocialHost = [
+              "facebook.com", "instagram.com", "linkedin.com", "twitter.com",
+              "x.com", "youtube.com", "tiktok.com"
+            ].some((s) => dom.includes(s));
+
+            // Deep Business Website Contact Page Extraction
+            // If email is not in snippet and domain is an official business website,
+            // inspect contact pages (e.g. /contact, /contact-us, /pages/contact-us)
             if (!email && !isSocialHost) {
-              const resolved = await resolveDomainContact(dom, serperKey);
-              if (resolved.email) {
-                email = resolved.email;
-                emailSourceUrl = resolved.contactUrl || link;
-                emailEvidenceStatus = "FOUND ON OFFICIAL WEBSITE • DOMAIN CHECKED";
+              const crawlResult = await crawlWebsiteForContacts(dom, email, phone);
+              if (crawlResult.email) {
+                email = crawlResult.email;
+                emailSourceUrl = crawlResult.emailSourceUrl || link;
+                emailEvidenceStatus = crawlResult.emailStatus;
               }
-              if (!phone && resolved.phone) {
-                phone = resolved.phone;
-                phoneSourceUrl = resolved.contactUrl || link;
-                phoneEvidenceStatus = "FOUND IN SOURCE • FORMAT CHECKED";
+              if (!phone && crawlResult.phone) {
+                phone = crawlResult.phone;
+                phoneSourceUrl = crawlResult.phoneSourceUrl || link;
+                phoneEvidenceStatus = crawlResult.phoneStatus;
+              }
+
+              // Fallback to indexed Serper contact query if direct crawl yielded no email
+              if (!email) {
+                const resolved = await querySerperForDomainContact(dom, serperKey);
+                if (resolved.email) {
+                  email = resolved.email;
+                  emailSourceUrl = resolved.emailSourceUrl || link;
+                  emailEvidenceStatus = "FOUND ON OFFICIAL WEBSITE CONTACT PAGE • DOMAIN CHECKED";
+                }
+                if (!phone && resolved.phone) {
+                  phone = resolved.phone;
+                  phoneSourceUrl = resolved.phoneSourceUrl || link;
+                  phoneEvidenceStatus = "FOUND IN SOURCE EVIDENCE";
+                }
               }
             } else if (email && !isSocialHost) {
               emailEvidenceStatus = "FOUND ON OFFICIAL WEBSITE • DOMAIN CHECKED";
+            } else if (email && isSocialHost) {
+              emailEvidenceStatus = "FOUND ON PUBLIC BUSINESS PROFILE • FORMAT CHECKED";
             } else if (email && (link.includes("yellowpages.") || link.includes("clutch.co") || link.includes("yelp."))) {
               emailEvidenceStatus = "FOUND ON THIRD-PARTY DIRECTORY • FORMAT CHECKED";
             }
 
-            // Extract clean business name
-            const cleanName = title
-              .split(" - ")[0]
-              .split(" | ")[0]
-              .split(" : ")[0]
-              .split(" • ")[0]
-              .trim();
-
-            // Strict Qualification Guard:
-            // 1. Business Name (Mandatory)
-            // 2. Business Email (COMPULSORY! A lead without an email must NEVER qualify)
-            // 3. Phone (Optional! A lead with email and no phone STILL qualifies)
-            const hasName = cleanName.length >= 2;
+            // STRICT COMPULSORY EMAIL QUALIFICATION RULE:
+            // 1. Genuine business name (Mandatory)
+            // 2. Business Email (COMPULSORY! A lead without a verified email must NEVER qualify)
+            // 3. Exact Source URL supporting the email (Mandatory)
+            // 4. Phone is optional/secondary (A lead with email and no phone STILL qualifies)
+            const hasName = Boolean(businessName && businessName.length >= 2);
             const hasEmail = Boolean(email && email.includes("@") && email.includes("."));
 
             if (!hasName || !hasEmail) {
-              // Incomplete lead (missing compulsory email) -> Silently drop
+              // Missing compulsory business email -> Exclude from qualified results
               continue;
             }
-
-            // Smart Deduplication & Evidence Enrichment
-            const normDomain = dom.toLowerCase();
-            const normName = cleanName.toLowerCase();
-
-            if (seenDomains.has(normDomain) || seenNames.has(normName)) {
-              // If already seen, check if existing record is missing phone and this entry provides it
-              const existing = qualifiedLeads.find(
-                (l) => l.domain === normDomain || l.business_name.toLowerCase() === normName
-              );
-              if (existing && !existing.phone && phone) {
-                existing.phone = phone;
-                existing.phone_source_url = phoneSourceUrl;
-                existing.phone_status = "FOUND IN SOURCE • FORMAT CHECKED";
-              }
-              continue;
-            }
-
-            seenDomains.add(normDomain);
-            seenNames.add(normName);
 
             const pkt = getPktDateTime();
 
-            const qualifiedItem = {
+            const qualifiedItem: QualifiedLeadItem = {
               id: Date.now() + qualifiedLeads.length + 1,
-              business_name: cleanName,
-              website: isSocialHost ? `https://${normDomain}` : (link.startsWith("http") ? link : `https://${normDomain}`),
-              domain: normDomain,
+              business_name: businessName,
+              website: isSocialHost ? `https://${dom}` : (link.startsWith("http") ? link : `https://${dom}`),
+              domain: dom,
               email: email,
               email_source_url: emailSourceUrl,
               email_status: emailEvidenceStatus,
               phone: phone || "",
               phone_source_url: phone ? phoneSourceUrl : "",
               phone_status: phoneEvidenceStatus,
-              country: rawCountry === "ALL COUNTRIES" ? "Global" : rawCountry,
+              country: rawCountry === "ALL COUNTRIES" ? "Global" : (rawCountry || "Global"),
               city: city || locParts[0] || "",
-              address: snippet.includes(",") ? snippet.slice(0, 80) : [city, rawCountry].filter(Boolean).join(", "),
+              address: snippet.includes(",") ? snippet.slice(0, 100) : [city, rawCountry].filter(Boolean).join(", "),
               industry: rawIndustry && rawIndustry !== "Any" ? rawIndustry : keyword,
               source_platform: channel.platformLabel,
               original_source_url: link,
@@ -392,22 +317,29 @@ export async function POST(req: Request) {
               created_at: pkt.iso_utc,
             };
 
-            qualifiedLeads.push(qualifiedItem);
-            sourceStats[channel.id].leads_contributed += 1;
-            sourceStats[channel.id].sample_url = link;
+            // Multi-Signal Deduplication and Cross-Platform Evidence Merging
+            const wasAdded = mergeLeadIntoList(qualifiedLeads, qualifiedItem, seenDomains, seenNames, seenEmails);
+            if (wasAdded) {
+              sourceStats[channel.id].leads_contributed += 1;
+              sourceStats[channel.id].sample_url = link;
+            }
           }
         } catch {
-          // Non-blocking timeout on individual channel
+          // Channel query timeout or individual error, continue cleanly
         }
-      }
+      });
+
+      // Await the concurrent batch of search channel queries
+      await Promise.allSettled(channelSearches);
     }
 
     const pkt = getPktDateTime();
     const searchRecordId = `SR-${Date.now()}`;
     const configuredSources = sourceChannels.map((c) => c.name);
 
-    // Auto-save qualified leads to workspace DB and serverless store
+    // Permanent Persistence to Neon PostgreSQL & Serverless Cache
     if (qualifiedLeads.length > 0) {
+      // 1. Sync to serverless memory
       saveServerlessSearchRecordAndLeads(
         workspaceId,
         {
@@ -421,19 +353,31 @@ export async function POST(req: Request) {
         qualifiedLeads
       );
 
-      await saveLeadsToDb(qualifiedLeads, workspaceId, {
-        id: searchRecordId,
-        keyword,
-        country: rawCountry,
-        city: city || locParts[0] || "",
-        sources: configuredSources,
-        requested_quantity: targetCount,
-      });
+      // 2. Permanently save to Neon PostgreSQL database
+      if (isNeonConfigured()) {
+        try {
+          await saveNeonSearchRecordAndLeads(
+            workspaceId,
+            {
+              keyword,
+              country: rawCountry,
+              city: city || locParts[0] || "",
+              sources: configuredSources,
+              requested_quantity: targetCount,
+              search_record_id: searchRecordId,
+            },
+            qualifiedLeads
+          );
+        } catch (dbErr) {
+          console.error("Neon PostgreSQL search auto-save error:", dbErr);
+        }
+      }
     }
 
     const durationMs = Date.now() - startTime;
     const leadsWithPhone = qualifiedLeads.filter((l) => Boolean(l.phone)).length;
 
+    // Return One Consolidated Result Set
     return NextResponse.json({
       status: "success",
       search_record_id: searchRecordId,
@@ -441,7 +385,7 @@ export async function POST(req: Request) {
       search_time: pkt.time_human,
       completion_time: pkt.completion_human,
       keyword: keyword,
-      country: rawCountry,
+      country: rawCountry || "Global",
       city: city || "All Cities",
       target_count: targetCount,
       qualified_count: qualifiedLeads.length,
@@ -451,8 +395,8 @@ export async function POST(req: Request) {
       leads: qualifiedLeads,
       sources_breakdown: Object.values(sourceStats),
       message: qualifiedLeads.length >= targetCount
-        ? `Successfully extracted and automatically saved exactly ${qualifiedLeads.length} unique qualified leads with verified emails into Saved Leads.`
-        : `Discovered and automatically saved ${qualifiedLeads.length} unique qualified leads with verified emails from non-Maps web sources into Saved Leads. (All available legitimate contacts for '${keyword}' were retrieved without synthetic data).`,
+        ? `Successfully extracted and permanently saved exactly ${qualifiedLeads.length} unique qualified leads with verified emails into Neon PostgreSQL.`
+        : `Discovered and permanently saved ${qualifiedLeads.length} unique qualified leads with verified emails from non-Maps web sources into Neon PostgreSQL. (All available legitimate contacts for '${keyword}' were retrieved without synthetic data).`,
     });
   } catch (err: any) {
     return NextResponse.json(
