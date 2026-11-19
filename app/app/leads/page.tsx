@@ -179,15 +179,15 @@ function LeadsSearchComponent() {
     }
   };
 
-  // Complete Dataset Export (XLSX or CSV with 16 standardized columns)
-  const handleExport = async (format: "xlsx" | "csv") => {
+  // Complete Dataset Export (XLSX or Landscape PDF)
+  const handleExport = async (format: "xlsx" | "pdf") => {
     if (qualifiedLeads.length === 0) {
       setToastMsg("No qualified leads available to export. Run an extraction first.");
       return;
     }
 
     setExportLoading(true);
-    setToastMsg(`Preparing professional ${format.toUpperCase()} export with all 16 evidence columns...`);
+    setToastMsg(`Preparing professional ${format.toUpperCase()} export...`);
 
     try {
       const res = await fetch("/api/leads/export", {
@@ -197,6 +197,12 @@ function LeadsSearchComponent() {
           leads: qualifiedLeads,
           format: format,
           filename: `USMAN_AI_QUALIFIED_LEADS_${keyword.replace(/[^a-zA-Z0-9]/g, "_")}_${Date.now()}`,
+          meta: {
+            keyword: keyword.trim(),
+            country: country,
+            city: selectedCity !== "ALL_CITIES" ? selectedCity : "All Cities",
+            export_target: `Live Search: ${keyword.trim()}`,
+          }
         }),
       });
 
@@ -290,12 +296,12 @@ function LeadsSearchComponent() {
         {qualifiedLeads.length > 0 && (
           <div className="flex items-center gap-2 self-start md:self-center flex-wrap">
             <button
-              onClick={() => handleExport("csv")}
+              onClick={() => handleExport("pdf")}
               disabled={exportLoading}
-              className="px-3.5 py-2 rounded-xl border border-white/10 bg-white/[0.04] hover:bg-white/[0.08] text-slate-200 font-bold text-xs transition-all flex items-center gap-1.5 cursor-pointer disabled:opacity-50"
+              className="px-3.5 py-2 rounded-xl border border-rose-500/30 bg-rose-500/10 hover:bg-rose-500/20 text-rose-300 font-bold text-xs transition-all flex items-center gap-1.5 cursor-pointer disabled:opacity-50 shadow-sm"
             >
-              <Download className="h-3.5 w-3.5 text-blue-400" />
-              <span>Export CSV</span>
+              <Download className="h-3.5 w-3.5 text-rose-400" />
+              <span>Export PDF (Landscape)</span>
             </button>
             <button
               onClick={() => handleExport("xlsx")}
@@ -303,7 +309,7 @@ function LeadsSearchComponent() {
               className="px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs shadow-md transition-all flex items-center gap-2 cursor-pointer disabled:opacity-50"
             >
               <FileSpreadsheet className="h-4 w-4" />
-              <span>Export XLSX (16 Columns)</span>
+              <span>Export XLSX</span>
             </button>
           </div>
         )}
@@ -664,16 +670,12 @@ function LeadsSearchComponent() {
                         <div className="text-[10px] text-slate-500">{lead.extraction_time || lead.saved_time}</div>
                       </td>
 
-                      {/* Actions */}
+                      {/* Auto-Saved Status */}
                       <td className="py-3.5 px-4 text-right">
-                        <button
-                          onClick={() => handleSaveLead(lead)}
-                          disabled={isSaving}
-                          className="px-3 py-1.5 rounded-lg border border-white/10 bg-white/[0.04] hover:bg-white/[0.08] text-slate-200 hover:text-white font-semibold text-[11px] transition-all inline-flex items-center gap-1.5 cursor-pointer disabled:opacity-50"
-                        >
-                          <Database className="h-3 w-3 text-blue-400" />
-                          <span>{isSaving ? "Saved" : "Save"}</span>
-                        </button>
+                        <span className="px-2.5 py-1 rounded-md bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 font-semibold text-[11px] inline-flex items-center gap-1.5 font-mono">
+                          <CheckCircle2 className="h-3 w-3" />
+                          <span>Auto-Saved</span>
+                        </span>
                       </td>
                     </tr>
                   );

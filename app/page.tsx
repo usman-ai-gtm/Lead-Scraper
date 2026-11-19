@@ -34,7 +34,7 @@ export default function HomePage() {
     { title: "Automate follow-ups", desc: "Multi-channel cadence across Day 1, 2, 4, 7 with smart reply pauses.", href: "/app/outreach", icon: Zap, badge: "Cadence" },
     { title: "Track conversations", desc: "Unified omnichannel timeline aggregating all email and WhatsApp events.", href: "/app/crm", icon: MessageSquare, badge: "Omnichannel" },
     { title: "Manage pipeline", desc: "Visual 9-stage Kanban CRM with drag/drop deal movement and stage velocity.", href: "/app/leads", icon: Layers, badge: "Deals" },
-    { title: "Export lead intelligence", desc: "Download verified leads and contacts in CSV and native Excel XLSX formats.", href: "/app/exports", icon: Download, badge: "Exports" },
+    { title: "Export lead intelligence", desc: "Download verified leads and contacts in native Excel XLSX and Executive PDF formats.", href: "/app/exports", icon: Download, badge: "Exports" },
   ];
 
   const howItWorksSteps = [

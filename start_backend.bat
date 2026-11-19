@@ -1,6 +1,7 @@
 @echo off
 title USMAN AI GTM - Backend API Server
 cd /d "%~dp0"
+if exist "%LOCALAPPDATA%\Programs\Python\Python313" set "PATH=%LOCALAPPDATA%\Programs\Python\Python313;%LOCALAPPDATA%\Programs\Python\Python313\Scripts;%PATH%"
 if exist "%LOCALAPPDATA%\Programs\Python\Python311" set "PATH=%LOCALAPPDATA%\Programs\Python\Python311;%LOCALAPPDATA%\Programs\Python\Python311\Scripts;%PATH%"
 if exist "C:\Python311" set "PATH=C:\Python311;C:\Python311\Scripts;%PATH%"
 

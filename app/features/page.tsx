@@ -48,10 +48,10 @@ export default function FeaturesPage() {
     },
     {
       title: "Data Export Center & Spreadsheets",
-      desc: "Instant export of verified business contacts in standard CSV and Microsoft Excel (.xlsx) formats with full source URLs.",
+      desc: "Instant export of verified business contacts in Microsoft Excel (.xlsx) and Executive PDF formats with full source URLs.",
       icon: Download,
       href: "/app/exports",
-      items: ["RFC 4180 CSV with UTF-8 BOM", "Native Microsoft Excel (.xlsx) generation", "Targeted Country & Industry Filtering", "Direct Single & Bulk Workspace Export"]
+      items: ["Executive Landscape PDF generation", "Native Microsoft Excel (.xlsx) generation", "Targeted Country & Industry Filtering", "Direct Single & Bulk Workspace Export"]
     },
     {
       title: "Sales Enablement & Battlecards",

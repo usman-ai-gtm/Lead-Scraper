@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { getCurrentUserFromRequest } from "@/lib/serverless-auth";
+import { getCurrentUserFromRequest, saveServerlessSearchRecordAndLeads, getPktDateTime } from "@/lib/serverless-auth";
 
 interface SerperOrganicItem {
   title?: string;
@@ -14,22 +14,6 @@ interface SourceStatus {
   status: "WORKING" | "NO RESULTS" | "NOT CONFIGURED" | "RATE LIMITED" | "ACCESS RESTRICTED" | "NOT AVAILABLE";
   leads_contributed: number;
   sample_url?: string;
-}
-
-function getPktDateTime() {
-  const now = new Date();
-  const pktTime = new Date(now.getTime() + (5 * 60 + now.getTimezoneOffset()) * 60 * 1000);
-  const pad = (n: number) => String(n).padStart(2, "0");
-  const yyyy = pktTime.getFullYear();
-  const mm = pad(pktTime.getMonth() + 1);
-  const dd = pad(pktTime.getDate());
-  const hh = pad(pktTime.getHours());
-  const min = pad(pktTime.getMinutes());
-  const ss = pad(pktTime.getSeconds());
-  return {
-    date: `${yyyy}-${mm}-${dd}`,
-    time: `${hh}:${min}:${ss} PKT`,
-  };
 }
 
 function cleanDomain(url: string): string {
@@ -113,7 +97,7 @@ async function resolveDomainContact(domain: string, apiKey: string): Promise<{ e
   return { email: "", phone: "", contactUrl: "" };
 }
 
-async function saveLeadsToDb(leads: any[], workspaceId: number) {
+async function saveLeadsToDb(leads: any[], workspaceId: number, searchRecordMeta?: any) {
   const isVercel = Boolean(process.env.VERCEL || process.env.NEXT_PUBLIC_VERCEL_ENV);
   const backendUrl = process.env.BACKEND_URL || (isVercel ? "" : "http://127.0.0.1:8000");
   if (!backendUrl) return;
@@ -122,7 +106,11 @@ async function saveLeadsToDb(leads: any[], workspaceId: number) {
     await fetch(`${backendUrl}/api/leads/bulk`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ leads, workspace_id: workspaceId }),
+      body: JSON.stringify({
+        leads,
+        workspace_id: workspaceId,
+        search_record: searchRecordMeta
+      }),
     });
   } catch {
     // Non-blocking background save
@@ -375,7 +363,7 @@ export async function POST(req: Request) {
             seenDomains.add(normDomain);
             seenNames.add(normName);
 
-            const { date: pktDate, time: pktTime } = getPktDateTime();
+            const pkt = getPktDateTime();
 
             const qualifiedItem = {
               id: Date.now() + qualifiedLeads.length + 1,
@@ -394,11 +382,14 @@ export async function POST(req: Request) {
               industry: rawIndustry && rawIndustry !== "Any" ? rawIndustry : keyword,
               source_platform: channel.platformLabel,
               original_source_url: link,
-              saved_date: pktDate,
-              saved_time: pktTime,
-              extraction_date: pktDate,
-              extraction_time: pktTime,
-              created_at: new Date().toISOString(),
+              search_keyword: keyword,
+              search_date: pkt.date_human,
+              search_time: pkt.time_human,
+              saved_date: pkt.date_human,
+              saved_time: pkt.time_human,
+              extraction_date: pkt.date_human,
+              extraction_time: pkt.time_human,
+              created_at: pkt.iso_utc,
             };
 
             qualifiedLeads.push(qualifiedItem);
@@ -411,9 +402,33 @@ export async function POST(req: Request) {
       }
     }
 
-    // Auto-save qualified leads to workspace DB in background
+    const pkt = getPktDateTime();
+    const searchRecordId = `SR-${Date.now()}`;
+    const configuredSources = sourceChannels.map((c) => c.name);
+
+    // Auto-save qualified leads to workspace DB and serverless store
     if (qualifiedLeads.length > 0) {
-      saveLeadsToDb(qualifiedLeads, workspaceId);
+      saveServerlessSearchRecordAndLeads(
+        workspaceId,
+        {
+          keyword,
+          country: rawCountry,
+          city: city || locParts[0] || "",
+          sources: configuredSources,
+          requested_quantity: targetCount,
+          search_record_id: searchRecordId,
+        },
+        qualifiedLeads
+      );
+
+      await saveLeadsToDb(qualifiedLeads, workspaceId, {
+        id: searchRecordId,
+        keyword,
+        country: rawCountry,
+        city: city || locParts[0] || "",
+        sources: configuredSources,
+        requested_quantity: targetCount,
+      });
     }
 
     const durationMs = Date.now() - startTime;
@@ -421,6 +436,10 @@ export async function POST(req: Request) {
 
     return NextResponse.json({
       status: "success",
+      search_record_id: searchRecordId,
+      search_date: pkt.date_human,
+      search_time: pkt.time_human,
+      completion_time: pkt.completion_human,
       keyword: keyword,
       country: rawCountry,
       city: city || "All Cities",
@@ -432,8 +451,8 @@ export async function POST(req: Request) {
       leads: qualifiedLeads,
       sources_breakdown: Object.values(sourceStats),
       message: qualifiedLeads.length >= targetCount
-        ? `Successfully extracted exactly ${qualifiedLeads.length} unique qualified leads with verified emails.`
-        : `Discovered ${qualifiedLeads.length} unique qualified leads with verified emails from non-Maps web sources. (All available legitimate contacts for '${keyword}' were retrieved without synthetic data).`,
+        ? `Successfully extracted and automatically saved exactly ${qualifiedLeads.length} unique qualified leads with verified emails into Saved Leads.`
+        : `Discovered and automatically saved ${qualifiedLeads.length} unique qualified leads with verified emails from non-Maps web sources into Saved Leads. (All available legitimate contacts for '${keyword}' were retrieved without synthetic data).`,
     });
   } catch (err: any) {
     return NextResponse.json(

@@ -4,12 +4,16 @@ USMAN AI GTM - Leads & Discovery API Endpoints
 
 from fastapi import APIRouter, HTTPException, Depends, Query, Response
 from typing import Dict, Any, List, Optional
+from datetime import datetime
+from pydantic import BaseModel
 
 from backend.app.schemas.leads import (
     LeadSearchRequest, LeadCreateRequest, LeadUpdateRequest, LeadBulkActionRequest,
     LeadStrategyRequest, LeadBuyingIntentRequest
 )
 from backend.app.services.lead_service import LeadService
+from backend.app.services.search_history_service import SearchHistoryService
+from backend.app.services.export_service import ExportGenerator
 from backend.app.core.security import get_current_user
 from backend.app.core.rate_limit import search_rate_limiter
 
@@ -61,35 +65,135 @@ def list_leads(
         page_size=page_size
     )
 
+class LeadBulkSaveRequest(BaseModel):
+    leads: List[Dict[str, Any]]
+    workspace_id: Optional[int] = None
+    search_record: Optional[Dict[str, Any]] = None
+
+@router.post("/bulk")
+def bulk_save_leads(
+    req: LeadBulkSaveRequest,
+    current_user: Dict[str, Any] = Depends(get_current_user)
+):
+    ws_id = get_effective_workspace_id(current_user, req.workspace_id)
+    user_id = int(current_user.get("id", 1))
+
+    if req.search_record:
+        sr = req.search_record
+        res = SearchHistoryService.create_search_record(
+            workspace_id=ws_id,
+            user_id=user_id,
+            keyword=sr.get("keyword", "General Search"),
+            country=sr.get("country", "Global"),
+            city=sr.get("city", ""),
+            sources=sr.get("sources", []),
+            requested_quantity=int(sr.get("requested_quantity") or len(req.leads)),
+            qualified_leads=req.leads,
+            search_record_id=sr.get("id")
+        )
+        return {"status": "success", "message": f"Saved {len(req.leads)} qualified leads with search history", "search_record": res}
+    else:
+        created_count = 0
+        for item in req.leads:
+            try:
+                LeadService.create_lead(item, workspace_id=ws_id)
+                created_count += 1
+            except Exception:
+                pass
+        return {"status": "success", "message": f"Saved {created_count} leads to workspace."}
+
 @router.get("/export")
 def export_leads(
+    format: str = Query("xlsx"),
     keyword: str = "",
     country: str = "Any",
     city: str = "Any",
     industry: str = "Any",
     min_score: int = 0,
     crm_stage: str = "Any",
+    search_record_id: Optional[str] = None,
+    search_date: Optional[str] = None,
     workspace_id: Optional[int] = None,
     current_user: Dict[str, Any] = Depends(get_current_user)
 ):
     """
-    Exports caller's workspace leads to verified CSV format.
-    Strictly enforced tenant isolation: Client A can NEVER export Client B's leads!
+    Exports caller's workspace leads to XLSX or PDF format.
+    Strictly enforced: CSV export is completely removed and prohibited.
     """
+    export_fmt = format.lower().strip()
+    if export_fmt == "csv":
+        raise HTTPException(
+            status_code=400,
+            detail="CSV export has been discontinued. Only Excel (.xlsx) and PDF formats are supported."
+        )
+    if export_fmt not in ["xlsx", "pdf"]:
+        raise HTTPException(status_code=400, detail=f"Unsupported format '{format}'. Only 'xlsx' and 'pdf' are allowed.")
+
     ws_id = get_effective_workspace_id(current_user, workspace_id)
-    csv_data = LeadService.export_leads_csv(
+    user_id = int(current_user.get("id", 1))
+
+    # Determine leads to export:
+    # 1. Single search record leads?
+    # 2. All searches for a selected date?
+    # 3. All workspace leads matching filters?
+    meta = {"keyword": keyword, "search_date": search_date}
+    export_target = "All Saved Leads"
+
+    if search_record_id:
+        sr = SearchHistoryService.get_search_record_by_id(search_record_id, ws_id)
+        if not sr:
+            raise HTTPException(status_code=404, detail="Search record not found")
+        leads = sr.get("leads", [])
+        meta["keyword"] = sr.get("keyword")
+        meta["search_date"] = sr.get("search_date")
+        meta["search_time"] = sr.get("search_time")
+        export_target = f"Search: {sr.get('keyword')} ({search_record_id})"
+    elif search_date:
+        leads = SearchHistoryService.get_leads_for_date(search_date, ws_id)
+        meta["search_date"] = search_date
+        export_target = f"Date: {search_date}"
+    else:
+        leads_res = LeadService.get_leads(
+            workspace_id=ws_id,
+            keyword=keyword,
+            country=country,
+            city=city,
+            industry=industry,
+            min_score=min_score,
+            crm_stage=crm_stage,
+            page=1,
+            page_size=10000
+        )
+        leads = leads_res.get("leads", [])
+        if keyword:
+            export_target = f"Saved Leads: {keyword}"
+
+    if not leads:
+        raise HTTPException(status_code=404, detail="No qualified leads found to export.")
+
+    if export_fmt == "xlsx":
+        file_bytes = ExportGenerator.generate_xlsx(leads, sheet_title="Qualified Leads", metadata=meta)
+        filename = f"usman_ai_leads_ws{ws_id}_{Date_now := int(datetime.now().timestamp())}.xlsx"
+        media_type = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+    else:
+        file_bytes = ExportGenerator.generate_pdf(leads, title="USMAN AI GTM — Qualified Leads Intelligence", metadata=meta)
+        filename = f"usman_ai_leads_ws{ws_id}_{Date_now := int(datetime.now().timestamp())}.pdf"
+        media_type = "application/pdf"
+
+    # Record export audit log
+    SearchHistoryService.record_export_history(
         workspace_id=ws_id,
-        keyword=keyword,
-        country=country,
-        city=city,
-        industry=industry,
-        min_score=min_score,
-        crm_stage=crm_stage
+        user_id=user_id,
+        export_target=export_target,
+        export_format=export_fmt.upper(),
+        record_count=len(leads),
+        search_record_id=search_record_id,
+        export_date_filter=search_date
     )
-    filename = f"usman_ai_leads_ws{ws_id}.csv"
+
     return Response(
-        content=csv_data,
-        media_type="text/csv",
+        content=file_bytes,
+        media_type=media_type,
         headers={"Content-Disposition": f'attachment; filename="{filename}"'}
     )
 

@@ -29,7 +29,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
   const [notifications] = useState([
     { id: 1, title: "Search Engine Active", message: "Serper API and multi-platform scrapers ready.", time: "10m ago" },
     { id: 2, title: "Tenant Isolation Guard", message: "Workspace scoping verified for all leads.", time: "1h ago" },
-    { id: 3, title: "Export Ready", message: "CSV and native XLSX export modules loaded.", time: "2h ago" }
+    { id: 3, title: "Export Ready", message: "Native XLSX and Executive PDF export modules ready.", time: "2h ago" }
   ]);
 
   const isAdmin = user?.role === "ADMIN";
@@ -76,7 +76,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
   const searchShortcuts = [
     { title: "Lead Discovery & Search", subtitle: "Extract public business contacts across 193 countries", url: "/app/leads", badge: "SEARCH" },
     { title: "Saved Workspace Leads", subtitle: "Manage saved leads and private company data", url: "/app/saved-leads", badge: "SAVED" },
-    { title: "Export Leads (CSV & XLSX)", subtitle: "Download workspace leads in standard formats", url: "/app/exports", badge: "EXPORT" },
+    { title: "Export Leads (XLSX & PDF)", subtitle: "Download workspace leads in Excel and PDF formats", url: "/app/exports", badge: "EXPORT" },
     { title: "Account & Password Settings", subtitle: "Update profile and change password", url: "/app/settings", badge: "SETTINGS" },
     ...(isAdmin ? [
       { title: "50-Client Account Seats", subtitle: "Provision and manage client accounts", url: "/app/admin/clients", badge: "ADMIN" },

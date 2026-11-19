@@ -320,22 +320,104 @@ export interface ServerlessLead {
   country?: string;
   address?: string;
   website?: string;
+  domain?: string;
   email?: string;
   email_status?: string;
+  email_source_url?: string;
   phone?: string;
   phone_status?: string;
+  phone_source_url?: string;
   whatsapp_number?: string;
   social_links?: any;
   description?: string;
   services?: string;
   lead_score?: number;
+  final_lead_score?: number;
+  qualification_level?: string;
   crm_stage?: string;
   source?: string;
+  source_platform?: string;
   source_url?: string;
+  original_source_url?: string;
+  search_keyword?: string;
+  saved_date?: string;
+  saved_time?: string;
+  extraction_date?: string;
+  extraction_time?: string;
+  created_at: string;
+}
+
+export interface ServerlessSearchRecord {
+  id: string;
+  workspace_id: number;
+  user_id: number;
+  keyword: string;
+  country: string;
+  city: string;
+  sources: string[];
+  requested_quantity: number;
+  qualified_quantity: number;
+  leads_with_phone: number;
+  search_status: string;
+  search_date: string;
+  search_time: string;
+  completion_time: string;
+  created_at: string;
+}
+
+export interface ServerlessSearchLeadLink {
+  id: number;
+  search_record_id: string;
+  lead_id: number;
+  workspace_id: number;
+  lead_snapshot: any;
+  created_at: string;
+}
+
+export interface ServerlessExportHistory {
+  id: number;
+  workspace_id: number;
+  user_id: number;
+  export_target: string;
+  search_record_id?: string;
+  export_date_filter?: string;
+  format: string;
+  record_count: number;
+  export_date: string;
+  export_time: string;
   created_at: string;
 }
 
 const serverlessLeadsStore: ServerlessLead[] = [];
+const serverlessSearchRecordsStore: ServerlessSearchRecord[] = [];
+const serverlessSearchLeadsStore: ServerlessSearchLeadLink[] = [];
+const serverlessExportHistoryStore: ServerlessExportHistory[] = [];
+
+export function getPktDateTime() {
+  const now = new Date();
+  const pktTime = new Date(now.getTime() + (5 * 60 + now.getTimezoneOffset()) * 60 * 1000);
+  const pad = (n: number) => String(n).padStart(2, "0");
+  const yyyy = pktTime.getFullYear();
+  const months = [
+    "January", "February", "March", "April", "May", "June",
+    "July", "August", "September", "October", "November", "December"
+  ];
+  const monthName = months[pktTime.getMonth()];
+  const dd = pad(pktTime.getDate());
+  const hours24 = pktTime.getHours();
+  const ampm = hours24 >= 12 ? "PM" : "AM";
+  const hours12 = pad(hours24 % 12 || 12);
+  const min = pad(pktTime.getMinutes());
+  const ss = pad(pktTime.getSeconds());
+
+  return {
+    date_human: `${pktTime.getDate()} ${monthName} ${yyyy}`,
+    date_iso: `${yyyy}-${pad(pktTime.getMonth() + 1)}-${dd}`,
+    time_human: `${hours12}:${min} ${ampm}`,
+    completion_human: `${hours12}:${min}:${ss} ${ampm} PKT`,
+    iso_utc: now.toISOString(),
+  };
+}
 
 export function getServerlessLeads(
   workspaceId: number,
@@ -421,5 +503,298 @@ export function bulkDeleteServerlessLeads(workspaceId: number, leadIds: number[]
     }
   }
   return count;
+}
+
+export function saveServerlessSearchRecordAndLeads(
+  workspaceId: number,
+  searchMeta: {
+    keyword: string;
+    country: string;
+    city?: string;
+    sources?: string[];
+    requested_quantity?: number;
+    search_record_id?: string;
+  },
+  leads: any[]
+): ServerlessSearchRecord {
+  const pkt = getPktDateTime();
+  const recordId = searchMeta.search_record_id || `SR-${Date.now()}`;
+  const sources = searchMeta.sources || [
+    "Google Organic Web Search",
+    "Official Business Websites",
+    "Facebook Business Public Pages",
+    "Instagram Business Public Profiles",
+    "LinkedIn Company Profiles",
+    "Public Commercial Directories"
+  ];
+
+  // Save each qualified lead with deduplication
+  const savedLeadsInThisSearch: any[] = [];
+  let phoneCount = 0;
+
+  for (const lead of leads) {
+    const bName = String(lead.business_name || lead.name || "").trim();
+    const email = String(lead.email || "").trim();
+
+    // Strict qualification guard: Business name compulsory + verified email compulsory
+    if (!bName || !email || !email.includes("@") || !email.includes(".")) {
+      continue;
+    }
+
+    const website = String(lead.website || "").trim();
+    let dom = String(lead.domain || "").trim().toLowerCase();
+    if (!dom && website) {
+      try {
+        dom = new URL(website.startsWith("http") ? website : `https://${website}`).hostname.replace(/^www\./i, "").toLowerCase();
+      } catch {
+        dom = website.replace(/^https?:\/\//i, "").replace(/^www\./i, "").split("/")[0].toLowerCase();
+      }
+    }
+
+    const phone = String(lead.phone || "").trim();
+    const hasPhone = phone && !["Not Listed", "Not Found", ""].includes(phone);
+    if (hasPhone) phoneCount++;
+
+    const emailSrc = lead.email_source_url || lead.original_source_url || website;
+    const phoneSrc = lead.phone_source_url || (hasPhone ? (lead.original_source_url || website) : "Not Listed");
+    const sourcePlat = lead.source_platform || lead.source || "Google Organic Web Search";
+    const originalSrc = lead.original_source_url || lead.source_url || website;
+
+    // Check if lead already exists in this workspace
+    let existing = serverlessLeadsStore.find(
+      (l) => l.workspace_id === workspaceId && (
+        (dom && l.domain && l.domain.toLowerCase() === dom) ||
+        (l.business_name.toLowerCase() === bName.toLowerCase() && l.email?.toLowerCase() === email.toLowerCase())
+      )
+    );
+
+    let masterLeadId: number;
+    if (existing) {
+      masterLeadId = existing.id;
+      // Enrich phone if missing
+      if (!existing.phone && hasPhone) {
+        existing.phone = phone;
+        existing.phone_source_url = phoneSrc;
+        existing.phone_status = "FOUND IN SOURCE • FORMAT CHECKED";
+      }
+    } else {
+      masterLeadId = Number(lead.id) || Date.now() + serverlessLeadsStore.length + 1;
+      const newMasterLead: ServerlessLead = {
+        id: masterLeadId,
+        workspace_id: workspaceId,
+        business_name: bName,
+        website: website || `https://${dom}`,
+        domain: dom,
+        email: email,
+        email_status: lead.email_status || "FOUND IN SOURCE • DOMAIN CHECKED",
+        email_source_url: emailSrc,
+        phone: hasPhone ? phone : "",
+        phone_status: hasPhone ? "FOUND IN SOURCE • FORMAT CHECKED" : "NOT LISTED",
+        phone_source_url: phoneSrc,
+        country: lead.country || searchMeta.country || "Global",
+        city: lead.city || searchMeta.city || "",
+        address: lead.address || "",
+        industry: lead.industry || searchMeta.keyword || "Commercial",
+        category: lead.category || searchMeta.keyword || "Commercial",
+        source: sourcePlat,
+        source_platform: sourcePlat,
+        source_url: originalSrc,
+        original_source_url: originalSrc,
+        search_keyword: searchMeta.keyword,
+        saved_date: pkt.date_human,
+        saved_time: pkt.time_human,
+        extraction_date: pkt.date_human,
+        extraction_time: pkt.time_human,
+        lead_score: 95,
+        final_lead_score: 95,
+        qualification_level: "🟢 Qualified Lead",
+        crm_stage: "New Lead",
+        created_at: pkt.iso_utc,
+      };
+      serverlessLeadsStore.unshift(newMasterLead);
+    }
+
+    const leadSnapshot = {
+      id: masterLeadId,
+      business_name: bName,
+      website: website || `https://${dom}`,
+      domain: dom,
+      email: email,
+      email_status: lead.email_status || "FOUND IN SOURCE • DOMAIN CHECKED",
+      email_source_url: emailSrc,
+      phone: hasPhone ? phone : "Not Listed",
+      phone_status: hasPhone ? "FOUND IN SOURCE • FORMAT CHECKED" : "NOT LISTED",
+      phone_source_url: phoneSrc,
+      country: lead.country || searchMeta.country || "Global",
+      city: lead.city || searchMeta.city || "Not Specified",
+      industry: lead.industry || searchMeta.keyword || "Commercial",
+      source_platform: sourcePlat,
+      original_source_url: originalSrc,
+      search_keyword: searchMeta.keyword,
+      search_date: pkt.date_human,
+      search_time: pkt.time_human,
+      saved_date: pkt.date_human,
+      saved_time: pkt.time_human,
+    };
+
+    serverlessSearchLeadsStore.push({
+      id: serverlessSearchLeadsStore.length + 1,
+      search_record_id: recordId,
+      lead_id: masterLeadId,
+      workspace_id: workspaceId,
+      lead_snapshot: leadSnapshot,
+      created_at: pkt.iso_utc,
+    });
+
+    savedLeadsInThisSearch.push(leadSnapshot);
+  }
+
+  const searchRecord: ServerlessSearchRecord = {
+    id: recordId,
+    workspace_id: workspaceId,
+    user_id: 1,
+    keyword: searchMeta.keyword,
+    country: searchMeta.country || "Global",
+    city: searchMeta.city || "All Cities",
+    sources,
+    requested_quantity: searchMeta.requested_quantity || leads.length,
+    qualified_quantity: savedLeadsInThisSearch.length,
+    leads_with_phone: phoneCount,
+    search_status: "COMPLETED",
+    search_date: pkt.date_human,
+    search_time: pkt.time_human,
+    completion_time: pkt.completion_human,
+    created_at: pkt.iso_utc,
+  };
+
+  serverlessSearchRecordsStore.unshift(searchRecord);
+  return searchRecord;
+}
+
+export function getServerlessSearchRecords(
+  workspaceId: number,
+  dateFilter?: string,
+  keywordFilter?: string
+): ServerlessSearchRecord[] {
+  let matched = serverlessSearchRecordsStore.filter((r) => r.workspace_id === workspaceId);
+  if (dateFilter && dateFilter !== "ALL" && dateFilter !== "All" && dateFilter !== "All Dates") {
+    matched = matched.filter(
+      (r) => r.search_date.includes(dateFilter) || r.created_at.includes(dateFilter)
+    );
+  }
+  if (keywordFilter) {
+    const q = keywordFilter.toLowerCase();
+    matched = matched.filter((r) => r.keyword.toLowerCase().includes(q));
+  }
+  return matched;
+}
+
+export function getServerlessSearchRecordById(
+  workspaceId: number,
+  searchId: string
+): (ServerlessSearchRecord & { leads: any[] }) | null {
+  const rec = serverlessSearchRecordsStore.find(
+    (r) => r.workspace_id === workspaceId && r.id === searchId
+  );
+  if (!rec) return null;
+
+  const links = serverlessSearchLeadsStore.filter(
+    (l) => l.workspace_id === workspaceId && l.search_record_id === searchId
+  );
+  const leads = links.map((link) => {
+    const master = serverlessLeadsStore.find((m) => m.id === link.lead_id);
+    return {
+      ...(master || {}),
+      ...(link.lead_snapshot || {}),
+    };
+  });
+
+  return { ...rec, leads };
+}
+
+export function getServerlessLeadsForDate(workspaceId: number, dateStr: string): any[] {
+  const matchingRecords = serverlessSearchRecordsStore.filter(
+    (r) => r.workspace_id === workspaceId && (r.search_date.includes(dateStr) || r.created_at.includes(dateStr))
+  );
+  const recIds = new Set(matchingRecords.map((r) => r.id));
+  const links = serverlessSearchLeadsStore.filter(
+    (l) => l.workspace_id === workspaceId && recIds.has(l.search_record_id)
+  );
+
+  const seenDomains = new Set<string>();
+  const leads: any[] = [];
+  for (const link of links) {
+    const master = serverlessLeadsStore.find((m) => m.id === link.lead_id);
+    const item = { ...(master || {}), ...(link.lead_snapshot || {}) };
+    const dom = (item.domain || "").toLowerCase();
+    if (dom && seenDomains.has(dom)) continue;
+    if (dom) seenDomains.add(dom);
+    leads.push(item);
+  }
+  return leads;
+}
+
+export function getServerlessSearchDates(workspaceId: number): Array<{
+  search_date: string;
+  total_searches: number;
+  total_leads: number;
+  total_with_phone: number;
+}> {
+  const records = serverlessSearchRecordsStore.filter((r) => r.workspace_id === workspaceId);
+  const dateMap = new Map<string, { total_searches: number; total_leads: number; total_with_phone: number }>();
+
+  for (const r of records) {
+    const d = r.search_date;
+    const current = dateMap.get(d) || { total_searches: 0, total_leads: 0, total_with_phone: 0 };
+    current.total_searches += 1;
+    current.total_leads += r.qualified_quantity;
+    current.total_with_phone += r.leads_with_phone;
+    dateMap.set(d, current);
+  }
+
+  const result: Array<{
+    search_date: string;
+    total_searches: number;
+    total_leads: number;
+    total_with_phone: number;
+  }> = [];
+
+  dateMap.forEach((val, key) => {
+    result.push({ search_date: key, ...val });
+  });
+
+  return result;
+}
+
+export function addServerlessExportHistory(
+  workspaceId: number,
+  data: {
+    export_target: string;
+    format: string;
+    record_count: number;
+    search_record_id?: string;
+    export_date_filter?: string;
+  }
+): ServerlessExportHistory {
+  const pkt = getPktDateTime();
+  const entry: ServerlessExportHistory = {
+    id: serverlessExportHistoryStore.length + 1,
+    workspace_id: workspaceId,
+    user_id: 1,
+    export_target: data.export_target,
+    search_record_id: data.search_record_id,
+    export_date_filter: data.export_date_filter,
+    format: data.format.toUpperCase(),
+    record_count: data.record_count,
+    export_date: pkt.date_human,
+    export_time: pkt.time_human,
+    created_at: pkt.iso_utc,
+  };
+  serverlessExportHistoryStore.unshift(entry);
+  return entry;
+}
+
+export function getServerlessExportHistory(workspaceId: number): ServerlessExportHistory[] {
+  return serverlessExportHistoryStore.filter((e) => e.workspace_id === workspaceId);
 }
 

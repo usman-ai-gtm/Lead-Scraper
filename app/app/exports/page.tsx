@@ -38,7 +38,7 @@ export default function ExportsPage() {
     fetchStats();
   }, []);
 
-  const handleDownloadExport = async (format: "csv" | "xlsx") => {
+  const handleDownloadExport = async (format: "xlsx" | "pdf") => {
     setDownloading(format);
     try {
       // First fetch leads from caller's isolated workspace
@@ -67,7 +67,10 @@ export default function ExportsPage() {
         }),
       });
 
-      if (!exportRes.ok) throw new Error("Export request failed");
+      if (!exportRes.ok) {
+        const errJson = await exportRes.json().catch(() => ({}));
+        throw new Error(errJson.error || "Export request failed");
+      }
 
       const blob = await exportRes.blob();
       const url = window.URL.createObjectURL(blob);
@@ -81,25 +84,31 @@ export default function ExportsPage() {
 
       setToastMsg(`Successfully generated and downloaded ${leadsToExport.length} leads in .${format.toUpperCase()} format.`);
     } catch (e: any) {
-      setToastMsg("Failed to export leads. Please try again.");
+      setToastMsg(`Failed to export leads: ${e.message || "Please try again."}`);
     } finally {
       setDownloading(null);
     }
   };
 
   const EXPORT_COLUMNS = [
-    { name: "Business Name", desc: "Official registered or trading name" },
-    { name: "Industry & Category", desc: "B2B sector classification" },
-    { name: "Location & Address", desc: "Country, state, city, and street address" },
+    { name: "Business Name", desc: "Official registered or trading entity" },
     { name: "Website", desc: "Direct company domain with protocol" },
-    { name: "Public Email", desc: "FOUND, UNVERIFIED, or VERIFIED status" },
-    { name: "Public Phone", desc: "Normalized international format" },
-    { name: "WhatsApp Number", desc: "Click-to-chat compatible number" },
-    { name: "Social Profiles", desc: "LinkedIn, Instagram, Facebook, and Twitter links" },
-    { name: "Business Description", desc: "Public overview of commercial activity" },
-    { name: "Services", desc: "Reported capabilities and offerings" },
-    { name: "Original Source URL", desc: "Live link to original public listing" },
-    { name: "Extraction Date", desc: "ISO 8601 discovery timestamp" },
+    { name: "Domain", desc: "Root domain extracted and cleaned" },
+    { name: "Email", desc: "Public verified or discovered business email" },
+    { name: "Phone", desc: "E.164 international standard formatted phone" },
+    { name: "Country", desc: "Operating country" },
+    { name: "City", desc: "City location if detected" },
+    { name: "Industry", desc: "B2B sector classification" },
+    { name: "Source Platform", desc: "Platform where lead was discovered" },
+    { name: "Original Source URL", desc: "Live link to original listing" },
+    { name: "Email Source URL", desc: "Evidence page where email was verified" },
+    { name: "Phone Source URL", desc: "Evidence page where phone was verified" },
+    { name: "Search Keyword", desc: "Search term associated with discovery" },
+    { name: "Search Date", desc: "Date in PKT (DD Mon YYYY)" },
+    { name: "Search Time", desc: "Time in PKT (hh:mm AM/PM)" },
+    { name: "Saved Date", desc: "Saved timestamp in PKT (DD Mon YYYY)" },
+    { name: "Saved Time", desc: "Saved timestamp in PKT (hh:mm AM/PM)" },
+    { name: "Export Date & Time", desc: "Audit generation timestamp in PKT" },
   ];
 
   return (
@@ -121,26 +130,26 @@ export default function ExportsPage() {
             Export Center
           </span>
           <span className="text-xs text-slate-500 font-mono">
-            Tenant Isolated • CSV & Native XLSX
+            Tenant Isolated • Excel XLSX & Executive PDF Only
           </span>
         </div>
         <h1 className="text-2xl font-extrabold text-white">Export Workspace Leads</h1>
         <p className="text-xs text-slate-400">
-          Download your saved leads in clean, industry-standard CSV and Microsoft Excel (.xlsx) formats.
+          Download your saved leads in professional Microsoft Excel (.xlsx) spreadsheets and landscape Executive PDF reports.
         </p>
       </div>
 
       {/* Export Action Cards */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-        {/* CSV Card */}
-        <div className="p-6 rounded-2xl border border-white/[0.08] bg-[#0c1017] flex flex-col justify-between hover:border-blue-500/30 transition-all space-y-4">
+        {/* PDF Card */}
+        <div className="p-6 rounded-2xl border border-white/[0.08] bg-[#0c1017] flex flex-col justify-between hover:border-purple-500/30 transition-all space-y-4">
           <div>
-            <div className="h-10 w-10 rounded-xl bg-blue-600/10 border border-blue-500/20 flex items-center justify-center text-blue-400 mb-3">
+            <div className="h-10 w-10 rounded-xl bg-purple-600/10 border border-purple-500/20 flex items-center justify-center text-purple-400 mb-3">
               <FileText className="h-5 w-5" />
             </div>
-            <h3 className="text-base font-bold text-white">Comma-Separated Values (CSV)</h3>
+            <h3 className="text-base font-bold text-white">Executive PDF (.pdf)</h3>
             <p className="text-xs text-slate-400 mt-1">
-              RFC 4180 compliant CSV encoded with UTF-8 BOM. Perfect for importing directly into Excel, Google Sheets, HubSpot, or Salesforce.
+              Landscape A4 presentation-ready document formatted with repeated headers, wrapped text, clickable source links, and page numbering.
             </p>
           </div>
 
@@ -149,12 +158,12 @@ export default function ExportsPage() {
               {loading ? "..." : `${totalLeads} Available Leads`}
             </span>
             <button
-              onClick={() => handleDownloadExport("csv")}
+              onClick={() => handleDownloadExport("pdf")}
               disabled={downloading !== null || totalLeads === 0}
-              className="px-4 py-2 text-xs font-bold text-white bg-blue-600 hover:bg-blue-500 rounded-xl transition-all disabled:opacity-40 flex items-center gap-2 shadow-glow-sm"
+              className="px-4 py-2 text-xs font-bold text-white bg-purple-600 hover:bg-purple-500 rounded-xl transition-all disabled:opacity-40 flex items-center gap-2 shadow-glow-sm"
             >
-              <Download className={`h-3.5 w-3.5 ${downloading === "csv" ? "animate-bounce" : ""}`} />
-              <span>{downloading === "csv" ? "Generating CSV..." : "Download CSV"}</span>
+              <Download className={`h-3.5 w-3.5 ${downloading === "pdf" ? "animate-bounce" : ""}`} />
+              <span>{downloading === "pdf" ? "Generating PDF..." : "Download PDF"}</span>
             </button>
           </div>
         </div>
@@ -167,7 +176,7 @@ export default function ExportsPage() {
             </div>
             <h3 className="text-base font-bold text-white">Microsoft Excel (.xlsx)</h3>
             <p className="text-xs text-slate-400 mt-1">
-              Genuine binary OpenXML spreadsheet formatted with clean headers, typed columns, and preservation of special characters.
+              Genuine binary OpenXML spreadsheet formatted with clean headers, autofilters, typed columns, clickable URLs, and PKT timestamps.
             </p>
           </div>
 
@@ -241,7 +250,7 @@ export default function ExportsPage() {
         <div className="flex items-center justify-between pb-3 border-b border-white/[0.06]">
           <div className="flex items-center gap-2">
             <Database className="h-4 w-4 text-purple-400" />
-            <h2 className="text-sm font-bold text-white uppercase tracking-wider">Exported Data Fields (12 Columns)</h2>
+            <h2 className="text-sm font-bold text-white uppercase tracking-wider">Exported Data Fields (18 Columns)</h2>
           </div>
           <span className="text-[11px] text-slate-400">Zero synthetic or fabricated data</span>
         </div>

@@ -182,12 +182,79 @@ def init_app_database():
         ("search_keyword", "TEXT"),
         ("search_location", "TEXT"),
         ("date_discovered", "TEXT"),
+        ("domain", "TEXT"),
+        ("original_source_url", "TEXT"),
+        ("email_source_url", "TEXT"),
+        ("phone_source_url", "TEXT"),
+        ("source_platform", "TEXT"),
+        ("saved_date", "TEXT"),
+        ("saved_time", "TEXT"),
+        ("extraction_date", "TEXT"),
+        ("extraction_time", "TEXT"),
     ]:
         if col not in lead_cols and re.match(r'^[a-zA-Z0-9_]+$', col):
             try:
                 cur.execute(f'ALTER TABLE leads ADD COLUMN "{col}" {ctype}')
             except Exception as e:
                 pass
+
+    # 7. Search Records & History table
+    cur.execute('''
+        CREATE TABLE IF NOT EXISTS search_records (
+            id TEXT PRIMARY KEY,
+            workspace_id INTEGER NOT NULL DEFAULT 1,
+            user_id INTEGER NOT NULL DEFAULT 1,
+            keyword TEXT NOT NULL,
+            country TEXT NOT NULL,
+            city TEXT DEFAULT '',
+            sources TEXT NOT NULL,
+            requested_quantity INTEGER NOT NULL,
+            qualified_quantity INTEGER NOT NULL,
+            leads_with_phone INTEGER NOT NULL DEFAULT 0,
+            search_status TEXT NOT NULL DEFAULT 'COMPLETED',
+            search_date TEXT NOT NULL,
+            search_time TEXT NOT NULL,
+            completion_time TEXT NOT NULL,
+            created_at TEXT NOT NULL
+        )
+    ''')
+    cur.execute("CREATE INDEX IF NOT EXISTS idx_search_records_ws ON search_records(workspace_id)")
+    cur.execute("CREATE INDEX IF NOT EXISTS idx_search_records_date ON search_records(search_date)")
+
+    # 8. Search Record Leads link table
+    cur.execute('''
+        CREATE TABLE IF NOT EXISTS search_record_leads (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            search_record_id TEXT NOT NULL,
+            lead_id INTEGER NOT NULL,
+            workspace_id INTEGER NOT NULL DEFAULT 1,
+            lead_snapshot TEXT,
+            created_at TEXT NOT NULL,
+            FOREIGN KEY(search_record_id) REFERENCES search_records(id),
+            FOREIGN KEY(lead_id) REFERENCES leads(id)
+        )
+    ''')
+    cur.execute("CREATE INDEX IF NOT EXISTS idx_srl_search_id ON search_record_leads(search_record_id)")
+    cur.execute("CREATE INDEX IF NOT EXISTS idx_srl_lead_id ON search_record_leads(lead_id)")
+    cur.execute("CREATE INDEX IF NOT EXISTS idx_srl_ws ON search_record_leads(workspace_id)")
+
+    # 9. Export History table
+    cur.execute('''
+        CREATE TABLE IF NOT EXISTS export_history (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            workspace_id INTEGER NOT NULL DEFAULT 1,
+            user_id INTEGER NOT NULL DEFAULT 1,
+            export_target TEXT NOT NULL,
+            search_record_id TEXT,
+            export_date_filter TEXT,
+            format TEXT NOT NULL,
+            record_count INTEGER NOT NULL,
+            export_date TEXT NOT NULL,
+            export_time TEXT NOT NULL,
+            created_at TEXT NOT NULL
+        )
+    ''')
+    cur.execute("CREATE INDEX IF NOT EXISTS idx_export_history_ws ON export_history(workspace_id)")
 
     # 7. Password Resets table
     cur.execute('''
