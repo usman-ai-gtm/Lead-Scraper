@@ -3,7 +3,22 @@
  * Seamlessly interfaces with API / serverless functions with JWT tokens and error handling.
  */
 
-const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || "/api";
+function getApiBaseUrl(): string {
+  if (typeof window !== "undefined") {
+    const host = window.location.hostname;
+    // When running in a browser on any production or cloud domain, ALWAYS use same-origin "/api"
+    if (host !== "localhost" && host !== "127.0.0.1") {
+      return "/api";
+    }
+  }
+  const envUrl = process.env.NEXT_PUBLIC_API_URL;
+  if (!envUrl || envUrl.includes("localhost") || envUrl.includes("127.0.0.1")) {
+    return "/api";
+  }
+  return envUrl;
+}
+
+const API_BASE_URL = getApiBaseUrl();
 
 class ApiClient {
   private getHeaders(): HeadersInit {
@@ -29,7 +44,7 @@ class ApiClient {
     let url = endpoint;
     if (!url.startsWith("http")) {
       const cleanEndpoint = endpoint.startsWith("/") ? endpoint : `/${endpoint}`;
-      url = `${API_BASE_URL}${cleanEndpoint}`;
+      url = `${getApiBaseUrl()}${cleanEndpoint}`;
     }
     
     const config: RequestInit = {
