@@ -5,6 +5,11 @@ import {
   getServerlessSearchRecords,
   saveServerlessSearchRecordAndLeads
 } from "@/lib/serverless-auth";
+import {
+  getNeonSearchRecords,
+  saveNeonSearchRecordAndLeads,
+  isNeonConfigured
+} from "@/lib/neon-db";
 
 export async function GET(req: Request) {
   const url = new URL(req.url);
@@ -14,7 +19,18 @@ export async function GET(req: Request) {
   const currentUser = getCurrentUserFromRequest(req);
   const workspaceId = currentUser ? currentUser.workspace_id : 1;
 
-  const fallbackHandler = () => {
+  const fallbackHandler = async () => {
+    if (isNeonConfigured()) {
+      const neonRecords = await getNeonSearchRecords(workspaceId, date, keyword);
+      if (neonRecords !== null) {
+        return {
+          status: "success",
+          workspace_id: workspaceId,
+          count: neonRecords.length,
+          records: neonRecords
+        };
+      }
+    }
     const records = getServerlessSearchRecords(workspaceId, date, keyword);
     return {
       status: "success",
@@ -41,7 +57,30 @@ export async function POST(req: Request) {
     body = await req.clone().json();
   } catch {}
 
-  const fallbackHandler = () => {
+  const fallbackHandler = async () => {
+    if (isNeonConfigured()) {
+      const neonRecord = await saveNeonSearchRecordAndLeads(
+        workspaceId,
+        {
+          keyword: body.keyword || "General",
+          country: body.country || "Global",
+          city: body.city || "",
+          sources: body.sources || [],
+          requested_quantity: body.requested_quantity || (body.qualified_leads?.length || 0),
+          search_record_id: body.search_record_id,
+        },
+        body.qualified_leads || []
+      );
+      if (neonRecord !== null) {
+        return {
+          status: "success",
+          message: "Search record and leads saved permanently in Neon PostgreSQL",
+          search_record: neonRecord,
+          count: (neonRecord.leads || []).length
+        };
+      }
+    }
+
     const record = saveServerlessSearchRecordAndLeads(
       workspaceId,
       {
@@ -57,7 +96,8 @@ export async function POST(req: Request) {
     return {
       status: "success",
       message: "Search record and leads saved successfully (serverless mode)",
-      search_record: record
+      search_record: record,
+      count: ((record as any).leads || body.qualified_leads || []).length
     };
   };
 

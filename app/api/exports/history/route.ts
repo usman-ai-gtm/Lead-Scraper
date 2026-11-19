@@ -5,12 +5,29 @@ import {
   getServerlessExportHistory,
   addServerlessExportHistory
 } from "@/lib/serverless-auth";
+import {
+  getNeonExportHistory,
+  recordNeonExport,
+  isNeonConfigured
+} from "@/lib/neon-db";
 
 export async function GET(req: Request) {
   const currentUser = getCurrentUserFromRequest(req);
   const workspaceId = currentUser ? currentUser.workspace_id : 1;
 
-  const fallbackHandler = () => {
+  const fallbackHandler = async () => {
+    if (isNeonConfigured()) {
+      const neonHistory = await getNeonExportHistory(workspaceId);
+      if (neonHistory !== null) {
+        return {
+          status: "success",
+          workspace_id: workspaceId,
+          count: neonHistory.length,
+          history: neonHistory
+        };
+      }
+    }
+
     const history = getServerlessExportHistory(workspaceId);
     return {
       status: "success",
@@ -26,13 +43,33 @@ export async function GET(req: Request) {
 export async function POST(req: Request) {
   const currentUser = getCurrentUserFromRequest(req);
   const workspaceId = currentUser ? currentUser.workspace_id : 1;
+  const userId = currentUser ? currentUser.id : 1;
 
   let body: any = {};
   try {
     body = await req.clone().json();
   } catch {}
 
-  const fallbackHandler = () => {
+  const fallbackHandler = async () => {
+    if (isNeonConfigured()) {
+      const rec = await recordNeonExport(
+        workspaceId,
+        userId,
+        body.export_target || "All Saved Leads",
+        body.format || "XLSX",
+        Number(body.record_count) || 0,
+        body.search_record_id,
+        body.export_date_filter
+      );
+      if (rec) {
+        return {
+          status: "success",
+          message: "Export logged permanently in Neon PostgreSQL",
+          entry: rec[0] || rec
+        };
+      }
+    }
+
     const entry = addServerlessExportHistory(workspaceId, {
       export_target: body.export_target || "All Saved Leads",
       format: body.format || "XLSX",

@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { proxyToBackend } from "@/lib/backend-proxy";
 import { getCurrentUserFromRequest, getServerlessLeads, addServerlessLead } from "@/lib/serverless-auth";
+import { getNeonLeads, addNeonLead, isNeonConfigured } from "@/lib/neon-db";
 
 export async function GET(req: Request) {
   const url = new URL(req.url);
@@ -13,7 +14,20 @@ export async function GET(req: Request) {
   const currentUser = getCurrentUserFromRequest(req);
   const workspaceId = currentUser ? currentUser.workspace_id : 1;
 
-  const fallbackHandler = () => {
+  const fallbackHandler = async () => {
+    if (isNeonConfigured()) {
+      const neonRes = await getNeonLeads(workspaceId, {
+        keyword,
+        country,
+        city,
+        page,
+        page_size: pageSize,
+      });
+      if (neonRes !== null) {
+        return neonRes;
+      }
+    }
+
     return getServerlessLeads(workspaceId, {
       keyword,
       country,
@@ -35,7 +49,19 @@ export async function POST(req: Request) {
     body = await req.clone().json();
   } catch {}
 
-  const fallbackHandler = () => {
+  const fallbackHandler = async () => {
+    if (isNeonConfigured()) {
+      const created = await addNeonLead(workspaceId, body);
+      if (created) {
+        return {
+          status: "success",
+          lead_id: created.id,
+          lead: created,
+          message: "Lead saved permanently in Neon PostgreSQL."
+        };
+      }
+    }
+
     const created = addServerlessLead(workspaceId, body);
     return {
       status: "success",

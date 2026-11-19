@@ -7,6 +7,7 @@ import {
   getPktDateTime,
   addServerlessExportHistory
 } from "@/lib/serverless-auth";
+import { recordNeonExport, isNeonConfigured } from "@/lib/neon-db";
 import { proxyToBackend } from "@/lib/backend-proxy";
 
 export interface ExportLeadItem {
@@ -381,6 +382,18 @@ export async function POST(req: Request) {
     const workspaceId = currentUser ? currentUser.workspace_id : 1;
 
     // Record export history in background
+    if (isNeonConfigured()) {
+      recordNeonExport(
+        workspaceId,
+        currentUser ? currentUser.id : 1,
+        meta.export_target || (meta.keyword ? `Search: ${meta.keyword}` : "Workspace Leads"),
+        format.toUpperCase(),
+        leads.length,
+        meta.search_record_id,
+        meta.search_date
+      ).catch((err) => console.error("Neon export log error:", err));
+    }
+
     addServerlessExportHistory(workspaceId, {
       export_target: meta.export_target || (meta.keyword ? `Search: ${meta.keyword}` : "Workspace Leads"),
       format: format.toUpperCase(),

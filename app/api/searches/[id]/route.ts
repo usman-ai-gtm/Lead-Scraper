@@ -1,13 +1,25 @@
 import { NextResponse } from "next/server";
 import { proxyToBackend } from "@/lib/backend-proxy";
 import { getCurrentUserFromRequest, getServerlessSearchRecordById } from "@/lib/serverless-auth";
+import { getNeonSearchRecordById, isNeonConfigured } from "@/lib/neon-db";
 
 export async function GET(req: Request, { params }: { params: { id: string } }) {
   const searchId = params.id;
   const currentUser = getCurrentUserFromRequest(req);
   const workspaceId = currentUser ? currentUser.workspace_id : 1;
 
-  const fallbackHandler = () => {
+  const fallbackHandler = async () => {
+    if (isNeonConfigured()) {
+      const neonRec = await getNeonSearchRecordById(workspaceId, searchId);
+      if (neonRec) {
+        return {
+          status: "success",
+          workspace_id: workspaceId,
+          search_record: neonRec
+        };
+      }
+    }
+
     const record = getServerlessSearchRecordById(workspaceId, searchId);
     if (!record) {
       return new Response(JSON.stringify({ error: "Search record not found" }), { status: 404 });
