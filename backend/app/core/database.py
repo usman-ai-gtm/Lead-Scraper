@@ -294,6 +294,9 @@ def init_app_database():
     conn.close()
     logger.info("Application database initialized and verified.")
 
+# Compatibility alias for CI/CD pipelines
+init_db = init_app_database
+
 # Initialize upon module import
 try:
     init_app_database()
