@@ -979,8 +979,8 @@ export async function provisionNeonClient(data: {
   // 4. Create client user linked strictly to this new workspace
   const userRes = await sql.query(
     `INSERT INTO users (
-      username, email, password_hash, full_name, role, workspace_id, status, created_at, tenant_id, client_notes, max_leads_quota
-    ) VALUES ($1, $2, $3, $4, 'CLIENT', $5, 'ACTIVE', $6, 1, $7, $8)
+      username, email, password_hash, full_name, role, workspace_id, status, created_at, tenant_id
+    ) VALUES ($1, $2, $3, $4, 'CLIENT', $5, 'ACTIVE', $6, 1)
     RETURNING id, email, full_name, role, workspace_id, status, created_at`,
     [
       cleanEmail,
@@ -989,8 +989,6 @@ export async function provisionNeonClient(data: {
       data.fullName.trim(),
       workspaceId,
       nowIso,
-      data.company ? `Company: ${data.company}` : "",
-      data.maxQuota || 5000,
     ]
   );
 

@@ -51,6 +51,13 @@ export async function GET(req: Request) {
 
           const wsRes = await sql`SELECT COUNT(*) as cnt FROM workspaces`;
           totalWorkspaces = parseInt(wsRes[0]?.cnt || "0", 10);
+
+          const userColsRes = await sql`SELECT column_name FROM information_schema.columns WHERE table_name = 'users' ORDER BY ordinal_position`;
+          const wsColsRes = await sql`SELECT column_name FROM information_schema.columns WHERE table_name = 'workspaces' ORDER BY ordinal_position`;
+          (responseData as any).schema = {
+            users: userColsRes.map((r: any) => r.column_name),
+            workspaces: wsColsRes.map((r: any) => r.column_name),
+          };
         }
       }
     } catch (err: any) {
