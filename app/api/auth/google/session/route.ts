@@ -78,11 +78,20 @@ export async function POST(request: Request) {
         workspaceId = wsRes[0].id;
       }
 
-      const newUserRes = await sql`
-        INSERT INTO users (email, full_name, role, workspace_id, status, created_at, updated_at)
-        VALUES (${email}, ${fullName || email.split("@")[0]}, 'CLIENT', ${workspaceId}, 'ACTIVE', ${nowIso}, ${nowIso})
-        RETURNING id, email, full_name, role, workspace_id, status
-      `;
+      let newUserRes: any;
+      try {
+        newUserRes = await sql`
+          INSERT INTO users (email, username, full_name, role, workspace_id, status, created_at, updated_at)
+          VALUES (${email}, ${email}, ${fullName || email.split("@")[0]}, 'CLIENT', ${workspaceId}, 'ACTIVE', ${nowIso}, ${nowIso})
+          RETURNING id, email, full_name, role, workspace_id, status
+        `;
+      } catch {
+        newUserRes = await sql`
+          INSERT INTO users (email, username, full_name, role, workspace_id, status, created_at)
+          VALUES (${email}, ${email}, ${fullName || email.split("@")[0]}, 'CLIENT', ${workspaceId}, 'ACTIVE', ${nowIso})
+          RETURNING id, email, full_name, role, workspace_id, status
+        `;
+      }
       activeUser = newUserRes[0];
     }
 

@@ -546,6 +546,7 @@ export async function ensureOutreachTable() {
         ALTER TABLE workspaces ADD COLUMN IF NOT EXISTS status TEXT DEFAULT 'ACTIVE';
         ALTER TABLE workspaces ADD COLUMN IF NOT EXISTS max_seats INTEGER DEFAULT 1;
         ALTER TABLE users ADD COLUMN IF NOT EXISTS updated_at TEXT;
+        ALTER TABLE users ALTER COLUMN username DROP NOT NULL;
       `);
     } catch {
       // non-blocking
@@ -983,19 +984,29 @@ export async function provisionNeonClient(data: {
   try {
     userRes = await sql.query(
       `INSERT INTO users (
-        email, full_name, role, workspace_id, status, password_hash, created_at, updated_at
-      ) VALUES ($1, $2, 'CLIENT', $3, 'ACTIVE', $4, $5, $5)
+        email, username, full_name, role, workspace_id, status, password_hash, created_at, updated_at
+      ) VALUES ($1, $1, $2, 'CLIENT', $3, 'ACTIVE', $4, $5, $5)
       RETURNING id, email, full_name, role, workspace_id, status, created_at`,
       [cleanEmail, data.fullName.trim(), workspaceId, data.passwordHash, nowIso]
     );
-  } catch {
-    userRes = await sql.query(
-      `INSERT INTO users (
-        email, full_name, role, workspace_id, status, password_hash, created_at
-      ) VALUES ($1, $2, 'CLIENT', $3, 'ACTIVE', $4, $5)
-      RETURNING id, email, full_name, role, workspace_id, status, created_at`,
-      [cleanEmail, data.fullName.trim(), workspaceId, data.passwordHash, nowIso]
-    );
+  } catch (uErr) {
+    try {
+      userRes = await sql.query(
+        `INSERT INTO users (
+          email, username, full_name, role, workspace_id, status, password_hash, created_at
+        ) VALUES ($1, $1, $2, 'CLIENT', $3, 'ACTIVE', $4, $5)
+        RETURNING id, email, full_name, role, workspace_id, status, created_at`,
+        [cleanEmail, data.fullName.trim(), workspaceId, data.passwordHash, nowIso]
+      );
+    } catch {
+      userRes = await sql.query(
+        `INSERT INTO users (
+          email, full_name, role, workspace_id, status, password_hash, created_at
+        ) VALUES ($1, $2, 'CLIENT', $3, 'ACTIVE', $4, $5)
+        RETURNING id, email, full_name, role, workspace_id, status, created_at`,
+        [cleanEmail, data.fullName.trim(), workspaceId, data.passwordHash, nowIso]
+      );
+    }
   }
 
   return {

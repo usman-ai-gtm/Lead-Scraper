@@ -37,6 +37,7 @@ export async function GET(req: Request) {
               ALTER TABLE workspaces ADD COLUMN IF NOT EXISTS status TEXT DEFAULT 'ACTIVE';
               ALTER TABLE workspaces ADD COLUMN IF NOT EXISTS max_seats INTEGER DEFAULT 1;
               ALTER TABLE users ADD COLUMN IF NOT EXISTS updated_at TEXT;
+              ALTER TABLE users ALTER COLUMN username DROP NOT NULL;
             `;
           } catch (mErr) {
             console.warn("Schema migration non-blocking warning:", mErr);

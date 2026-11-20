@@ -154,11 +154,20 @@ export async function GET(request: Request) {
           newWsId = wsRes[0].id;
         }
 
-        const newUserRes = await sql`
-          INSERT INTO users (email, full_name, role, workspace_id, status, created_at, updated_at)
-          VALUES (${profileEmail}, ${profileName}, 'CLIENT', ${newWsId}, 'ACTIVE', ${nowIso}, ${nowIso})
-          RETURNING id, email, full_name, role, workspace_id, status
-        `;
+        let newUserRes: any;
+        try {
+          newUserRes = await sql`
+            INSERT INTO users (email, username, full_name, role, workspace_id, status, created_at, updated_at)
+            VALUES (${profileEmail}, ${profileEmail}, ${profileName}, 'CLIENT', ${newWsId}, 'ACTIVE', ${nowIso}, ${nowIso})
+            RETURNING id, email, full_name, role, workspace_id, status
+          `;
+        } catch {
+          newUserRes = await sql`
+            INSERT INTO users (email, username, full_name, role, workspace_id, status, created_at)
+            VALUES (${profileEmail}, ${profileEmail}, ${profileName}, 'CLIENT', ${newWsId}, 'ACTIVE', ${nowIso})
+            RETURNING id, email, full_name, role, workspace_id, status
+          `;
+        }
         activeUser = newUserRes[0];
       }
 
