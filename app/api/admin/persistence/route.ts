@@ -16,6 +16,7 @@ export async function GET(req: Request) {
   let totalLeads = 0;
   let totalSearchRecords = 0;
   let totalWorkspaces = 0;
+  let schemaInfo: any = null;
   let dbError: string | null = null;
 
   if (isNeonConfigured()) {
@@ -54,7 +55,7 @@ export async function GET(req: Request) {
 
           const userColsRes = await sql`SELECT column_name FROM information_schema.columns WHERE table_name = 'users' ORDER BY ordinal_position`;
           const wsColsRes = await sql`SELECT column_name FROM information_schema.columns WHERE table_name = 'workspaces' ORDER BY ordinal_position`;
-          (responseData as any).schema = {
+          schemaInfo = {
             users: userColsRes.map((r: any) => r.column_name),
             workspaces: wsColsRes.map((r: any) => r.column_name),
           };
@@ -74,6 +75,7 @@ export async function GET(req: Request) {
     configured: dbConnected,
     database_connected: dbConnected,
     latency_ms: latencyMs,
+    schema: schemaInfo,
     stats: dbConnected
       ? {
           total_leads: totalLeads,
