@@ -8,7 +8,7 @@ import { ForcedPasswordModal } from "@/components/auth/ForcedPasswordModal";
 import {
   LayoutDashboard, Search, Database, Download, Settings,
   Shield, Users2, SlidersHorizontal, Activity, LogOut,
-  Menu, X, Sparkles, Bell, CheckCircle2
+  Menu, X, Sparkles, Bell, CheckCircle2, Mail, Send
 } from "lucide-react";
 
 interface NavItem {
@@ -56,32 +56,34 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
     return () => window.removeEventListener("keydown", handleKeyDown);
   }, []);
 
-  // Exactly 5 Client Navigation Items (Single, clean navigation destinations)
+  // Exactly 6 Client Navigation Items
   const clientNav: NavItem[] = [
     { name: "Dashboard", href: "/app", icon: LayoutDashboard },
-    { name: "Leads", href: "/app/leads", icon: Search },
+    { name: "Find Leads", href: "/app/leads", icon: Search },
     { name: "Saved Leads", href: "/app/saved-leads", icon: Database },
-    { name: "Export", href: "/app/exports", icon: Download },
-    { name: "Account Settings", href: "/app/settings", icon: Settings },
+    { name: "Email Accounts", href: "/app/accounts", icon: Mail },
+    { name: "Cold Email", href: "/app/outreach", icon: Send },
+    { name: "Usage & Settings", href: "/app/settings", icon: Settings },
   ];
 
-  // Exactly 4 Admin Navigation Items (Role: ADMIN only)
+  // Exactly 3 Admin Navigation Items (Role: ADMIN only)
   const adminNav: NavItem[] = [
-    { name: "Admin Dashboard", href: "/app/admin", icon: Shield },
     { name: "Client Accounts", href: "/app/admin/clients", icon: Users2 },
     { name: "API Configuration", href: "/app/admin/providers", icon: SlidersHorizontal },
-    { name: "System Health", href: "/app/admin/system", icon: Activity },
+    { name: "System Usage", href: "/app/admin", icon: Activity },
   ];
 
   const searchShortcuts = [
-    { title: "Lead Discovery & Search", subtitle: "Extract public business contacts across 193 countries", url: "/app/leads", badge: "SEARCH" },
-    { title: "Saved Workspace Leads", subtitle: "Manage saved leads and private company data", url: "/app/saved-leads", badge: "SAVED" },
-    { title: "Export Leads (XLSX & PDF)", subtitle: "Download workspace leads in Excel and PDF formats", url: "/app/exports", badge: "EXPORT" },
-    { title: "Account & Password Settings", subtitle: "Update profile and change password", url: "/app/settings", badge: "SETTINGS" },
+    { title: "Dashboard Overview", subtitle: "Command center and real workspace metrics", url: "/app", badge: "DASHBOARD" },
+    { title: "Find Leads", subtitle: "Extract public commercial contacts across 193 countries", url: "/app/leads", badge: "SEARCH" },
+    { title: "Saved Leads", subtitle: "Manage saved leads and private company data", url: "/app/saved-leads", badge: "SAVED" },
+    { title: "Email Accounts", subtitle: "Connect your official Gmail account for $0 cold outreach", url: "/app/accounts", badge: "GMAIL" },
+    { title: "Cold Email Outreach", subtitle: "Dispatch personalized business emails via Gmail API", url: "/app/outreach", badge: "OUTREACH" },
+    { title: "Usage & Settings", subtitle: "Manage profile, workspace password, and preferences", url: "/app/settings", badge: "SETTINGS" },
     ...(isAdmin ? [
       { title: "50-Client Account Seats", subtitle: "Provision and manage client accounts", url: "/app/admin/clients", badge: "ADMIN" },
-      { title: "API Provider Status", subtitle: "Check Serper, Firecrawl, and OpenAI status", url: "/app/admin/providers", badge: "ADMIN" },
-      { title: "System Health & Audit Logs", subtitle: "Database footprint and security audit trail", url: "/app/admin/system", badge: "ADMIN" },
+      { title: "API Provider Configuration", subtitle: "Check Serper and Gemini API engine status", url: "/app/admin/providers", badge: "ADMIN" },
+      { title: "System Usage & Audit Logs", subtitle: "Database metrics and live serverless activity", url: "/app/admin", badge: "ADMIN" },
     ] : [])
   ];
 

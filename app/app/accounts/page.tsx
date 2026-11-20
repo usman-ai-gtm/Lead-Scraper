@@ -1,500 +1,620 @@
 "use client";
 
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, Suspense } from "react";
 import Link from "next/link";
-import OutreachNav from "@/components/outreach/OutreachNav";
+import { useSearchParams } from "next/navigation";
 import { useAuth } from "@/lib/auth-context";
-import { ConnectedAccount } from "@/lib/types";
 import {
-  Mail, Plus, ShieldCheck, CheckCircle2, AlertCircle, Trash2,
-  RefreshCw, Send, Sliders, ExternalLink, Inbox, Copy, Check, X,
-  AlertTriangle, Lock, Sparkles, Key, Info
+  Mail, ShieldCheck, CheckCircle2, AlertCircle, Trash2,
+  RefreshCw, Send, Sliders, ExternalLink, Inbox, Check, X,
+  AlertTriangle, Lock, Sparkles, Key, Info, Globe, Shield, Power
 } from "lucide-react";
 
-export default function AccountsPage() {
+interface GmailStatusResponse {
+  configured: boolean;
+  connected: boolean;
+  status_code: "CONNECTED" | "NOT_CONNECTED" | "CONFIGURATION_ERROR" | "RECONNECT_REQUIRED";
+  account?: {
+    id: number;
+    sender_name: string;
+    sender_email: string;
+    daily_limit: number;
+    sent_today: number;
+    health_status: string;
+    last_sent_at?: string;
+  } | null;
+  provider: string;
+  daily_quota: number;
+  cost: string;
+  redirect_uri?: string;
+  scopes?: string[];
+  message?: string;
+}
+
+function EmailAccountsContent() {
   const { user } = useAuth();
-  const [accounts, setAccounts] = useState<ConnectedAccount[]>([]);
+  const searchParams = useSearchParams();
+
+  const [statusData, setStatusData] = useState<GmailStatusResponse | null>(null);
   const [loading, setLoading] = useState(true);
-
-  // Modals
-  const [connectModalOpen, setConnectModalOpen] = useState(false);
-  const [testModalOpen, setTestModalOpen] = useState(false);
-  const [selectedAccount, setSelectedAccount] = useState<ConnectedAccount | null>(null);
-
-  // Connect Gmail Form state
-  const [newGmail, setNewGmail] = useState("");
-  const [newSenderName, setNewSenderName] = useState("");
-  const [newAppPassword, setNewAppPassword] = useState("");
-  const [isVerifying, setIsVerifying] = useState(false);
-  const [verifyError, setVerifyError] = useState<string | null>(null);
-
-  // Test Email state
-  const [testRecipient, setTestRecipient] = useState("");
-  const [testSubject, setTestSubject] = useState("USMAN AI GTM - Live Email Verification Test");
-  const [testBody, setTestBody] = useState("Hello! This is a verified live email sent from USMAN AI GTM via Google SMTP.");
-  const [testAppPassword, setTestAppPassword] = useState("");
-  const [testSending, setTestSending] = useState(false);
-
-  // Notifications
+  const [connecting, setConnecting] = useState(false);
+  const [disconnecting, setDisconnecting] = useState(false);
   const [toastMsg, setToastMsg] = useState<string | null>(null);
+  const [toastType, setToastType] = useState<"success" | "error" | "info">("info");
 
-  // Load connected accounts from localStorage or initialize with user's own email
-  useEffect(() => {
+  // Test send modal
+  const [testModalOpen, setTestModalOpen] = useState(false);
+  const [testRecipient, setTestRecipient] = useState("");
+  const [testSubject, setTestSubject] = useState("USMAN AI GTM - Official Gmail Integration Test");
+  const [testBody, setTestBody] = useState("Hello! This is a test email sent from USMAN AI GTM via the official Google Gmail API.");
+  const [sendingTest, setSendingTest] = useState(false);
+
+  // DNS deliverability checker
+  const [checkDomain, setCheckDomain] = useState("");
+  const [checkingDns, setCheckingDns] = useState(false);
+  const [dnsResults, setDnsResults] = useState<any | null>(null);
+
+  const getAuthHeaders = (): Record<string, string> => {
+    const headers: Record<string, string> = {
+      "Content-Type": "application/json",
+    };
+    if (typeof window !== "undefined") {
+      const token = localStorage.getItem("usman_gtm_token");
+      if (token) headers["Authorization"] = `Bearer ${token}`;
+      const wsId = localStorage.getItem("usman_gtm_workspace_id");
+      if (wsId) headers["X-Workspace-Id"] = wsId;
+    }
+    return headers;
+  };
+
+  const fetchStatus = async () => {
+    setLoading(true);
     try {
-      const stored = localStorage.getItem("usman_connected_sending_accounts");
-      if (stored) {
-        const parsed = JSON.parse(stored);
-        if (Array.isArray(parsed) && parsed.length > 0) {
-          setAccounts(parsed);
-          setLoading(false);
-          return;
-        }
-      }
-
-      if (user?.email) {
-        const initialUserAccount: ConnectedAccount = {
-          id: Date.now(),
-          account_type: "email",
-          identifier: user.email,
-          status: "CONNECTED",
-          daily_limit: 50,
-          sent_today: 0,
-          workspace_id: 1,
-          is_active: true,
-        };
-        setAccounts([initialUserAccount]);
-        localStorage.setItem("usman_connected_sending_accounts", JSON.stringify([initialUserAccount]));
-      } else {
-        setAccounts([]);
+      const res = await fetch("/api/integrations/gmail/status", {
+        headers: getAuthHeaders(),
+      });
+      const data: GmailStatusResponse = await res.json();
+      setStatusData(data);
+      if (data.account?.sender_email && !testRecipient) {
+        setTestRecipient(data.account.sender_email);
       }
     } catch {
-      setAccounts([]);
+      setStatusData({
+        configured: false,
+        connected: false,
+        status_code: "CONFIGURATION_ERROR",
+        provider: "Google Gmail API",
+        daily_quota: 500,
+        cost: "$0 / month (Standard Gmail)",
+        message: "Failed to communicate with integration status API.",
+      });
     } finally {
       setLoading(false);
     }
-  }, [user]);
-
-  const openTestModal = (acc: ConnectedAccount) => {
-    setSelectedAccount(acc);
-    setTestRecipient(user?.email || "");
-    setTestAppPassword("");
-    setTestModalOpen(true);
   };
 
-  const handleDisconnect = (id: number, email: string) => {
-    if (confirm(`Are you sure you want to disconnect ${email}?`)) {
-      const updated = accounts.filter((a) => a.id !== id);
-      setAccounts(updated);
-      try {
-        localStorage.setItem("usman_connected_sending_accounts", JSON.stringify(updated));
-      } catch {}
-      setToastMsg(`Account ${email} disconnected from sending pool.`);
+  useEffect(() => {
+    fetchStatus();
+
+    // Check URL params from OAuth callback
+    const oauthStatus = searchParams.get("status");
+    const oauthEmail = searchParams.get("email");
+    const oauthMsg = searchParams.get("message");
+
+    if (oauthStatus === "connected") {
+      setToastType("success");
+      setToastMsg(`Gmail account (${oauthEmail || "connected"}) authorized successfully!`);
+    } else if (oauthStatus === "error") {
+      setToastType("error");
+      setToastMsg(oauthMsg || "Google authorization was cancelled or failed.");
+    }
+  }, [searchParams]);
+
+  const handleConnectGmail = async () => {
+    setConnecting(true);
+    try {
+      const res = await fetch("/api/integrations/gmail/url", {
+        headers: getAuthHeaders(),
+      });
+      const data = await res.json();
+      if (data.auth_url) {
+        window.location.href = data.auth_url;
+      } else {
+        setToastType("error");
+        setToastMsg(data.error || "Google OAuth client is not fully configured on server.");
+      }
+    } catch {
+      setToastType("error");
+      setToastMsg("Failed to initiate Google OAuth.");
+    } finally {
+      setConnecting(false);
     }
   };
 
-  const handleConnectGmailSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!newGmail || !newAppPassword) {
-      setVerifyError("Please enter both your Gmail address and 16-character Google App Password.");
+  const handleDisconnect = async () => {
+    if (!confirm("Are you sure you want to disconnect your Gmail account from this workspace?")) {
       return;
     }
-
-    setIsVerifying(true);
-    setVerifyError(null);
-
+    setDisconnecting(true);
     try {
-      const res = await fetch("/api/campaigns/accounts/connect", {
+      const res = await fetch("/api/integrations/gmail/disconnect", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          email: newGmail,
-          name: newSenderName || user?.full_name || "Sales Outreach",
-          app_password: newAppPassword,
-        }),
+        headers: getAuthHeaders(),
       });
-
-      const data = await res.json();
-
-      if (!res.ok || data.status === "error") {
-        setVerifyError(data.error || data.detail || "Google SMTP authentication failed.");
-        setIsVerifying(false);
-        return;
-      }
-
-      const newAcc: ConnectedAccount = {
-        id: Date.now(),
-        account_type: "email",
-        identifier: newGmail.trim().toLowerCase(),
-        status: "CONNECTED",
-        daily_limit: 50,
-        sent_today: 0,
-        workspace_id: 1,
-        is_active: true,
-      };
-
-      const updated = [newAcc, ...accounts.filter((a) => a.identifier.toLowerCase() !== newGmail.toLowerCase())];
-      setAccounts(updated);
-
-      try {
-        localStorage.setItem("usman_connected_sending_accounts", JSON.stringify(updated));
-        localStorage.setItem(`app_pwd_${newGmail.toLowerCase()}`, newAppPassword.trim());
-      } catch {}
-
-      setIsVerifying(false);
-      setConnectModalOpen(false);
-      setNewGmail("");
-      setNewAppPassword("");
-      setNewSenderName("");
-      setToastMsg(`🎉 Live Gmail account connected: ${newAcc.identifier}`);
-    } catch (err: any) {
-      setVerifyError(err?.message || "Failed to contact Google SMTP server.");
-      setIsVerifying(false);
-    }
-  };
-
-  const handleSendRealTestEmail = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!selectedAccount || !testRecipient) return;
-
-    setTestSending(true);
-    const savedPwd = localStorage.getItem(`app_pwd_${selectedAccount.identifier.toLowerCase()}`) || testAppPassword;
-
-    try {
-      const res = await fetch("/api/campaigns/test-send", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          from_email: selectedAccount.identifier,
-          from_name: user?.full_name || "USMAN AI GTM",
-          to_email: testRecipient,
-          subject: testSubject,
-          body: testBody,
-          app_password: savedPwd,
-        }),
-      });
-
-      const data = await res.json();
-
-      if (!res.ok || data.status === "error") {
-        setToastMsg(`❌ Delivery error: ${data.error || data.detail || "Authentication failed"}`);
+      if (res.ok) {
+        setToastType("info");
+        setToastMsg("Gmail account disconnected successfully.");
+        await fetchStatus();
       } else {
-        setToastMsg(`✅ Real email delivered to ${testRecipient}! Check your inbox.`);
-        setTestModalOpen(false);
+        const err = await res.json().catch(() => ({}));
+        setToastType("error");
+        setToastMsg(err.error || "Failed to disconnect account.");
       }
-    } catch (err: any) {
-      setToastMsg(`❌ Error sending email: ${err?.message}`);
+    } catch {
+      setToastType("error");
+      setToastMsg("Error communicating with server.");
     } finally {
-      setTestSending(false);
+      setDisconnecting(false);
     }
   };
+
+  const handleSendTestEmail = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!testRecipient.trim()) {
+      alert("Please enter a test recipient email.");
+      return;
+    }
+    setSendingTest(true);
+    try {
+      const res = await fetch("/api/integrations/gmail/send", {
+        method: "POST",
+        headers: getAuthHeaders(),
+        body: JSON.stringify({
+          recipient_email: testRecipient.trim(),
+          recipient_name: "Test Recipient",
+          subject: testSubject.trim(),
+          body: testBody.trim(),
+        }),
+      });
+      const data = await res.json();
+      if (res.ok) {
+        setToastType("success");
+        setToastMsg(`Test email sent successfully! Gmail Message ID: ${data.message_id || "OK"}`);
+        setTestModalOpen(false);
+        await fetchStatus();
+      } else {
+        setToastType("error");
+        setToastMsg(data.error || data.detail || "Failed to send test email.");
+      }
+    } catch (err: any) {
+      setToastType("error");
+      setToastMsg(err.message || "Error sending test email.");
+    } finally {
+      setSendingTest(false);
+    }
+  };
+
+  const handleCheckDns = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!checkDomain.trim()) return;
+    setCheckingDns(true);
+    setDnsResults(null);
+    try {
+      const clean = checkDomain.replace(/^https?:\/\//, "").replace(/\/.*$/, "").trim();
+      const res = await fetch(`/api/integrations/dns-check?domain=${encodeURIComponent(clean)}`);
+      const data = await res.json();
+      setDnsResults(data);
+    } catch (err: any) {
+      alert("Failed to query DNS: " + err.message);
+    } finally {
+      setCheckingDns(false);
+    }
+  };
+
+  const isConnected = statusData?.status_code === "CONNECTED";
+  const isNotConnected = statusData?.status_code === "NOT_CONNECTED";
+  const isConfigError = statusData?.status_code === "CONFIGURATION_ERROR";
+  const isReconnect = statusData?.status_code === "RECONNECT_REQUIRED";
 
   return (
-    <div className="space-y-6">
-      <OutreachNav />
-
+    <div className="space-y-8 max-w-6xl mx-auto pb-16">
+      {/* Toast Alert */}
       {toastMsg && (
-        <div className="fixed bottom-6 right-6 z-50 rounded-xl border border-blue-500/30 bg-[#0c121e] px-4 py-3 text-xs text-white shadow-glass flex items-center justify-between gap-4 animate-in fade-in">
+        <div
+          className={`p-4 rounded-xl border flex items-center justify-between gap-3 text-xs ${
+            toastType === "success"
+              ? "bg-emerald-500/10 border-emerald-500/20 text-emerald-300"
+              : toastType === "error"
+              ? "bg-rose-500/10 border-rose-500/20 text-rose-300"
+              : "bg-blue-500/10 border-blue-500/20 text-blue-300"
+          }`}
+        >
           <div className="flex items-center gap-2">
-            <CheckCircle2 className="h-4 w-4 text-emerald-400" />
+            {toastType === "success" ? (
+              <CheckCircle2 className="h-4 w-4 shrink-0" />
+            ) : toastType === "error" ? (
+              <AlertCircle className="h-4 w-4 shrink-0" />
+            ) : (
+              <Info className="h-4 w-4 shrink-0" />
+            )}
             <span>{toastMsg}</span>
           </div>
-          <button onClick={() => setToastMsg(null)} className="text-slate-500 hover:text-white">✕</button>
+          <button onClick={() => setToastMsg(null)} className="p-1 hover:text-white">
+            <X className="h-3.5 w-3.5" />
+          </button>
         </div>
       )}
 
+      {/* Header */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
-          <h1 className="text-2xl font-extrabold text-white">Gmail & Sending Accounts</h1>
+          <div className="flex items-center gap-2 mb-1">
+            <span className="text-xs font-bold uppercase tracking-wider text-blue-400 bg-blue-500/10 px-2.5 py-0.5 rounded border border-blue-500/20">
+              Email Accounts
+            </span>
+            <span className="text-xs text-slate-500 font-mono">
+              Workspace #{user?.workspace_id || 1} • Private Mailbox
+            </span>
+          </div>
+          <h1 className="text-2xl sm:text-3xl font-extrabold text-white tracking-tight">
+            Connect Your Sending Account
+          </h1>
           <p className="text-xs text-slate-400">
-            Connect your real Google Workspace or personal Gmail accounts to send live outbound campaigns.
+            Connect your own Google Gmail account using official OAuth 2.0 to send personalized business outreach at $0 operating cost.
           </p>
         </div>
 
         <button
-          type="button"
-          onClick={() => {
-            setVerifyError(null);
-            setConnectModalOpen(true);
-          }}
-          className="py-2.5 px-4 rounded-xl bg-blue-600 hover:bg-blue-500 text-white font-bold text-xs shadow-glow-sm transition-all flex items-center gap-2"
+          onClick={fetchStatus}
+          disabled={loading}
+          className="self-start sm:self-auto flex items-center gap-1.5 px-3 py-2 text-xs font-semibold text-slate-300 bg-white/[0.04] hover:bg-white/[0.08] border border-white/10 rounded-xl transition-all cursor-pointer"
         >
-          <Plus className="h-4 w-4" />
-          <span>Connect Gmail Account</span>
+          <RefreshCw className={`h-3.5 w-3.5 ${loading ? "animate-spin text-blue-400" : ""}`} />
+          <span>Refresh Status</span>
         </button>
       </div>
 
-      <div className="space-y-3">
-        {loading ? (
-          <div className="p-8 text-center text-xs text-slate-500">Loading your sending accounts...</div>
-        ) : accounts.length === 0 ? (
-          <div className="rounded-2xl border border-white/10 bg-[#0c1017] p-8 text-center space-y-3">
-            <Mail className="h-10 w-10 text-slate-500 mx-auto" />
-            <h3 className="text-base font-bold text-white">No Sending Accounts Connected</h3>
-            <p className="text-xs text-slate-400 max-w-md mx-auto">
-              To send real emails that land in prospect inboxes, connect your Gmail account using your Google App Password.
-            </p>
-            <button
-              onClick={() => setConnectModalOpen(true)}
-              className="py-2 px-4 rounded-xl bg-blue-600 hover:bg-blue-500 text-white font-bold text-xs"
-            >
-              + Connect Your Gmail
-            </button>
-          </div>
-        ) : (
-          accounts.map((acc) => (
-            <div
-              key={acc.id}
-              className="p-4 rounded-2xl border border-white/10 bg-[#0c1017] flex flex-col md:flex-row md:items-center justify-between gap-4 hover:border-white/20 transition-all"
-            >
-              <div className="flex items-center gap-3">
-                <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-blue-500/10 border border-blue-500/20 text-blue-400">
-                  <Mail className="h-5 w-5" />
-                </div>
-                <div>
-                  <div className="flex items-center gap-2">
-                    <span className="text-sm font-bold text-white">{acc.identifier}</span>
-                    <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-500/10 border border-emerald-500/30 text-emerald-400">
-                      LIVE SMTP READY
-                    </span>
-                  </div>
-                  <div className="text-[11px] text-slate-400 mt-0.5">
-                    Safe Daily Volume: {acc.daily_limit} emails/day | Sent Today: {acc.sent_today}
-                  </div>
-                </div>
+      {/* Primary Gmail Connection Card */}
+      <div className="rounded-2xl border border-white/[0.08] bg-[#0c1017] p-6 shadow-glow-sm space-y-6">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-5 border-b border-white/[0.06]">
+          <div className="flex items-center gap-3.5">
+            <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-red-500/10 border border-red-500/20 text-red-400 shrink-0">
+              <Mail className="h-6 w-6" />
+            </div>
+            <div>
+              <div className="flex items-center gap-2 flex-wrap">
+                <h3 className="text-base font-bold text-white">Google Gmail API</h3>
+                {loading ? (
+                  <span className="text-[10px] font-bold px-2 py-0.5 rounded bg-white/[0.04] text-slate-400 border border-white/10">
+                    Checking...
+                  </span>
+                ) : isConnected ? (
+                  <span className="inline-flex items-center gap-1 text-[10px] font-bold px-2.5 py-0.5 rounded bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
+                    <CheckCircle2 className="h-3 w-3" />
+                    <span>CONNECTED</span>
+                  </span>
+                ) : isReconnect ? (
+                  <span className="inline-flex items-center gap-1 text-[10px] font-bold px-2.5 py-0.5 rounded bg-amber-500/10 text-amber-400 border border-amber-500/20">
+                    <AlertTriangle className="h-3 w-3" />
+                    <span>RECONNECT REQUIRED</span>
+                  </span>
+                ) : isConfigError ? (
+                  <span className="inline-flex items-center gap-1 text-[10px] font-bold px-2.5 py-0.5 rounded bg-rose-500/10 text-rose-400 border border-rose-500/20">
+                    <AlertCircle className="h-3 w-3" />
+                    <span>CONFIGURATION ERROR</span>
+                  </span>
+                ) : (
+                  <span className="inline-flex items-center gap-1 text-[10px] font-bold px-2.5 py-0.5 rounded bg-slate-500/10 text-slate-400 border border-slate-500/20">
+                    <span>NOT CONNECTED</span>
+                  </span>
+                )}
               </div>
+              <p className="text-xs text-slate-400 mt-0.5">
+                Standard Free Gmail: 500 emails / day ($0/mo) • Google Workspace: 2,000 emails / day
+              </p>
+            </div>
+          </div>
 
-              <div className="flex items-center gap-2 shrink-0">
+          <div className="flex items-center gap-2">
+            {isConnected ? (
+              <>
                 <button
-                  type="button"
-                  onClick={() => openTestModal(acc)}
-                  className="py-2 px-3 rounded-xl border border-white/10 bg-white/[0.04] hover:bg-white/[0.08] text-xs font-semibold text-white transition-all flex items-center gap-1.5"
+                  onClick={() => setTestModalOpen(true)}
+                  className="px-3.5 py-2 text-xs font-semibold text-white bg-blue-600 hover:bg-blue-500 rounded-xl transition-all flex items-center gap-1.5"
                 >
-                  <Send className="h-3.5 w-3.5 text-blue-400" />
-                  <span>Send Real Test Email</span>
+                  <Send className="h-3.5 w-3.5" />
+                  <span>Send Test Email</span>
                 </button>
                 <button
-                  type="button"
-                  onClick={() => handleDisconnect(acc.id, acc.identifier)}
-                  className="py-2 px-3 rounded-xl border border-rose-500/20 bg-rose-500/10 hover:bg-rose-500/20 text-xs font-semibold text-rose-400 transition-all flex items-center gap-1.5"
+                  onClick={handleDisconnect}
+                  disabled={disconnecting}
+                  className="px-3.5 py-2 text-xs font-semibold text-rose-400 hover:text-white bg-rose-500/10 hover:bg-rose-500/20 border border-rose-500/20 rounded-xl transition-all flex items-center gap-1.5 disabled:opacity-50"
                 >
-                  <Trash2 className="h-3.5 w-3.5" />
-                  <span>Disconnect</span>
+                  <Power className="h-3.5 w-3.5" />
+                  <span>{disconnecting ? "Disconnecting..." : "Disconnect"}</span>
                 </button>
+              </>
+            ) : (
+              <button
+                onClick={handleConnectGmail}
+                disabled={connecting}
+                className="px-5 py-2.5 text-xs font-bold text-white bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-500 hover:to-indigo-500 rounded-xl transition-all shadow-glow-sm flex items-center gap-2 cursor-pointer disabled:opacity-50"
+              >
+                <svg className="h-4 w-4 shrink-0" viewBox="0 0 24 24">
+                  <path
+                    fill="#4285F4"
+                    d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"
+                  />
+                  <path
+                    fill="#34A853"
+                    d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"
+                  />
+                  <path
+                    fill="#FBBC05"
+                    d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.06H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.94l2.85-2.22.81-.63z"
+                  />
+                  <path
+                    fill="#EA4335"
+                    d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.06l3.66 2.84c.87-2.6 3.3-4.52 6.16-4.52z"
+                  />
+                </svg>
+                <span>{connecting ? "Opening Google Auth..." : "Connect Official Gmail Account"}</span>
+              </button>
+            )}
+          </div>
+        </div>
+
+        {/* Account Details when Connected */}
+        {isConnected && statusData?.account ? (
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+            <div className="p-4 rounded-xl bg-white/[0.02] border border-white/[0.06]">
+              <div className="text-[11px] font-semibold text-slate-400 uppercase tracking-wider mb-1">
+                Connected Sender Email
+              </div>
+              <div className="text-sm font-bold text-white font-mono">
+                {statusData.account.sender_email}
+              </div>
+              <div className="text-[10px] text-emerald-400 mt-1 flex items-center gap-1">
+                <Check className="h-3 w-3" />
+                <span>Authorized via Google OAuth 2.0</span>
               </div>
             </div>
-          ))
+
+            <div className="p-4 rounded-xl bg-white/[0.02] border border-white/[0.06]">
+              <div className="text-[11px] font-semibold text-slate-400 uppercase tracking-wider mb-1">
+                Daily Sending Quota
+              </div>
+              <div className="text-sm font-bold text-white font-mono">
+                {statusData.account.sent_today || 0} / {statusData.account.daily_limit || 500} sent today
+              </div>
+              <div className="text-[10px] text-slate-400 mt-1">
+                {Math.max(0, (statusData.account.daily_limit || 500) - (statusData.account.sent_today || 0))} emails remaining today
+              </div>
+            </div>
+
+            <div className="p-4 rounded-xl bg-white/[0.02] border border-white/[0.06]">
+              <div className="text-[11px] font-semibold text-slate-400 uppercase tracking-wider mb-1">
+                Token Security at Rest
+              </div>
+              <div className="text-sm font-bold text-emerald-400 flex items-center gap-1.5">
+                <Lock className="h-4 w-4" />
+                <span>AES-256-GCM Encrypted</span>
+              </div>
+              <div className="text-[10px] text-slate-400 mt-1">
+                Stored in Neon PostgreSQL • Isolated to Workspace
+              </div>
+            </div>
+          </div>
+        ) : (
+          <div className="p-6 rounded-xl bg-white/[0.02] border border-dashed border-white/10 text-center space-y-3">
+            <Mail className="h-8 w-8 mx-auto text-slate-500" />
+            <h4 className="text-sm font-semibold text-white">No Gmail Account Connected Yet</h4>
+            <p className="text-xs text-slate-400 max-w-md mx-auto">
+              Connecting your official Gmail account enables you to send personalized cold outreach directly from your address. We never ask for your password; authorization is handled securely via Google OAuth.
+            </p>
+          </div>
+        )}
+
+        {/* Security & Multi-Tenant Isolation Notice */}
+        <div className="p-4 rounded-xl bg-blue-500/5 border border-blue-500/15 flex items-start gap-3 text-xs text-slate-300">
+          <Shield className="h-5 w-5 text-blue-400 shrink-0 mt-0.5" />
+          <div className="space-y-1">
+            <div className="font-semibold text-blue-300">Strict Multi-Tenant Privacy Guarantee</div>
+            <p className="text-slate-400 text-[11px] leading-relaxed">
+              Your connected Gmail address and OAuth tokens are strictly isolated to your private workspace. Other clients on USMAN AI GTM cannot see or send from your email account. Tokens are encrypted with AES-256-GCM at rest and refreshed automatically.
+            </p>
+          </div>
+        </div>
+      </div>
+
+      {/* SENDER DOMAIN DELIVERABILITY HEALTH CHECKER */}
+      <div className="rounded-2xl border border-white/[0.08] bg-[#0c1017] p-6 shadow-glow-sm space-y-5">
+        <div className="flex items-center gap-3">
+          <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-emerald-500/10 border border-emerald-500/20 text-emerald-400">
+            <Globe className="h-5 w-5" />
+          </div>
+          <div>
+            <h3 className="text-sm font-bold text-white">Sender Domain Deliverability Health Checker</h3>
+            <p className="text-xs text-slate-400">
+              Free native DNS check to verify SPF, DKIM, DMARC, and MX records for your sender domain ($0 cost, &lt;200ms).
+            </p>
+          </div>
+        </div>
+
+        <form onSubmit={handleCheckDns} className="flex gap-2">
+          <input
+            type="text"
+            value={checkDomain}
+            onChange={(e) => setCheckDomain(e.target.value)}
+            placeholder="e.g. acme.com or yourcompany.com"
+            className="flex-1 rounded-xl border border-white/10 bg-white/[0.03] px-3.5 py-2.5 text-xs text-white placeholder-slate-500 focus:border-blue-500 focus:outline-none"
+          />
+          <button
+            type="submit"
+            disabled={checkingDns || !checkDomain.trim()}
+            className="px-5 py-2.5 text-xs font-bold text-white bg-blue-600 hover:bg-blue-500 rounded-xl transition-all shadow-glow-sm flex items-center gap-1.5 disabled:opacity-50"
+          >
+            {checkingDns ? (
+              <>
+                <RefreshCw className="h-3.5 w-3.5 animate-spin" />
+                <span>Checking DNS...</span>
+              </>
+            ) : (
+              <span>Check Deliverability</span>
+            )}
+          </button>
+        </form>
+
+        {dnsResults && (
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 pt-2">
+            <div className="p-3.5 rounded-xl bg-white/[0.02] border border-white/[0.06]">
+              <div className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider mb-1">
+                MX (Mail Server)
+              </div>
+              <div
+                className={`text-xs font-bold ${
+                  dnsResults.mx?.status === "PASS" ? "text-emerald-400" : "text-rose-400"
+                }`}
+              >
+                {dnsResults.mx?.status || "UNKNOWN"}
+              </div>
+              <div className="text-[10px] text-slate-500 mt-1 truncate">
+                {dnsResults.mx?.records?.[0]?.exchange || "No MX record"}
+              </div>
+            </div>
+
+            <div className="p-3.5 rounded-xl bg-white/[0.02] border border-white/[0.06]">
+              <div className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider mb-1">
+                SPF (Sender Policy)
+              </div>
+              <div
+                className={`text-xs font-bold ${
+                  dnsResults.spf?.status === "PASS" ? "text-emerald-400" : "text-amber-400"
+                }`}
+              >
+                {dnsResults.spf?.status || "UNKNOWN"}
+              </div>
+              <div className="text-[10px] text-slate-500 mt-1 truncate">
+                {dnsResults.spf?.status === "PASS" ? "Google authorized" : "Needs attention"}
+              </div>
+            </div>
+
+            <div className="p-3.5 rounded-xl bg-white/[0.02] border border-white/[0.06]">
+              <div className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider mb-1">
+                DMARC (Protection)
+              </div>
+              <div
+                className={`text-xs font-bold ${
+                  dnsResults.dmarc?.status === "PASS" ? "text-emerald-400" : "text-amber-400"
+                }`}
+              >
+                {dnsResults.dmarc?.status || "UNKNOWN"}
+              </div>
+              <div className="text-[10px] text-slate-500 mt-1 truncate">
+                {dnsResults.dmarc?.status === "PASS" ? "Policy active" : "Add DMARC TXT"}
+              </div>
+            </div>
+
+            <div className="p-3.5 rounded-xl bg-white/[0.02] border border-white/[0.06]">
+              <div className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider mb-1">
+                DKIM (Signature)
+              </div>
+              <div
+                className={`text-xs font-bold ${
+                  dnsResults.dkim?.status === "PASS" ? "text-emerald-400" : "text-slate-400"
+                }`}
+              >
+                {dnsResults.dkim?.status || "PASS (Default)"}
+              </div>
+              <div className="text-[10px] text-slate-500 mt-1 truncate">
+                Google auto-signs
+              </div>
+            </div>
+          </div>
         )}
       </div>
 
-      {/* Connect Gmail Modal */}
-      {connectModalOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-md animate-in fade-in duration-200">
-          <div className="w-full max-w-lg rounded-2xl border border-white/10 bg-[#0c1017] p-6 shadow-2xl relative text-left">
-            <button
-              onClick={() => setConnectModalOpen(false)}
-              className="absolute top-4 right-4 text-slate-400 hover:text-white p-1 rounded-lg"
-            >
-              <X className="h-5 w-5" />
-            </button>
-
-            <div className="flex items-center gap-3 mb-4">
-              <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-blue-500/10 border border-blue-500/20">
-                <Mail className="h-6 w-6 text-blue-400" />
+      {/* TEST SEND MODAL */}
+      {testModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/75 backdrop-blur-sm px-4">
+          <div className="w-full max-w-md rounded-2xl border border-white/10 bg-[#0c1017] p-6 shadow-2xl text-slate-100 space-y-4">
+            <div className="flex items-center justify-between pb-3 border-b border-white/[0.08]">
+              <div className="flex items-center gap-2">
+                <Send className="h-5 w-5 text-blue-400" />
+                <h3 className="text-base font-bold text-white">Send Live Test Email</h3>
               </div>
-              <div>
-                <h3 className="text-lg font-bold text-white">Connect Live Gmail Account</h3>
-                <p className="text-xs text-slate-400">Enables real email dispatch directly from your Gmail</p>
-              </div>
+              <button onClick={() => setTestModalOpen(false)} className="text-xs text-slate-400 hover:text-white">
+                Close
+              </button>
             </div>
 
-            {verifyError && (
-              <div className="p-3 mb-4 rounded-xl border border-rose-500/30 bg-rose-500/10 text-xs text-rose-300 flex items-start gap-2">
-                <AlertCircle className="h-4 w-4 shrink-0 mt-0.5" />
-                <span>{verifyError}</span>
-              </div>
-            )}
+            <p className="text-xs text-slate-400">
+              Send a real test email through your connected Gmail account to verify live delivery.
+            </p>
 
-            <form onSubmit={handleConnectGmailSubmit} className="space-y-4">
+            <form onSubmit={handleSendTestEmail} className="space-y-3">
               <div>
                 <label className="block text-xs font-semibold text-slate-300 mb-1">
-                  Your Gmail Address
-                </label>
-                <input
-                  type="email"
-                  required
-                  value={newGmail}
-                  onChange={(e) => setNewGmail(e.target.value)}
-                  placeholder="e.g. yourname@gmail.com"
-                  className="w-full rounded-xl border border-white/10 bg-black/50 px-3.5 py-2.5 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-blue-500"
-                />
-              </div>
-
-              <div>
-                <label className="block text-xs font-semibold text-slate-300 mb-1">
-                  Sender Display Name
-                </label>
-                <input
-                  type="text"
-                  value={newSenderName}
-                  onChange={(e) => setNewSenderName(e.target.value)}
-                  placeholder="e.g. Muhammad Usman"
-                  className="w-full rounded-xl border border-white/10 bg-black/50 px-3.5 py-2.5 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-blue-500"
-                />
-              </div>
-
-              <div>
-                <div className="flex items-center justify-between mb-1">
-                  <label className="text-xs font-semibold text-slate-300 flex items-center gap-1.5">
-                    <Key className="h-3.5 w-3.5 text-amber-400" />
-                    <span>Google 16-Character App Password</span>
-                  </label>
-                  <a
-                    href="https://myaccount.google.com/apppasswords"
-                    target="_blank"
-                    rel="noreferrer"
-                    className="text-[11px] text-blue-400 hover:underline flex items-center gap-1"
-                  >
-                    <span>Generate in Google</span>
-                    <ExternalLink className="h-3 w-3" />
-                  </a>
-                </div>
-                <input
-                  type="password"
-                  required
-                  value={newAppPassword}
-                  onChange={(e) => setNewAppPassword(e.target.value)}
-                  placeholder="xxxx xxxx xxxx xxxx"
-                  className="w-full rounded-xl border border-white/10 bg-black/50 px-3.5 py-2.5 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-blue-500 font-mono tracking-wider"
-                />
-              </div>
-
-              <div className="p-3 rounded-xl bg-blue-500/5 border border-blue-500/20 text-[11px] text-slate-300 space-y-1">
-                <div className="font-semibold text-blue-400 flex items-center gap-1">
-                  <Info className="h-3.5 w-3.5" />
-                  <span>How to get your Google App Password in 30 seconds:</span>
-                </div>
-                <ol className="list-decimal list-inside space-y-0.5 text-slate-400">
-                  <li>Open <strong>myaccount.google.com/apppasswords</strong></li>
-                  <li>Under App Name, type <strong>USMAN AI GTM</strong> and click <strong>Create</strong></li>
-                  <li>Copy the 16-letter password and paste it above!</li>
-                </ol>
-              </div>
-
-              <div className="pt-2 flex items-center justify-between gap-3">
-                <button
-                  type="button"
-                  onClick={() => setConnectModalOpen(false)}
-                  className="w-1/3 py-2.5 rounded-xl border border-white/10 text-xs text-slate-400 hover:text-white"
-                >
-                  Cancel
-                </button>
-                <button
-                  type="submit"
-                  disabled={isVerifying}
-                  className="w-2/3 py-2.5 rounded-xl bg-blue-600 hover:bg-blue-500 text-white font-bold text-xs flex items-center justify-center gap-2 shadow-glow-sm disabled:opacity-50"
-                >
-                  {isVerifying ? (
-                    <>
-                      <RefreshCw className="h-3.5 w-3.5 animate-spin" />
-                      <span>Verifying with Google...</span>
-                    </>
-                  ) : (
-                    <>
-                      <Sparkles className="h-3.5 w-3.5" />
-                      <span>Verify & Connect Gmail</span>
-                    </>
-                  )}
-                </button>
-              </div>
-            </form>
-          </div>
-        </div>
-      )}
-
-      {/* Test Email Modal */}
-      {testModalOpen && selectedAccount && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-md animate-in fade-in duration-200">
-          <div className="w-full max-w-lg rounded-2xl border border-white/10 bg-[#0c1017] p-6 shadow-2xl relative text-left">
-            <button
-              onClick={() => setTestModalOpen(false)}
-              className="absolute top-4 right-4 text-slate-400 hover:text-white p-1 rounded-lg"
-            >
-              <X className="h-5 w-5" />
-            </button>
-
-            <div className="flex items-center gap-3 mb-4">
-              <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-blue-500/10 text-blue-400">
-                <Send className="h-5 w-5" />
-              </div>
-              <div>
-                <h3 className="text-lg font-bold text-white">Send Live Test Email</h3>
-                <p className="text-xs text-slate-400">Sending real email from: {selectedAccount.identifier}</p>
-              </div>
-            </div>
-
-            <form onSubmit={handleSendRealTestEmail} className="space-y-4">
-              <div>
-                <label className="block text-xs font-semibold text-slate-300 mb-1">
-                  Recipient Email
+                  Recipient Email *
                 </label>
                 <input
                   type="email"
                   required
                   value={testRecipient}
                   onChange={(e) => setTestRecipient(e.target.value)}
-                  placeholder="e.g. your_personal_email@gmail.com"
-                  className="w-full rounded-xl border border-white/10 bg-black/50 px-3.5 py-2 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-blue-500"
+                  placeholder="youremail@example.com"
+                  className="w-full rounded-xl border border-white/10 bg-white/[0.03] px-3.5 py-2 text-xs text-white placeholder-slate-500 focus:border-blue-500 focus:outline-none"
                 />
               </div>
 
               <div>
                 <label className="block text-xs font-semibold text-slate-300 mb-1">
-                  Subject Line
+                  Subject Line *
                 </label>
                 <input
                   type="text"
                   required
                   value={testSubject}
                   onChange={(e) => setTestSubject(e.target.value)}
-                  className="w-full rounded-xl border border-white/10 bg-black/50 px-3.5 py-2 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-blue-500"
+                  className="w-full rounded-xl border border-white/10 bg-white/[0.03] px-3.5 py-2 text-xs text-white placeholder-slate-500 focus:border-blue-500 focus:outline-none"
                 />
               </div>
 
               <div>
                 <label className="block text-xs font-semibold text-slate-300 mb-1">
-                  Message Body
+                  Message Body *
                 </label>
                 <textarea
-                  rows={4}
+                  rows={3}
                   required
                   value={testBody}
                   onChange={(e) => setTestBody(e.target.value)}
-                  className="w-full rounded-xl border border-white/10 bg-black/50 p-3 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-blue-500"
+                  className="w-full rounded-xl border border-white/10 bg-white/[0.03] px-3.5 py-2 text-xs text-white placeholder-slate-500 focus:border-blue-500 focus:outline-none"
                 />
               </div>
 
-              <div className="pt-2 flex items-center justify-between gap-3">
+              <div className="pt-2 flex items-center justify-end gap-2">
                 <button
                   type="button"
                   onClick={() => setTestModalOpen(false)}
-                  className="w-1/3 py-2.5 rounded-xl border border-white/10 text-xs text-slate-400 hover:text-white"
+                  className="px-4 py-2 text-xs text-slate-400 hover:text-white"
                 >
                   Cancel
                 </button>
                 <button
                   type="submit"
-                  disabled={testSending}
-                  className="w-2/3 py-2.5 rounded-xl bg-blue-600 hover:bg-blue-500 text-white font-bold text-xs flex items-center justify-center gap-2 shadow-glow-sm disabled:opacity-50"
+                  disabled={sendingTest}
+                  className="px-5 py-2 text-xs font-bold text-white bg-blue-600 hover:bg-blue-500 rounded-xl transition-all shadow-glow-sm flex items-center gap-1.5 disabled:opacity-50"
                 >
-                  {testSending ? (
+                  {sendingTest ? (
                     <>
                       <RefreshCw className="h-3.5 w-3.5 animate-spin" />
-                      <span>Sending Real Email...</span>
+                      <span>Sending...</span>
                     </>
                   ) : (
                     <>
                       <Send className="h-3.5 w-3.5" />
-                      <span>Dispatch Real Email</span>
+                      <span>Send Now</span>
                     </>
                   )}
                 </button>
@@ -504,5 +624,13 @@ export default function AccountsPage() {
         </div>
       )}
     </div>
+  );
+}
+
+export default function AccountsPage() {
+  return (
+    <Suspense fallback={<div className="min-h-screen bg-[#07090e] flex items-center justify-center text-white text-xs">Loading...</div>}>
+      <EmailAccountsContent />
+    </Suspense>
   );
 }

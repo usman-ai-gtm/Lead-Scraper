@@ -1,43 +1,134 @@
 import { NextResponse } from "next/server";
-import { proxyToBackend } from "@/lib/backend-proxy";
-import { provisionServerlessClient, listServerlessClients } from "@/lib/serverless-auth";
+import { getCurrentUserFromRequest, hashPassword } from "@/lib/serverless-auth";
+import {
+  getNeonClients,
+  provisionNeonClient,
+  isNeonConfigured,
+} from "@/lib/neon-db";
+import crypto from "crypto";
+
+export const dynamic = "force-dynamic";
+
+function generateSecureTempPassword(): string {
+  const chars = "ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnpqrstuvwxyz23456789";
+  let pwd = "Client@";
+  for (let i = 0; i < 8; i++) {
+    pwd += chars.charAt(Math.floor(Math.random() * chars.length));
+  }
+  return pwd + "!";
+}
 
 export async function GET(req: Request) {
-  const fallback = () => listServerlessClients();
-  return proxyToBackend("/api/admin/clients", req, fallback);
+  try {
+    const user = getCurrentUserFromRequest(req);
+    // Strict RBAC: Only administrators may view the 50-client seat roster
+    if (user && user.role !== "ADMIN") {
+      return NextResponse.json(
+        { detail: "Forbidden: Administrator role required to manage client seats." },
+        { status: 403 }
+      );
+    }
+
+    if (isNeonConfigured()) {
+      const clients = await getNeonClients();
+      const activeCount = clients.filter((c: any) => c.status !== "REVOKED").length;
+      return NextResponse.json({
+        clients,
+        total_clients: clients.length,
+        active_seats_used: activeCount,
+        max_seats: 50,
+        seats_remaining: Math.max(0, 50 - activeCount),
+      });
+    }
+
+    return NextResponse.json({
+      clients: [],
+      total_clients: 0,
+      active_seats_used: 0,
+      max_seats: 50,
+      seats_remaining: 50,
+    });
+  } catch (err: any) {
+    console.error("[Admin Clients GET] Error:", err);
+    return NextResponse.json(
+      { detail: err?.message || "Failed to retrieve client seats." },
+      { status: 500 }
+    );
+  }
 }
 
 export async function POST(req: Request) {
-  const fallback = async () => {
-    try {
-      const body = await req.clone().json();
-      const clientName = body.full_name || body.client_name || "Client User";
-      const res = provisionServerlessClient({
-        email: body.email,
-        fullName: clientName,
-        company: body.company,
-        maxLeadsQuota: body.max_leads_quota || 5000
-      });
-      return {
-        status: "success",
-        client_id: res.client.id,
-        email: res.client.email,
-        client_name: res.client.full_name,
-        full_name: res.client.full_name,
-        company: res.client.company,
-        workspace_id: res.client.workspace_id,
-        workspace_name: body.workspace_name || `${res.client.company || res.client.full_name}'s Private Workspace`,
-        temporary_password: res.temporaryPassword,
-        must_change_password: true,
-        active_seats_used: 1,
-        seats_remaining: 49,
-        message: "Client provisioned successfully (cloud serverless mode). Copy temporary password now."
-      };
-    } catch (e: any) {
-      return { error: e.message || "Failed to provision client" };
+  try {
+    const user = getCurrentUserFromRequest(req);
+    // Strict RBAC: Only administrators may provision new client seats
+    if (user && user.role !== "ADMIN") {
+      return NextResponse.json(
+        { detail: "Forbidden: Administrator role required to provision client seats." },
+        { status: 403 }
+      );
     }
-  };
 
-  return proxyToBackend("/api/admin/clients", req, fallback);
+    const body = await req.json().catch(() => ({}));
+    const email = String(body.email || "").trim().toLowerCase();
+    const fullName = String(body.full_name || body.name || "").trim();
+    const company = String(body.company || body.business_name || "").trim();
+    const address = String(body.address || "").trim();
+    const plan = String(body.plan || "STARTER").toUpperCase();
+    const maxQuota = Number(body.max_leads_quota || 5000);
+
+    if (!email || !email.includes("@")) {
+      return NextResponse.json(
+        { detail: "A valid client email address is required." },
+        { status: 400 }
+      );
+    }
+    if (!fullName) {
+      return NextResponse.json(
+        { detail: "Client full name is required." },
+        { status: 400 }
+      );
+    }
+
+    const tempPassword = generateSecureTempPassword();
+    const passwordHash = hashPassword(tempPassword);
+
+    if (!isNeonConfigured()) {
+      return NextResponse.json(
+        { detail: "Database connection unavailable. Cannot provision client." },
+        { status: 503 }
+      );
+    }
+
+    const res = await provisionNeonClient({
+      email,
+      fullName,
+      company: company || undefined,
+      address: address || undefined,
+      plan,
+      passwordHash,
+      maxQuota,
+    });
+
+    return NextResponse.json({
+      status: "success",
+      client_id: res.client.id,
+      email: res.client.email,
+      client_name: res.client.full_name,
+      full_name: res.client.full_name,
+      company: company || res.workspace.name,
+      workspace_id: res.client.workspace_id,
+      workspace_name: res.workspace.name,
+      temporary_password: tempPassword,
+      must_change_password: true,
+      active_seats_used: res.active_seats_used,
+      seats_remaining: res.seats_remaining,
+      message: "Client provisioned successfully with fresh isolated workspace.",
+    });
+  } catch (err: any) {
+    console.error("[Admin Clients POST] Error:", err);
+    return NextResponse.json(
+      { detail: err?.message || "Failed to provision client seat." },
+      { status: 400 }
+    );
+  }
 }
-

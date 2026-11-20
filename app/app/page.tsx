@@ -39,6 +39,16 @@ export default function DashboardPage() {
 
   const [leads, setLeads] = useState<Lead[]>([]);
   const [totalLeads, setTotalLeads] = useState(0);
+  const [metrics, setMetrics] = useState<any>({
+    total_leads_found: 0,
+    saved_leads: 0,
+    available_email_contacts: 0,
+    connected_gmail_accounts: 0,
+    emails_sent: 0,
+    failed_emails: 0,
+    remaining_quota: 5000,
+    max_quota: 5000,
+  });
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
 
@@ -60,10 +70,23 @@ export default function DashboardPage() {
   const fetchWorkspaceOverview = async () => {
     try {
       setRefreshing(true);
-      const res = await api.get<any>("/leads", { page: 1, page_size: 10 });
-      const items = res?.leads || (Array.isArray(res) ? res : []);
+      const [leadsRes, metricsRes] = await Promise.all([
+        api.get<any>("/leads", { page: 1, page_size: 10 }),
+        fetch("/api/workspace/metrics", {
+          headers: {
+            Authorization: `Bearer ${typeof window !== "undefined" ? localStorage.getItem("usman_gtm_token") : ""}`,
+            "X-Workspace-Id": typeof window !== "undefined" ? localStorage.getItem("usman_gtm_workspace_id") || "1" : "1",
+          },
+        }).then((r) => (r.ok ? r.json() : null)).catch(() => null),
+      ]);
+
+      const items = leadsRes?.leads || (Array.isArray(leadsRes) ? leadsRes : []);
       setLeads(items);
-      setTotalLeads(res?.total !== undefined ? res.total : items.length);
+      setTotalLeads(leadsRes?.total !== undefined ? leadsRes.total : items.length);
+
+      if (metricsRes) {
+        setMetrics(metricsRes);
+      }
     } catch (err) {
       console.warn("Could not load leads overview", err);
     } finally {
@@ -148,46 +171,83 @@ export default function DashboardPage() {
         </div>
       </div>
 
-      {/* Real Workspace Metric Cards (Zero Fake Statistics) */}
-      <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
-        {/* Card 1: Actual Saved Leads in Workspace */}
-        <div className="p-4 rounded-2xl border border-white/[0.08] bg-[#0c1017] hover:border-blue-500/30 transition-all">
-          <div className="flex items-center justify-between mb-2">
-            <span className="text-[11px] font-semibold text-slate-400 uppercase tracking-wider">Saved Leads</span>
-            <Database className="h-4 w-4 text-blue-400" />
+      {/* Real Workspace Metric Cards (Strictly Derived from Database) */}
+      <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-7 gap-3">
+        {/* Card 1: Total Leads Found */}
+        <div className="p-3.5 rounded-2xl border border-white/[0.08] bg-[#0c1017] hover:border-blue-500/30 transition-all">
+          <div className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider mb-1">
+            Total Leads Found
           </div>
-          <div className="text-2xl font-extrabold text-white font-mono">{totalLeads}</div>
-          <div className="text-[10px] text-slate-500 mt-1">In your private workspace</div>
+          <div className="text-xl font-extrabold text-white font-mono">
+            {metrics.total_leads_found}
+          </div>
+          <div className="text-[10px] text-slate-500 mt-0.5">Search queries</div>
         </div>
 
-        {/* Card 2: Contact Rate calculated from real leads */}
-        <div className="p-4 rounded-2xl border border-white/[0.08] bg-[#0c1017] hover:border-emerald-500/30 transition-all">
-          <div className="flex items-center justify-between mb-2">
-            <span className="text-[11px] font-semibold text-slate-400 uppercase tracking-wider">Contact Rate</span>
-            <CheckCircle2 className="h-4 w-4 text-emerald-400" />
+        {/* Card 2: Saved Leads */}
+        <div className="p-3.5 rounded-2xl border border-white/[0.08] bg-[#0c1017] hover:border-blue-500/30 transition-all">
+          <div className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider mb-1">
+            Saved Leads
           </div>
-          <div className="text-2xl font-extrabold text-emerald-400 font-mono">{contactRate}%</div>
-          <div className="text-[10px] text-slate-500 mt-1">Verified email & phone presence</div>
+          <div className="text-xl font-extrabold text-blue-400 font-mono">
+            {metrics.saved_leads}
+          </div>
+          <div className="text-[10px] text-slate-500 mt-0.5">In workspace</div>
         </div>
 
-        {/* Card 3: Active Data Sources (Replaced artificial search quota) */}
-        <div className="p-4 rounded-2xl border border-white/[0.08] bg-[#0c1017] hover:border-purple-500/30 transition-all">
-          <div className="flex items-center justify-between mb-2">
-            <span className="text-[11px] font-semibold text-slate-400 uppercase tracking-wider">Active Data Sources</span>
-            <Layers className="h-4 w-4 text-purple-400" />
+        {/* Card 3: Available Email Contacts */}
+        <div className="p-3.5 rounded-2xl border border-white/[0.08] bg-[#0c1017] hover:border-emerald-500/30 transition-all">
+          <div className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider mb-1">
+            Email Contacts
           </div>
-          <div className="text-2xl font-extrabold text-purple-400 font-mono">{activeSourcesCount}</div>
-          <div className="text-[10px] text-slate-500 mt-1">Organic search, social, directories</div>
+          <div className="text-xl font-extrabold text-emerald-400 font-mono">
+            {metrics.available_email_contacts}
+          </div>
+          <div className="text-[10px] text-slate-500 mt-0.5">Verified emails</div>
         </div>
 
-        {/* Card 4: DATA ISOLATED (Truthful tenant isolation) */}
-        <div className="p-4 rounded-2xl border border-white/[0.08] bg-[#0c1017] hover:border-blue-500/30 transition-all">
-          <div className="flex items-center justify-between mb-2">
-            <span className="text-[11px] font-semibold text-slate-400 uppercase tracking-wider">Security Posture</span>
-            <ShieldCheck className="h-4 w-4 text-blue-400" />
+        {/* Card 4: Connected Gmail Accounts */}
+        <div className="p-3.5 rounded-2xl border border-white/[0.08] bg-[#0c1017] hover:border-purple-500/30 transition-all">
+          <div className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider mb-1">
+            Connected Gmail
           </div>
-          <div className="text-base font-extrabold text-white mt-1">DATA ISOLATED</div>
-          <div className="text-[10px] text-emerald-400 mt-1">Multi-tenant workspace isolation</div>
+          <div className="text-xl font-extrabold text-purple-400 font-mono">
+            {metrics.connected_gmail_accounts}
+          </div>
+          <div className="text-[10px] text-slate-500 mt-0.5">OAuth mailboxes</div>
+        </div>
+
+        {/* Card 5: Emails Sent */}
+        <div className="p-3.5 rounded-2xl border border-white/[0.08] bg-[#0c1017] hover:border-indigo-500/30 transition-all">
+          <div className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider mb-1">
+            Emails Sent
+          </div>
+          <div className="text-xl font-extrabold text-indigo-400 font-mono">
+            {metrics.emails_sent}
+          </div>
+          <div className="text-[10px] text-slate-500 mt-0.5">Delivered</div>
+        </div>
+
+        {/* Card 6: Failed Emails */}
+        <div className="p-3.5 rounded-2xl border border-white/[0.08] bg-[#0c1017] hover:border-rose-500/30 transition-all">
+          <div className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider mb-1">
+            Failed Emails
+          </div>
+          <div className="text-xl font-extrabold text-rose-400 font-mono">
+            {metrics.failed_emails}
+          </div>
+          <div className="text-[10px] text-slate-500 mt-0.5">Bounced / rejected</div>
+        </div>
+
+        {/* Card 7: Remaining Quota */}
+        <div className="p-3.5 rounded-2xl border border-white/[0.08] bg-[#0c1017] hover:border-amber-500/30 transition-all">
+          <div className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider mb-1">
+            Remaining Quota
+          </div>
+          <div className="text-xl font-extrabold text-amber-400 font-mono">
+            {metrics.remaining_quota}
+          </div>
+          <div className="text-[10px] text-slate-500 mt-0.5">of {metrics.max_quota} quota</div>
         </div>
       </div>
 

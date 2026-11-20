@@ -1,9 +1,19 @@
 import { NextResponse } from "next/server";
-import { proxyToBackend } from "@/lib/backend-proxy";
-import { getCurrentUserFromRequest, getServerlessLeads, addServerlessLead } from "@/lib/serverless-auth";
+import { getCurrentUserFromRequest } from "@/lib/serverless-auth";
 import { getNeonLeads, addNeonLead, isNeonConfigured } from "@/lib/neon-db";
 
+export const dynamic = "force-dynamic";
+
 export async function GET(req: Request) {
+  const currentUser = getCurrentUserFromRequest(req);
+  if (!currentUser) {
+    return NextResponse.json(
+      { detail: "Authentication required to access workspace leads." },
+      { status: 401 }
+    );
+  }
+
+  const workspaceId = currentUser.workspace_id;
   const url = new URL(req.url);
   const keyword = url.searchParams.get("keyword") || "";
   const country = url.searchParams.get("country") || "Any";
@@ -11,65 +21,60 @@ export async function GET(req: Request) {
   const page = parseInt(url.searchParams.get("page") || "1", 10);
   const pageSize = parseInt(url.searchParams.get("page_size") || "50", 10);
 
-  const currentUser = getCurrentUserFromRequest(req);
-  const workspaceId = currentUser ? currentUser.workspace_id : 1;
-
-  const fallbackHandler = async () => {
-    if (isNeonConfigured()) {
-      const neonRes = await getNeonLeads(workspaceId, {
-        keyword,
-        country,
-        city,
-        page,
-        page_size: pageSize,
-      });
-      if (neonRes !== null) {
-        return neonRes;
-      }
-    }
-
-    return getServerlessLeads(workspaceId, {
+  if (isNeonConfigured()) {
+    const neonRes = await getNeonLeads(workspaceId, {
       keyword,
       country,
       city,
       page,
       page_size: pageSize,
     });
-  };
+    if (neonRes !== null) {
+      return NextResponse.json(neonRes);
+    }
+  }
 
-  return proxyToBackend(`/api/leads?workspace_id=${workspaceId}`, req, fallbackHandler);
+  return NextResponse.json({
+    total: 0,
+    leads: [],
+    page,
+    page_size: pageSize,
+    total_pages: 1,
+  });
 }
 
 export async function POST(req: Request) {
   const currentUser = getCurrentUserFromRequest(req);
-  const workspaceId = currentUser ? currentUser.workspace_id : 1;
+  if (!currentUser) {
+    return NextResponse.json(
+      { detail: "Authentication required to save workspace leads." },
+      { status: 401 }
+    );
+  }
+
+  const workspaceId = currentUser.workspace_id;
 
   let body: any = {};
   try {
-    body = await req.clone().json();
-  } catch {}
+    body = await req.json();
+  } catch {
+    return NextResponse.json({ detail: "Invalid JSON payload" }, { status: 400 });
+  }
 
-  const fallbackHandler = async () => {
-    if (isNeonConfigured()) {
-      const created = await addNeonLead(workspaceId, body);
-      if (created) {
-        return {
-          status: "success",
-          lead_id: created.id,
-          lead: created,
-          message: "Lead saved permanently in Neon PostgreSQL."
-        };
-      }
+  if (isNeonConfigured()) {
+    const created = await addNeonLead(workspaceId, body);
+    if (created) {
+      return NextResponse.json({
+        status: "success",
+        lead_id: created.id,
+        lead: created,
+        message: "Lead saved permanently in Neon PostgreSQL.",
+      });
     }
+  }
 
-    const created = addServerlessLead(workspaceId, body);
-    return {
-      status: "success",
-      lead_id: created.id,
-      lead: created,
-      message: "Lead saved successfully to workspace."
-    };
-  };
-
-  return proxyToBackend("/api/leads", req, fallbackHandler);
+  return NextResponse.json(
+    { detail: "Failed to save lead to workspace database." },
+    { status: 500 }
+  );
 }

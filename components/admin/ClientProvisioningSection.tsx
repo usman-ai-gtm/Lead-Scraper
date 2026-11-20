@@ -34,6 +34,8 @@ export function ClientProvisioningSection() {
     email: "",
     full_name: "",
     company: "",
+    address: "",
+    plan: "STARTER",
     workspace_name: "",
     max_leads_quota: 5000,
     client_notes: "",
@@ -68,6 +70,8 @@ export function ClientProvisioningSection() {
       email: "",
       full_name: "",
       company: "",
+      address: "",
+      plan: "STARTER",
       workspace_name: "",
       max_leads_quota: 5000,
       client_notes: "",
@@ -95,6 +99,8 @@ export function ClientProvisioningSection() {
         email: formData.email.trim().toLowerCase(),
         full_name: formData.full_name.trim(),
         company: formData.company.trim() || undefined,
+        address: formData.address.trim() || undefined,
+        plan: formData.plan,
         workspace_name: formData.workspace_name.trim() || undefined,
         max_leads_quota: Number(formData.max_leads_quota) || 5000,
         client_notes: formData.client_notes.trim() || undefined,
@@ -478,6 +484,37 @@ export function ClientProvisioningSection() {
 
                 <div>
                   <label className="block text-xs font-semibold text-slate-300 mb-1">
+                    Subscription / Plan Status
+                  </label>
+                  <select
+                    value={formData.plan}
+                    onChange={(e) => setFormData({ ...formData, plan: e.target.value })}
+                    className="w-full rounded-xl border border-white/10 bg-[#0c1017] px-3.5 py-2 text-xs text-white focus:border-blue-500 focus:outline-none"
+                  >
+                    <option value="STARTER">Starter Plan ($10 / mo)</option>
+                    <option value="GROWTH">Growth Plan ($29 / mo)</option>
+                    <option value="SCALE">Scale Plan ($49 / mo)</option>
+                    <option value="ENTERPRISE">Enterprise Custom</option>
+                  </select>
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-xs font-semibold text-slate-300 mb-1">
+                  Business Address (Optional)
+                </label>
+                <input
+                  type="text"
+                  value={formData.address}
+                  onChange={(e) => setFormData({ ...formData, address: e.target.value })}
+                  placeholder="e.g. 123 Business Way, Suite 400, New York, NY"
+                  className="w-full rounded-xl border border-white/10 bg-white/[0.03] px-3.5 py-2 text-xs text-white placeholder-slate-500 focus:border-blue-500 focus:outline-none"
+                />
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs font-semibold text-slate-300 mb-1">
                     Workspace Name
                   </label>
                   <input
@@ -488,18 +525,18 @@ export function ClientProvisioningSection() {
                     className="w-full rounded-xl border border-white/10 bg-white/[0.03] px-3.5 py-2 text-xs text-white placeholder-slate-500 focus:border-blue-500 focus:outline-none"
                   />
                 </div>
-              </div>
 
-              <div>
-                <label className="block text-xs font-semibold text-slate-300 mb-1">
-                  Max Leads Quota
-                </label>
-                <input
-                  type="number"
-                  value={formData.max_leads_quota}
-                  onChange={(e) => setFormData({ ...formData, max_leads_quota: Number(e.target.value) })}
-                  className="w-full rounded-xl border border-white/10 bg-white/[0.03] px-3.5 py-2 text-xs text-white placeholder-slate-500 focus:border-blue-500 focus:outline-none"
-                />
+                <div>
+                  <label className="block text-xs font-semibold text-slate-300 mb-1">
+                    Max Leads Quota
+                  </label>
+                  <input
+                    type="number"
+                    value={formData.max_leads_quota}
+                    onChange={(e) => setFormData({ ...formData, max_leads_quota: Number(e.target.value) })}
+                    className="w-full rounded-xl border border-white/10 bg-white/[0.03] px-3.5 py-2 text-xs text-white placeholder-slate-500 focus:border-blue-500 focus:outline-none"
+                  />
+                </div>
               </div>
 
               <div>

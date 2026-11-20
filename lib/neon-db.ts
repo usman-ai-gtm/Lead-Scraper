@@ -1,4 +1,5 @@
 import { neon } from "@neondatabase/serverless";
+import { encryptToken, decryptToken } from "@/lib/token-crypto";
 
 function getConnectionString(): string | null {
   let dbUrl = process.env.DATABASE_URL || process.env.POSTGRES_URL;
@@ -607,12 +608,7 @@ export async function getNeonGmailTokens(workspaceId: number) {
       [workspaceId]
     );
     if (!rows[0]) return null;
-    let tokens: any = {};
-    try {
-      tokens = typeof rows[0].oauth_token_json === "string"
-        ? JSON.parse(rows[0].oauth_token_json)
-        : rows[0].oauth_token_json;
-    } catch {}
+    let tokens: any = decryptToken(rows[0].oauth_token_json) || {};
     return {
       accountId: rows[0].id,
       senderEmail: rows[0].sender_email,
@@ -651,6 +647,7 @@ export async function saveNeonGmailAccount(
     );
 
     const tokens = data.tokenData || data.oauthTokens || {};
+    const encryptedTokens = encryptToken(tokens);
     const limit = data.dailyLimit || 500;
 
     const rows = await sql.query(
@@ -666,7 +663,7 @@ export async function saveNeonGmailAccount(
         data.senderName,
         data.senderEmail.toLowerCase().trim(),
         "GMAIL_OAUTH",
-        JSON.stringify(tokens),
+        encryptedTokens,
         limit,
         0,
         1,
@@ -862,5 +859,218 @@ export async function updateNeonLeadOutreachStatus(
   } catch (e) {
     console.error("Neon updateLeadOutreachStatus error:", e);
     return false;
+  }
+}
+
+/**
+ * USMAN AI GTM - 50-Seat Multi-Tenant Client Management
+ */
+export async function getNeonClients() {
+  const sql = getNeonSql();
+  if (!sql) return [];
+  try {
+    const clients = await sql.query(`
+      SELECT 
+        u.id,
+        u.email,
+        u.full_name,
+        u.role,
+        u.workspace_id,
+        u.status,
+        u.created_at,
+        COALESCE(w.name, u.full_name || '''s Workspace') as workspace_name,
+        COALESCE(w.plan, 'STARTER') as plan,
+        COALESCE((SELECT COUNT(*) FROM leads l WHERE l.workspace_id = u.workspace_id), 0) as total_leads,
+        COALESCE((SELECT COUNT(*) FROM email_accounts ea WHERE ea.workspace_id = u.workspace_id AND ea.is_active = 1), 0) as connected_accounts
+      FROM users u
+      LEFT JOIN workspaces w ON u.workspace_id = w.id
+      WHERE u.role != 'ADMIN'
+      ORDER BY u.id DESC
+    `);
+    return clients.map((c: any) => ({
+      ...c,
+      total_leads: parseInt(c.total_leads || "0", 10),
+      connected_accounts: parseInt(c.connected_accounts || "0", 10),
+    }));
+  } catch (e) {
+    console.error("Neon getNeonClients error:", e);
+    return [];
+  }
+}
+
+export async function provisionNeonClient(data: {
+  email: string;
+  fullName: string;
+  company?: string;
+  address?: string;
+  plan?: string;
+  passwordHash: string;
+  maxQuota?: number;
+}) {
+  const sql = getNeonSql();
+  if (!sql) throw new Error("Database connection unavailable");
+  
+  const cleanEmail = data.email.trim().toLowerCase();
+  
+  // 1. Check if user already exists
+  const existing = await sql.query(
+    "SELECT id FROM users WHERE LOWER(email) = LOWER($1) LIMIT 1",
+    [cleanEmail]
+  );
+  if (existing.length > 0) {
+    throw new Error(`Client with email ${cleanEmail} already exists.`);
+  }
+
+  // 2. Count active seats
+  const activeCountRes = await sql.query(
+    "SELECT COUNT(*) as cnt FROM users WHERE role != 'ADMIN' AND status != 'REVOKED'"
+  );
+  const activeCount = parseInt(activeCountRes[0]?.cnt || "0", 10);
+  if (activeCount >= 50) {
+    throw new Error("Maximum 50-client seat quota reached. Please upgrade seat license.");
+  }
+
+  const nowIso = new Date().toISOString();
+  const wsName = data.company ? `${data.company.trim()} Workspace` : `${data.fullName.trim()}'s Workspace`;
+  const plan = data.plan || "STARTER";
+
+  // 3. Create fresh, completely isolated workspace (0 leads, 0 accounts, 0 campaigns)
+  const wsRes = await sql.query(
+    `INSERT INTO workspaces (
+      name, plan, status, max_seats, created_at, updated_at
+    ) VALUES ($1, $2, 'ACTIVE', 1, $3, $3)
+    RETURNING id, name, plan`,
+    [wsName, plan, nowIso]
+  );
+  const workspaceId = wsRes[0].id;
+
+  // 4. Create client user linked strictly to this new workspace
+  const userRes = await sql.query(
+    `INSERT INTO users (
+      email, full_name, role, workspace_id, status, password_hash, created_at, updated_at
+    ) VALUES ($1, $2, 'CLIENT', $3, 'ACTIVE', $4, $5, $5)
+    RETURNING id, email, full_name, role, workspace_id, status, created_at`,
+    [cleanEmail, data.fullName.trim(), workspaceId, data.passwordHash, nowIso]
+  );
+
+  return {
+    client: userRes[0],
+    workspace: wsRes[0],
+    active_seats_used: activeCount + 1,
+    seats_remaining: Math.max(0, 50 - (activeCount + 1)),
+  };
+}
+
+export async function updateNeonClientStatus(clientId: number, newStatus: string) {
+  const sql = getNeonSql();
+  if (!sql) return false;
+  try {
+    const validStatus = ["ACTIVE", "SUSPENDED", "REVOKED"].includes(newStatus.toUpperCase())
+      ? newStatus.toUpperCase()
+      : "ACTIVE";
+    const res = await sql.query(
+      "UPDATE users SET status = $1, updated_at = $2 WHERE id = $3 AND role != 'ADMIN' RETURNING id",
+      [validStatus, new Date().toISOString(), clientId]
+    );
+    return res.length > 0;
+  } catch (e) {
+    console.error("Neon updateNeonClientStatus error:", e);
+    return false;
+  }
+}
+
+export async function resetNeonClientPassword(clientId: number, passwordHash: string) {
+  const sql = getNeonSql();
+  if (!sql) return false;
+  try {
+    const res = await sql.query(
+      "UPDATE users SET password_hash = $1, updated_at = $2 WHERE id = $3 AND role != 'ADMIN' RETURNING id",
+      [passwordHash, new Date().toISOString(), clientId]
+    );
+    return res.length > 0;
+  } catch (e) {
+    console.error("Neon resetNeonClientPassword error:", e);
+    return false;
+  }
+}
+
+/**
+ * Genuine Client Dashboard Metrics (Derived strictly from database records)
+ */
+export async function getNeonClientDashboardMetrics(workspaceId: number) {
+  const sql = getNeonSql();
+  if (!sql) return null;
+  await ensureOutreachTable();
+
+  try {
+    // 1. Saved leads count in this workspace
+    const leadsRes = await sql.query(
+      "SELECT COUNT(*) as cnt FROM leads WHERE workspace_id = $1",
+      [workspaceId]
+    );
+    const totalSavedLeads = parseInt(leadsRes[0]?.cnt || "0", 10);
+
+    // 2. Leads with valid email address
+    const emailsRes = await sql.query(
+      "SELECT COUNT(*) as cnt FROM leads WHERE workspace_id = $1 AND email IS NOT NULL AND email != '' AND email != 'Not Found'",
+      [workspaceId]
+    );
+    const availableEmailContacts = parseInt(emailsRes[0]?.cnt || "0", 10);
+
+    // 3. Leads with valid phone number
+    const phonesRes = await sql.query(
+      "SELECT COUNT(*) as cnt FROM leads WHERE workspace_id = $1 AND phone IS NOT NULL AND phone != '' AND phone != 'Not Listed' AND phone != 'Not Found'",
+      [workspaceId]
+    );
+    const availablePhoneContacts = parseInt(phonesRes[0]?.cnt || "0", 10);
+
+    // 4. Connected active Gmail accounts
+    const accRes = await sql.query(
+      "SELECT COUNT(*) as cnt FROM email_accounts WHERE workspace_id = $1 AND is_active = 1",
+      [workspaceId]
+    );
+    const connectedEmailAccounts = parseInt(accRes[0]?.cnt || "0", 10);
+
+    // 5. Total emails sent
+    const sentRes = await sql.query(
+      "SELECT COUNT(*) as cnt FROM outreach_records WHERE workspace_id = $1 AND outreach_status = 'EMAIL SENT'",
+      [workspaceId]
+    );
+    const emailsSent = parseInt(sentRes[0]?.cnt || "0", 10);
+
+    // 6. Failed emails
+    const failedRes = await sql.query(
+      "SELECT COUNT(*) as cnt FROM outreach_records WHERE workspace_id = $1 AND outreach_status = 'FAILED'",
+      [workspaceId]
+    );
+    const failedEmails = parseInt(failedRes[0]?.cnt || "0", 10);
+
+    // 7. Total search leads discovered
+    const searchRes = await sql.query(
+      "SELECT COALESCE(SUM(qualified_quantity), 0) as total_found FROM search_records WHERE workspace_id = $1",
+      [workspaceId]
+    );
+    const totalLeadsFound = parseInt(searchRes[0]?.total_found || "0", 10);
+
+    // Quota limits
+    const maxLeadsQuota = 5000;
+    const remainingQuota = Math.max(0, maxLeadsQuota - totalSavedLeads);
+
+    return {
+      workspace_id: workspaceId,
+      total_leads_found: Math.max(totalLeadsFound, totalSavedLeads),
+      saved_leads: totalSavedLeads,
+      available_email_contacts: availableEmailContacts,
+      available_phone_contacts: availablePhoneContacts,
+      connected_gmail_accounts: connectedEmailAccounts,
+      emails_sent: emailsSent,
+      failed_emails: failedEmails,
+      remaining_quota: remainingQuota,
+      max_quota: maxLeadsQuota,
+      contact_rate: totalSavedLeads > 0 ? Math.round((availableEmailContacts / totalSavedLeads) * 100) : 0,
+    };
+  } catch (e) {
+    console.error("Neon getNeonClientDashboardMetrics error:", e);
+    return null;
   }
 }

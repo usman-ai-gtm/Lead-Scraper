@@ -58,12 +58,12 @@ export async function POST(req: Request) {
     const country = (rawCountry === "ALL COUNTRIES" || rawCountry === "All Countries" || !rawCountry) ? "" : rawCountry;
     const city = (rawCity === "ALL_CITIES" || rawCity === "All Cities") ? "" : rawCity;
 
-    const serperKey = process.env.SERPER_API_KEY || "2baa9b7d5907ecc3fe3fceebb8c4b9b7e30e3297";
+    const serperKey = process.env.SERPER_API_KEY || "";
     if (!serperKey || serperKey.startsWith("your_")) {
       return NextResponse.json(
         {
           status: "error",
-          message: "Search provider API key is not configured.",
+          message: "Search engine API provider is currently being configured by system administrator.",
           qualified_count: 0,
           leads: [],
         },

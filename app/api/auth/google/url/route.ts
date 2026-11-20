@@ -1,17 +1,37 @@
 import { NextResponse } from "next/server";
 
+export const dynamic = "force-dynamic";
+
 export async function GET(request: Request) {
   const url = new URL(request.url);
+  const isVercel = Boolean(process.env.VERCEL || process.env.NEXT_PUBLIC_VERCEL_ENV);
   const origin = url.origin;
+
+  const clientId = (process.env.GOOGLE_CLIENT_ID || process.env.NEXT_PUBLIC_GOOGLE_CLIENT_ID || "").trim();
   
-  const clientId = process.env.GOOGLE_CLIENT_ID || process.env.NEXT_PUBLIC_GOOGLE_CLIENT_ID || "";
-  const redirectUri = process.env.GOOGLE_REDIRECT_URI || `${origin}/api/auth/google/callback`;
-  
-  const isConfigured = Boolean(clientId && clientId.trim().length > 0);
+  // Uses the exact authorized redirect URI registered in Google Cloud Console
+  const redirectUri = process.env.GOOGLE_AUTH_REDIRECT_URI ||
+    (isVercel
+      ? "https://lead-scraper-mxs5.vercel.app/api/integrations/gmail/callback"
+      : `${origin}/api/integrations/gmail/callback`);
+
+  const isConfigured = Boolean(clientId && clientId.length > 0);
+
+  // Signed state token identifying this as an authentication login flow (not mailbox connection)
+  const statePayload = Buffer.from(
+    JSON.stringify({
+      action: "google_login",
+      ts: Date.now(),
+    })
+  ).toString("base64url");
 
   const scope = encodeURIComponent("openid email profile");
   const authUrl = isConfigured
-    ? `https://accounts.google.com/o/oauth2/v2/auth?client_id=${encodeURIComponent(clientId)}&redirect_uri=${encodeURIComponent(redirectUri)}&response_type=code&scope=${scope}&access_type=offline&prompt=select_account`
+    ? `https://accounts.google.com/o/oauth2/v2/auth?client_id=${encodeURIComponent(
+        clientId
+      )}&redirect_uri=${encodeURIComponent(
+        redirectUri
+      )}&response_type=code&scope=${scope}&access_type=offline&prompt=select_account&state=${statePayload}`
     : "";
 
   return NextResponse.json({
@@ -23,7 +43,6 @@ export async function GET(request: Request) {
       required_env_vars: ["GOOGLE_CLIENT_ID", "GOOGLE_CLIENT_SECRET"],
       authorized_redirect_uri: redirectUri,
       scopes: ["openid", "email", "profile"],
-      console_url: "https://console.cloud.google.com/apis/credentials",
     },
   });
 }
