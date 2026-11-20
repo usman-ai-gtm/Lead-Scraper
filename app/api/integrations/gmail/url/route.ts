@@ -1,18 +1,28 @@
 import { NextResponse } from "next/server";
 import { getCurrentUserFromRequest } from "@/lib/serverless-auth";
 
-export async function GET(request: Request) {
+function getExactRedirectUri(request: Request): string {
+  if (process.env.GOOGLE_GMAIL_REDIRECT_URI) {
+    return process.env.GOOGLE_GMAIL_REDIRECT_URI;
+  }
   const url = new URL(request.url);
-  const origin = url.origin;
+  if (url.hostname === "localhost" || url.hostname === "127.0.0.1") {
+    return `${url.origin}/api/integrations/gmail/callback`;
+  }
+  return "https://lead-scraper-mxs5.vercel.app/api/integrations/gmail/callback";
+}
 
+export async function GET(request: Request) {
   const currentUser = getCurrentUserFromRequest(request);
-  const workspaceId = currentUser ? currentUser.workspace_id : 1;
+  const wsHeader = request.headers.get("x-workspace-id") || request.headers.get("X-Workspace-Id");
+  const workspaceId = currentUser ? currentUser.workspace_id : (wsHeader ? Number(wsHeader) : 1);
   const userId = currentUser ? currentUser.id : 1;
 
-  const clientId = process.env.GOOGLE_CLIENT_ID || process.env.NEXT_PUBLIC_GOOGLE_CLIENT_ID || "";
-  const redirectUri = process.env.GOOGLE_GMAIL_REDIRECT_URI || `${origin}/api/integrations/gmail/callback`;
+  const clientId = (process.env.GOOGLE_CLIENT_ID || process.env.NEXT_PUBLIC_GOOGLE_CLIENT_ID || "").trim();
+  const clientSecret = (process.env.GOOGLE_CLIENT_SECRET || "").trim();
+  const isConfigured = Boolean(clientId.length > 0 && clientSecret.length > 0);
 
-  const isConfigured = Boolean(clientId && clientId.trim().length > 0);
+  const redirectUri = getExactRedirectUri(request);
 
   // Security state parameter containing workspace_id, user_id, and timestamp
   const statePayload = Buffer.from(
@@ -23,7 +33,7 @@ export async function GET(request: Request) {
     })
   ).toString("base64url");
 
-  // Scopes strictly required: Gmail send and User profile email
+  // Official Scopes: Gmail sending & User email identity
   const scopes = [
     "https://www.googleapis.com/auth/gmail.send",
     "https://www.googleapis.com/auth/userinfo.email",
@@ -45,7 +55,7 @@ export async function GET(request: Request) {
     configured: isConfigured,
     redirect_uri: redirectUri,
     auth_url: authUrl,
-    scopes: ["gmail.send", "userinfo.email"],
+    scopes: ["https://www.googleapis.com/auth/gmail.send", "https://www.googleapis.com/auth/userinfo.email"],
     note: "Official Google OAuth 2.0 authorization for direct personal Gmail outreach."
   });
 }

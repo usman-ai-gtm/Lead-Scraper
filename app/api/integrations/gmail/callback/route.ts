@@ -1,16 +1,35 @@
 import { NextResponse } from "next/server";
 import { saveNeonGmailAccount } from "@/lib/neon-db";
 
+function getExactRedirectUri(request: Request): string {
+  if (process.env.GOOGLE_GMAIL_REDIRECT_URI) {
+    return process.env.GOOGLE_GMAIL_REDIRECT_URI;
+  }
+  const url = new URL(request.url);
+  if (url.hostname === "localhost" || url.hostname === "127.0.0.1") {
+    return `${url.origin}/api/integrations/gmail/callback`;
+  }
+  return "https://lead-scraper-mxs5.vercel.app/api/integrations/gmail/callback";
+}
+
+function getAppBaseUrl(request: Request): string {
+  const url = new URL(request.url);
+  if (url.hostname === "localhost" || url.hostname === "127.0.0.1") {
+    return url.origin;
+  }
+  return "https://lead-scraper-mxs5.vercel.app";
+}
+
 export async function GET(request: Request) {
   const url = new URL(request.url);
   const code = url.searchParams.get("code");
   const error = url.searchParams.get("error");
   const state = url.searchParams.get("state");
-  const origin = url.origin;
+  const appBase = getAppBaseUrl(request);
 
   if (error || !code) {
     const errorMsg = error || "Google authorization was cancelled or failed.";
-    return NextResponse.redirect(`${origin}/app/settings?tab=gmail&status=error&message=${encodeURIComponent(errorMsg)}`);
+    return NextResponse.redirect(`${appBase}/app/settings?tab=gmail&status=error&message=${encodeURIComponent(errorMsg)}`);
   }
 
   // Parse state to identify workspace
@@ -26,9 +45,9 @@ export async function GET(request: Request) {
     }
   }
 
-  const clientId = process.env.GOOGLE_CLIENT_ID || process.env.NEXT_PUBLIC_GOOGLE_CLIENT_ID || "";
-  const clientSecret = process.env.GOOGLE_CLIENT_SECRET || "";
-  const redirectUri = process.env.GOOGLE_GMAIL_REDIRECT_URI || `${origin}/api/integrations/gmail/callback`;
+  const clientId = (process.env.GOOGLE_CLIENT_ID || process.env.NEXT_PUBLIC_GOOGLE_CLIENT_ID || "").trim();
+  const clientSecret = (process.env.GOOGLE_CLIENT_SECRET || "").trim();
+  const redirectUri = getExactRedirectUri(request);
 
   try {
     // 1. Exchange authorization code for tokens
@@ -48,7 +67,7 @@ export async function GET(request: Request) {
       const errJson = await tokenRes.json().catch(() => ({}));
       console.error("[Gmail OAuth] Token exchange failed:", errJson);
       return NextResponse.redirect(
-        `${origin}/app/settings?tab=gmail&status=error&message=${encodeURIComponent(
+        `${appBase}/app/settings?tab=gmail&status=error&message=${encodeURIComponent(
           errJson.error_description || "Google token exchange failed"
         )}`
       );
@@ -64,7 +83,7 @@ export async function GET(request: Request) {
 
     if (!profileRes.ok) {
       return NextResponse.redirect(
-        `${origin}/app/settings?tab=gmail&status=error&message=${encodeURIComponent("Could not retrieve Gmail profile.")}`
+        `${appBase}/app/settings?tab=gmail&status=error&message=${encodeURIComponent("Could not retrieve Gmail profile.")}`
       );
     }
 
@@ -81,12 +100,12 @@ export async function GET(request: Request) {
     });
 
     return NextResponse.redirect(
-      `${origin}/app/settings?tab=gmail&status=connected&email=${encodeURIComponent(senderEmail)}`
+      `${appBase}/app/settings?tab=gmail&status=connected&email=${encodeURIComponent(senderEmail)}`
     );
   } catch (err: any) {
     console.error("[Gmail OAuth] Callback exception:", err);
     return NextResponse.redirect(
-      `${origin}/app/settings?tab=gmail&status=error&message=${encodeURIComponent(err.message || "An unexpected error occurred.")}`
+      `${appBase}/app/settings?tab=gmail&status=error&message=${encodeURIComponent(err.message || "An unexpected error occurred.")}`
     );
   }
 }

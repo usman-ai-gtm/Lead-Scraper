@@ -10,7 +10,8 @@ import {
 
 export async function POST(request: Request) {
   const currentUser = getCurrentUserFromRequest(request);
-  const workspaceId = currentUser ? currentUser.workspace_id : 1;
+  const wsHeader = request.headers.get("x-workspace-id") || request.headers.get("X-Workspace-Id");
+  const workspaceId = currentUser ? currentUser.workspace_id : (wsHeader ? Number(wsHeader) : 1);
   const userId = currentUser ? currentUser.id : 1;
 
   let body: any = {};

@@ -12,6 +12,7 @@ import {
 interface GmailStatus {
   configured: boolean;
   connected: boolean;
+  status_code: "CONNECTED" | "NOT_CONNECTED" | "CONFIGURATION_ERROR" | "RECONNECT_REQUIRED";
   account: {
     sender_email: string;
     sender_name: string;
@@ -25,6 +26,7 @@ interface GmailStatus {
   provider: string;
   daily_quota: number;
   cost: string;
+  redirect_uri?: string;
 }
 
 interface DnsCheckData {
@@ -128,11 +130,24 @@ export default function SettingsPage() {
     loadIcp();
   }, []);
 
+  const getAuthHeaders = () => {
+    const headers: Record<string, string> = {};
+    if (typeof window !== "undefined") {
+      const token = localStorage.getItem("usman_gtm_token");
+      if (token) headers["Authorization"] = `Bearer ${token}`;
+      const wsId = localStorage.getItem("usman_gtm_workspace_id");
+      if (wsId) headers["X-Workspace-Id"] = wsId;
+    }
+    return headers;
+  };
+
   // Fetch Gmail status when switching to "gmail" tab or on mount
   const fetchGmailStatus = async () => {
     setGmailLoading(true);
     try {
-      const res = await fetch("/api/integrations/gmail/status");
+      const res = await fetch("/api/integrations/gmail/status", {
+        headers: getAuthHeaders(),
+      });
       if (res.ok) {
         const data: GmailStatus = await res.json();
         setGmailStatus(data);
@@ -159,13 +174,15 @@ export default function SettingsPage() {
   const handleConnectGmail = async () => {
     setGmailActionLoading(true);
     try {
-      const res = await fetch("/api/integrations/gmail/url");
+      const res = await fetch("/api/integrations/gmail/url", {
+        headers: getAuthHeaders(),
+      });
       const data = await res.json();
       if (data.configured && data.auth_url) {
         window.location.href = data.auth_url;
       } else {
         alert(
-          "Google OAuth credentials (GOOGLE_CLIENT_ID & GOOGLE_CLIENT_SECRET) are not yet configured in production environment.\n\nPlease configure them in your Vercel Project Settings > Environment Variables."
+          "Google OAuth credentials (GOOGLE_CLIENT_ID & GOOGLE_CLIENT_SECRET) are not yet configured or pending propagation in production environment.\n\nPlease verify Vercel Project Settings > Environment Variables."
         );
       }
     } catch (e: any) {
@@ -179,7 +196,10 @@ export default function SettingsPage() {
     if (!confirm("Are you sure you want to disconnect your Gmail account from USMAN AI GTM?")) return;
     setGmailActionLoading(true);
     try {
-      const res = await fetch("/api/integrations/gmail/disconnect", { method: "POST" });
+      const res = await fetch("/api/integrations/gmail/disconnect", {
+        method: "POST",
+        headers: getAuthHeaders(),
+      });
       if (res.ok) {
         setSavedMsg("Gmail account disconnected.");
         setTimeout(() => setSavedMsg(null), 3500);
@@ -534,42 +554,99 @@ export default function SettingsPage() {
 
             {/* Connection Status Box */}
             <div className="p-4 rounded-xl border border-white/[0.06] bg-white/[0.02] space-y-4">
-              <div className="flex items-center justify-between">
+              <div className="flex items-center justify-between flex-wrap gap-4">
                 <div className="flex items-center gap-3">
                   <div className={`h-10 w-10 rounded-xl flex items-center justify-center font-bold text-base ${
-                    gmailStatus?.connected ? "bg-emerald-500/10 text-emerald-400 border border-emerald-500/20" : "bg-white/[0.05] text-slate-400 border border-white/10"
+                    (gmailStatus?.status_code === "CONNECTED" || (gmailStatus?.connected && gmailStatus?.status_code !== "RECONNECT_REQUIRED"))
+                      ? "bg-emerald-500/10 text-emerald-400 border border-emerald-500/20"
+                      : gmailStatus?.status_code === "RECONNECT_REQUIRED"
+                      ? "bg-amber-500/10 text-amber-400 border border-amber-500/20"
+                      : gmailStatus?.status_code === "CONFIGURATION_ERROR" || !gmailStatus?.configured
+                      ? "bg-rose-500/10 text-rose-400 border border-rose-500/20"
+                      : "bg-white/[0.05] text-slate-400 border border-white/10"
                   }`}>
                     <Mail className="h-5 w-5" />
                   </div>
                   <div>
                     <div className="flex items-center gap-2">
                       <span className="font-bold text-white text-sm">
-                        {gmailStatus?.connected ? (gmailStatus.account?.sender_email || "Connected Gmail Account") : "No Gmail Account Connected"}
+                        {gmailStatus?.connected && gmailStatus?.account?.sender_email
+                          ? gmailStatus.account.sender_email
+                          : "Google Gmail Integration"}
                       </span>
-                      <span className={`px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider ${
-                        gmailStatus?.connected
-                          ? "bg-emerald-500/20 text-emerald-400 border border-emerald-500/30"
-                          : "bg-slate-800 text-slate-400 border border-slate-700"
-                      }`}>
-                        {gmailStatus?.connected ? "CONNECTED" : "DISCONNECTED"}
-                      </span>
+
+                      {/* Explicit Requirement: CONNECTED, NOT CONNECTED, CONFIGURATION ERROR, RECONNECT REQUIRED */}
+                      {(gmailStatus?.status_code === "CONNECTED" || (gmailStatus?.connected && gmailStatus?.status_code !== "RECONNECT_REQUIRED")) ? (
+                        <span className="px-2.5 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 flex items-center gap-1">
+                          <CheckCircle2 className="h-3 w-3" />
+                          <span>CONNECTED</span>
+                        </span>
+                      ) : gmailStatus?.status_code === "RECONNECT_REQUIRED" ? (
+                        <span className="px-2.5 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider bg-amber-500/20 text-amber-400 border border-amber-500/30 flex items-center gap-1">
+                          <AlertTriangle className="h-3 w-3" />
+                          <span>RECONNECT REQUIRED</span>
+                        </span>
+                      ) : (gmailStatus?.status_code === "CONFIGURATION_ERROR" || !gmailStatus?.configured) ? (
+                        <span className="px-2.5 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider bg-rose-500/20 text-rose-400 border border-rose-500/30 flex items-center gap-1">
+                          <AlertCircle className="h-3 w-3" />
+                          <span>CONFIGURATION ERROR</span>
+                        </span>
+                      ) : (
+                        <span className="px-2.5 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider bg-slate-800 text-slate-400 border border-slate-700">
+                          NOT CONNECTED
+                        </span>
+                      )}
                     </div>
+
                     <div className="text-[11px] text-slate-400 mt-0.5">
-                      {gmailStatus?.connected
-                        ? `Authorized sender: ${gmailStatus.account?.sender_name || "Sales Outreach"} · Daily quota: ${gmailStatus.account?.daily_limit || 500} emails/day`
-                        : "Outreach emails cannot be sent until an active Gmail account is connected."}
+                      {(gmailStatus?.status_code === "CONNECTED" || (gmailStatus?.connected && gmailStatus?.status_code !== "RECONNECT_REQUIRED")) ? (
+                        <span>Authorized sender: <strong className="text-white">{gmailStatus?.account?.sender_name || "Sales Outreach"}</strong> · Daily quota: <strong className="text-white">{gmailStatus?.account?.daily_limit || 500} emails/day</strong></span>
+                      ) : gmailStatus?.status_code === "RECONNECT_REQUIRED" ? (
+                        <span className="text-amber-300">Previous OAuth session has expired or requires consent renewal. Click Reconnect below.</span>
+                      ) : (gmailStatus?.status_code === "CONFIGURATION_ERROR" || !gmailStatus?.configured) ? (
+                        <span className="text-rose-300">Google OAuth credentials are pending redeployment propagation on Vercel.</span>
+                      ) : (
+                        <span>Ready to authorize. Click Connect to authorize your personal or business Gmail address.</span>
+                      )}
                     </div>
                   </div>
                 </div>
 
-                <div>
-                  {gmailStatus?.connected ? (
+                <div className="flex items-center gap-2">
+                  {(gmailStatus?.status_code === "CONNECTED" || (gmailStatus?.connected && gmailStatus?.status_code !== "RECONNECT_REQUIRED")) ? (
+                    <>
+                      <button
+                        onClick={handleDisconnectGmail}
+                        disabled={gmailActionLoading}
+                        className="px-3.5 py-1.5 rounded-xl border border-rose-500/30 bg-rose-500/10 text-rose-400 hover:bg-rose-500/20 font-semibold text-xs transition-colors cursor-pointer"
+                      >
+                        {gmailActionLoading ? "Disconnecting..." : "Disconnect Gmail"}
+                      </button>
+                      <button
+                        onClick={handleConnectGmail}
+                        disabled={gmailActionLoading}
+                        className="px-3.5 py-1.5 rounded-xl border border-white/10 bg-white/[0.04] text-slate-300 hover:text-white hover:bg-white/[0.08] font-semibold text-xs transition-colors cursor-pointer"
+                      >
+                        Switch Account
+                      </button>
+                    </>
+                  ) : gmailStatus?.status_code === "RECONNECT_REQUIRED" ? (
                     <button
-                      onClick={handleDisconnectGmail}
+                      onClick={handleConnectGmail}
                       disabled={gmailActionLoading}
-                      className="px-3.5 py-1.5 rounded-xl border border-rose-500/30 bg-rose-500/10 text-rose-400 hover:bg-rose-500/20 font-semibold text-xs transition-colors cursor-pointer"
+                      className="px-4 py-2 rounded-xl bg-amber-600 hover:bg-amber-500 text-white font-bold text-xs shadow-glow-sm flex items-center gap-1.5 cursor-pointer"
                     >
-                      {gmailActionLoading ? "Disconnecting..." : "Disconnect Gmail"}
+                      <RefreshCw className={`h-3.5 w-3.5 ${gmailActionLoading ? "animate-spin" : ""}`} />
+                      <span>{gmailActionLoading ? "Connecting..." : "Reconnect Gmail"}</span>
+                    </button>
+                  ) : (gmailStatus?.status_code === "CONFIGURATION_ERROR" || !gmailStatus?.configured) ? (
+                    <button
+                      onClick={fetchGmailStatus}
+                      disabled={gmailLoading}
+                      className="px-4 py-2 rounded-xl bg-white/[0.05] hover:bg-white/[0.1] text-slate-300 font-bold text-xs border border-white/10 flex items-center gap-1.5 cursor-pointer"
+                    >
+                      <RefreshCw className={`h-3.5 w-3.5 ${gmailLoading ? "animate-spin" : ""}`} />
+                      <span>Re-check Configuration</span>
                     </button>
                   ) : (
                     <button
@@ -578,7 +655,7 @@ export default function SettingsPage() {
                       className="px-4 py-2 rounded-xl bg-blue-600 hover:bg-blue-500 text-white font-bold text-xs shadow-glow-sm flex items-center gap-1.5 cursor-pointer"
                     >
                       <Sparkles className="h-3.5 w-3.5" />
-                      <span>{gmailActionLoading ? "Connecting..." : "Connect Gmail Account"}</span>
+                      <span>{gmailActionLoading ? "Redirecting to Google..." : "Connect Gmail Account"}</span>
                     </button>
                   )}
                 </div>
