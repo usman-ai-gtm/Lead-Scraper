@@ -137,12 +137,22 @@ export async function GET(request: Request) {
         const nowIso = new Date().toISOString();
         const wsName = `${profileName}'s Workspace`;
 
-        const wsRes = await sql`
-          INSERT INTO workspaces (name, plan, status, max_seats, created_at, updated_at)
-          VALUES (${wsName}, 'STARTER', 'ACTIVE', 1, ${nowIso}, ${nowIso})
-          RETURNING id, name, plan
-        `;
-        const newWsId = wsRes[0].id;
+        let newWsId: number;
+        try {
+          const wsRes = await sql`
+            INSERT INTO workspaces (name, plan, status, max_seats, created_at, updated_at)
+            VALUES (${wsName}, 'STARTER', 'ACTIVE', 1, ${nowIso}, ${nowIso})
+            RETURNING id, name
+          `;
+          newWsId = wsRes[0].id;
+        } catch {
+          const wsRes = await sql`
+            INSERT INTO workspaces (name, created_at, updated_at)
+            VALUES (${wsName}, ${nowIso}, ${nowIso})
+            RETURNING id, name
+          `;
+          newWsId = wsRes[0].id;
+        }
 
         const newUserRes = await sql`
           INSERT INTO users (email, full_name, role, workspace_id, status, created_at, updated_at)

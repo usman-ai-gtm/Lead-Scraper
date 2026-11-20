@@ -78,6 +78,7 @@ export async function POST(request: Request) {
             } catch {}
 
             return NextResponse.json({
+              token: token,
               access_token: token,
               token_type: "bearer",
               user: {
@@ -110,6 +111,7 @@ export async function POST(request: Request) {
     }
 
     return NextResponse.json({
+      token: result.token,
       access_token: result.token,
       token_type: "bearer",
       user: result.user,

@@ -539,6 +539,15 @@ export async function ensureOutreachTable() {
   const sql = getNeonSql();
   if (!sql) return;
   try {
+    try {
+      await sql.query(`
+        ALTER TABLE workspaces ADD COLUMN IF NOT EXISTS plan TEXT DEFAULT 'STARTER';
+        ALTER TABLE workspaces ADD COLUMN IF NOT EXISTS status TEXT DEFAULT 'ACTIVE';
+        ALTER TABLE workspaces ADD COLUMN IF NOT EXISTS max_seats INTEGER DEFAULT 1;
+      `);
+    } catch {
+      // non-blocking
+    }
     await sql.query(`
       CREATE TABLE IF NOT EXISTS outreach_records (
         id SERIAL PRIMARY KEY,
@@ -879,7 +888,7 @@ export async function getNeonClients() {
         u.status,
         u.created_at,
         COALESCE(w.name, u.full_name || '''s Workspace') as workspace_name,
-        COALESCE(w.plan, 'STARTER') as plan,
+        'STARTER' as plan,
         COALESCE((SELECT COUNT(*) FROM leads l WHERE l.workspace_id = u.workspace_id), 0) as total_leads,
         COALESCE((SELECT COUNT(*) FROM email_accounts ea WHERE ea.workspace_id = u.workspace_id AND ea.is_active = 1), 0) as connected_accounts
       FROM users u
@@ -910,6 +919,8 @@ export async function provisionNeonClient(data: {
   const sql = getNeonSql();
   if (!sql) throw new Error("Database connection unavailable");
   
+  await ensureOutreachTable();
+
   const cleanEmail = data.email.trim().toLowerCase();
   
   // 1. Check if user already exists
@@ -935,14 +946,26 @@ export async function provisionNeonClient(data: {
   const plan = data.plan || "STARTER";
 
   // 3. Create fresh, completely isolated workspace (0 leads, 0 accounts, 0 campaigns)
-  const wsRes = await sql.query(
-    `INSERT INTO workspaces (
-      name, plan, status, max_seats, created_at, updated_at
-    ) VALUES ($1, $2, 'ACTIVE', 1, $3, $3)
-    RETURNING id, name, plan`,
-    [wsName, plan, nowIso]
-  );
-  const workspaceId = wsRes[0].id;
+  let workspaceId: number;
+  let createdWsName = wsName;
+  try {
+    const wsRes = await sql.query(
+      `INSERT INTO workspaces (
+        name, plan, status, max_seats, created_at, updated_at
+      ) VALUES ($1, $2, 'ACTIVE', 1, $3, $3)
+      RETURNING id, name`,
+      [wsName, plan, nowIso]
+    );
+    workspaceId = wsRes[0].id;
+    createdWsName = wsRes[0].name;
+  } catch (wsErr) {
+    const fallbackRes = await sql.query(
+      `INSERT INTO workspaces (name, created_at, updated_at) VALUES ($1, $2, $2) RETURNING id, name`,
+      [wsName, nowIso]
+    );
+    workspaceId = fallbackRes[0].id;
+    createdWsName = fallbackRes[0].name;
+  }
 
   // 4. Create client user linked strictly to this new workspace
   const userRes = await sql.query(
@@ -955,7 +978,7 @@ export async function provisionNeonClient(data: {
 
   return {
     client: userRes[0],
-    workspace: wsRes[0],
+    workspace: { id: workspaceId, name: createdWsName, plan },
     active_seats_used: activeCount + 1,
     seats_remaining: Math.max(0, 50 - (activeCount + 1)),
   };
