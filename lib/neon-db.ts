@@ -530,3 +530,337 @@ export async function deleteNeonLead(workspaceId: number, leadId: number): Promi
     return false;
   }
 }
+
+/**
+ * Ensure outreach_records table exists in Neon PostgreSQL
+ */
+export async function ensureOutreachTable() {
+  const sql = getNeonSql();
+  if (!sql) return;
+  try {
+    await sql.query(`
+      CREATE TABLE IF NOT EXISTS outreach_records (
+        id SERIAL PRIMARY KEY,
+        workspace_id INTEGER NOT NULL,
+        user_id INTEGER NOT NULL DEFAULT 1,
+        lead_id INTEGER,
+        recipient_email TEXT NOT NULL,
+        recipient_name TEXT,
+        sender_email TEXT NOT NULL,
+        sender_name TEXT,
+        subject TEXT NOT NULL,
+        body TEXT NOT NULL,
+        gmail_message_id TEXT,
+        gmail_thread_id TEXT,
+        outreach_status TEXT NOT NULL DEFAULT 'EMAIL SENT',
+        followup_date TEXT,
+        followup_notes TEXT,
+        followup_status TEXT DEFAULT 'PENDING',
+        sent_at TEXT NOT NULL,
+        last_activity TEXT NOT NULL,
+        created_at TEXT NOT NULL
+      )
+    `);
+    await sql.query("CREATE INDEX IF NOT EXISTS idx_outreach_records_ws ON outreach_records(workspace_id)");
+    await sql.query("CREATE INDEX IF NOT EXISTS idx_outreach_records_lead ON outreach_records(lead_id)");
+  } catch (e) {
+    console.warn("Outreach table ensure warning:", e);
+  }
+}
+
+/**
+ * Get active Gmail connection for workspace
+ */
+export async function getNeonGmailAccount(workspaceId: number) {
+  const sql = getNeonSql();
+  if (!sql) return null;
+  try {
+    const rows = await sql.query(
+      `SELECT id, workspace_id, account_name, sender_name, sender_email,
+              provider_type, daily_limit, sent_today, last_sent_at, is_active,
+              health_status, spf_status, dkim_status, dmarc_status, mx_status,
+              created_at, updated_at
+       FROM email_accounts
+       WHERE workspace_id = $1 AND is_active = 1
+       ORDER BY id DESC LIMIT 1`,
+      [workspaceId]
+    );
+    return rows[0] || null;
+  } catch (e) {
+    console.error("Neon getGmailAccount error:", e);
+    return null;
+  }
+}
+
+/**
+ * Get raw Gmail tokens securely for sending (server-side only)
+ */
+export async function getNeonGmailTokens(workspaceId: number) {
+  const sql = getNeonSql();
+  if (!sql) return null;
+  try {
+    const rows = await sql.query(
+      `SELECT id, sender_email, sender_name, oauth_token_json, daily_limit, sent_today
+       FROM email_accounts
+       WHERE workspace_id = $1 AND is_active = 1
+       ORDER BY id DESC LIMIT 1`,
+      [workspaceId]
+    );
+    if (!rows[0]) return null;
+    let tokens: any = {};
+    try {
+      tokens = typeof rows[0].oauth_token_json === "string"
+        ? JSON.parse(rows[0].oauth_token_json)
+        : rows[0].oauth_token_json;
+    } catch {}
+    return {
+      accountId: rows[0].id,
+      senderEmail: rows[0].sender_email,
+      senderName: rows[0].sender_name,
+      dailyLimit: rows[0].daily_limit || 500,
+      sentToday: rows[0].sent_today || 0,
+      tokens,
+    };
+  } catch (e) {
+    console.error("Neon getGmailTokens error:", e);
+    return null;
+  }
+}
+
+/**
+ * Save or connect Gmail OAuth account in workspace
+ */
+export async function saveNeonGmailAccount(
+  workspaceId: number,
+  data: {
+    senderEmail: string;
+    senderName: string;
+    tokenData?: any;
+    oauthTokens?: any;
+    dailyLimit?: number;
+  }
+) {
+  const sql = getNeonSql();
+  if (!sql) return null;
+  try {
+    const nowIso = new Date().toISOString();
+    // Deactivate previous accounts in this workspace
+    await sql.query(
+      "UPDATE email_accounts SET is_active = 0 WHERE workspace_id = $1",
+      [workspaceId]
+    );
+
+    const tokens = data.tokenData || data.oauthTokens || {};
+    const limit = data.dailyLimit || 500;
+
+    const rows = await sql.query(
+      `INSERT INTO email_accounts (
+        workspace_id, account_name, sender_name, sender_email,
+        provider_type, oauth_token_json, daily_limit, sent_today,
+        is_active, health_status, created_at, updated_at
+      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+      RETURNING id, workspace_id, account_name, sender_name, sender_email, health_status, daily_limit`,
+      [
+        workspaceId,
+        `Gmail (${data.senderEmail})`,
+        data.senderName,
+        data.senderEmail.toLowerCase().trim(),
+        "GMAIL_OAUTH",
+        JSON.stringify(tokens),
+        limit,
+        0,
+        1,
+        "CONNECTED",
+        nowIso,
+        nowIso,
+      ]
+    );
+    return rows[0] || null;
+  } catch (e) {
+    console.error("Neon saveGmailAccount error:", e);
+    return null;
+  }
+}
+
+/**
+ * Disconnect Gmail from workspace
+ */
+export async function disconnectNeonGmailAccount(workspaceId: number): Promise<boolean> {
+  const sql = getNeonSql();
+  if (!sql) return false;
+  try {
+    await sql.query(
+      "UPDATE email_accounts SET is_active = 0, health_status = 'DISCONNECTED', oauth_token_json = NULL, updated_at = $1 WHERE workspace_id = $2",
+      [new Date().toISOString(), workspaceId]
+    );
+    return true;
+  } catch (e) {
+    console.error("Neon disconnectGmailAccount error:", e);
+    return false;
+  }
+}
+
+/**
+ * Save an outreach message record and update lead status
+ */
+export async function saveNeonOutreachRecord(data: {
+  workspaceId: number;
+  userId?: number;
+  leadId?: number;
+  recipientEmail: string;
+  recipientName?: string;
+  senderEmail: string;
+  senderName?: string;
+  subject: string;
+  body: string;
+  gmailMessageId?: string;
+  gmailThreadId?: string;
+  outreachStatus?: string;
+  followupDate?: string;
+  followupNotes?: string;
+}) {
+  const sql = getNeonSql();
+  if (!sql) return null;
+  await ensureOutreachTable();
+
+  try {
+    const nowIso = new Date().toISOString();
+    const rows = await sql.query(
+      `INSERT INTO outreach_records (
+        workspace_id, user_id, lead_id, recipient_email, recipient_name,
+        sender_email, sender_name, subject, body, gmail_message_id,
+        gmail_thread_id, outreach_status, followup_date, followup_notes,
+        followup_status, sent_at, last_activity, created_at
+      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18)
+      RETURNING *`,
+      [
+        data.workspaceId,
+        data.userId || 1,
+        data.leadId || null,
+        data.recipientEmail.toLowerCase().trim(),
+        data.recipientName || "",
+        data.senderEmail,
+        data.senderName || "",
+        data.subject,
+        data.body,
+        data.gmailMessageId || "",
+        data.gmailThreadId || "",
+        data.outreachStatus || "EMAIL SENT",
+        data.followupDate || null,
+        data.followupNotes || null,
+        data.followupDate ? "SCHEDULED" : "NONE",
+        nowIso,
+        nowIso,
+        nowIso,
+      ]
+    );
+
+    // Update lead in leads table
+    if (data.leadId) {
+      await sql.query(
+        `UPDATE leads SET
+          crm_stage = $1,
+          last_contact = $2,
+          next_followup = $3,
+          updated_at = $4
+        WHERE workspace_id = $5 AND id = $6`,
+        [
+          data.outreachStatus || "EMAIL SENT",
+          nowIso,
+          data.followupDate || null,
+          nowIso,
+          data.workspaceId,
+          data.leadId,
+        ]
+      );
+    }
+
+    // Increment sent count in email_accounts
+    await sql.query(
+      `UPDATE email_accounts SET
+        sent_today = sent_today + 1,
+        last_sent_at = $1,
+        updated_at = $1
+      WHERE workspace_id = $2 AND is_active = 1`,
+      [nowIso, data.workspaceId]
+    );
+
+    return rows[0] || null;
+  } catch (e) {
+    console.error("Neon saveOutreachRecord error:", e);
+    return null;
+  }
+}
+
+/**
+ * Get outreach records for workspace
+ */
+export async function getNeonOutreachRecords(workspaceId: number, statusFilter?: string) {
+  const sql = getNeonSql();
+  if (!sql) return [];
+  await ensureOutreachTable();
+
+  try {
+    let query = "SELECT * FROM outreach_records WHERE workspace_id = $1";
+    const params: any[] = [workspaceId];
+    if (statusFilter && statusFilter !== "ALL") {
+      params.push(statusFilter);
+      query += ` AND outreach_status = $${params.length}`;
+    }
+    query += " ORDER BY id DESC LIMIT 100";
+    return await sql.query(query, params);
+  } catch (e) {
+    console.error("Neon getOutreachRecords error:", e);
+    return [];
+  }
+}
+
+/**
+ * Get leads with due follow-ups
+ */
+export async function getNeonDueFollowups(workspaceId: number) {
+  const sql = getNeonSql();
+  if (!sql) return [];
+  try {
+    return await sql.query(
+      `SELECT * FROM leads
+       WHERE workspace_id = $1
+         AND next_followup IS NOT NULL
+         AND next_followup != ''
+         AND crm_stage != 'DO NOT CONTACT'
+       ORDER BY next_followup ASC LIMIT 50`,
+      [workspaceId]
+    );
+  } catch (e) {
+    console.error("Neon getDueFollowups error:", e);
+    return [];
+  }
+}
+
+/**
+ * Update lead outreach status (e.g. DO NOT CONTACT, INTERESTED, etc.)
+ */
+export async function updateNeonLeadOutreachStatus(
+  workspaceId: number,
+  leadId: number,
+  status: string,
+  followupDate?: string
+) {
+  const sql = getNeonSql();
+  if (!sql) return false;
+  try {
+    const nowIso = new Date().toISOString();
+    await sql.query(
+      `UPDATE leads SET
+        crm_stage = $1,
+        next_followup = $2,
+        updated_at = $3
+      WHERE workspace_id = $4 AND id = $5`,
+      [status, followupDate || null, nowIso, workspaceId, leadId]
+    );
+    return true;
+  } catch (e) {
+    console.error("Neon updateLeadOutreachStatus error:", e);
+    return false;
+  }
+}

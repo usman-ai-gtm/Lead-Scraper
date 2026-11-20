@@ -77,6 +77,9 @@ export interface Lead {
   priority?: string;
   lead_temperature?: "HOT" | "WARM" | "COLD";
   crm_stage: string;
+  next_followup?: string;
+  outreach_status?: string;
+  last_email_sent_at?: string;
   source?: string;
   source_url?: string;
   source_platform?: string;

@@ -12,7 +12,7 @@ import {
   Mail, Phone, RefreshCw, CheckCircle2, AlertTriangle,
   Globe, MessageSquare, Filter, ChevronLeft, ChevronRight,
   History, Calendar, Clock, FileSpreadsheet, FileText, X,
-  Layers, Eye, Check
+  Layers, Eye, Check, Sparkles, Send, ShieldCheck, User
 } from "lucide-react";
 
 interface SearchRecord {
@@ -92,6 +92,23 @@ export default function SavedLeadsPage() {
   // Export Audit History State
   const [exportHistory, setExportHistory] = useState<ExportHistoryItem[]>([]);
   const [exportHistoryLoading, setExportHistoryLoading] = useState(false);
+
+  // Outreach & AI Email Assistant State
+  const [outreachStatusFilter, setOutreachStatusFilter] = useState<string>("all");
+  const [isEmailModalOpen, setIsEmailModalOpen] = useState(false);
+  const [activeEmailLead, setActiveEmailLead] = useState<Lead | null>(null);
+  const [emailSubject, setEmailSubject] = useState("");
+  const [emailBody, setEmailBody] = useState("");
+  const [emailSenderName, setEmailSenderName] = useState(user?.full_name || "Sales Outreach");
+  const [emailCompanyName, setEmailCompanyName] = useState(user?.company || "USMAN AI GTM");
+  const [emailOfferDesc, setEmailOfferDesc] = useState("B2B lead generation, market intelligence, and verified business data solutions to scale customer acquisition.");
+  const [emailGenerating, setEmailGenerating] = useState(false);
+  const [emailSending, setEmailSending] = useState(false);
+  const [emailFollowupDate, setEmailFollowupDate] = useState("");
+  const [emailFollowupNotes, setEmailFollowupNotes] = useState("");
+  const [emailOutreachStatus, setEmailOutreachStatus] = useState("NEW");
+  const [emailMode, setEmailMode] = useState<"initial" | "followup">("initial");
+  const [emailFeedback, setEmailFeedback] = useState<{ type: "success" | "error"; message: string } | null>(null);
 
   // Fetch Saved Master Leads
   const fetchSavedLeads = async () => {
@@ -202,9 +219,172 @@ export default function SavedLeadsPage() {
       }
       if (contactFilter === "email" && (!l.email || l.email === "Not Found")) return false;
       if (contactFilter === "phone" && (!l.phone || l.phone === "Not Found")) return false;
+      if (outreachStatusFilter !== "all") {
+        const stage = l.crm_stage || "NEW";
+        if (stage !== outreachStatusFilter) return false;
+      }
       return true;
     });
-  }, [leads, searchFilter, contactFilter]);
+  }, [leads, searchFilter, contactFilter, outreachStatusFilter]);
+
+  // Outreach badge renderer
+  const renderOutreachBadge = (status?: string) => {
+    const s = status || "NEW";
+    switch (s) {
+      case "EMAIL SENT":
+        return <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-blue-500/20 text-blue-400 border border-blue-500/30">EMAIL SENT</span>;
+      case "DRAFT READY":
+        return <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-amber-500/20 text-amber-400 border border-amber-500/30">DRAFT READY</span>;
+      case "REPLIED":
+        return <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-emerald-500/20 text-emerald-400 border border-emerald-500/30">REPLIED</span>;
+      case "INTERESTED":
+        return <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-green-500/20 text-green-400 border border-green-500/30">INTERESTED</span>;
+      case "NOT INTERESTED":
+        return <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-slate-500/20 text-slate-400 border border-slate-500/30">NOT INTERESTED</span>;
+      case "DO NOT CONTACT":
+        return <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-rose-500/20 text-rose-400 border border-rose-500/30">DO NOT CONTACT</span>;
+      default:
+        return <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-slate-700/50 text-slate-400 border border-slate-600/30">NEW</span>;
+    }
+  };
+
+  const handleOpenEmailModal = (lead: Lead) => {
+    setActiveEmailLead(lead);
+    setEmailOutreachStatus(lead.crm_stage || "NEW");
+    setEmailFollowupDate(lead.next_followup || "");
+    setEmailFollowupNotes("");
+    setEmailSubject(lead.business_name ? `Strategic inquiry for ${lead.business_name}` : "Strategic Partnership Inquiry");
+    setEmailBody("");
+    setEmailFeedback(null);
+    setEmailMode(lead.crm_stage === "EMAIL SENT" ? "followup" : "initial");
+    setIsEmailModalOpen(true);
+  };
+
+  const handleGenerateDraft = async () => {
+    if (!activeEmailLead) return;
+    setEmailGenerating(true);
+    setEmailFeedback(null);
+    try {
+      if (emailMode === "followup") {
+        const res = await fetch("/api/outreach/generate-followup", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            original_subject: emailSubject || `Strategic partnership with ${activeEmailLead.business_name}`,
+            original_body: emailBody || "Previous note regarding B2B services.",
+            lead: activeEmailLead,
+            sender: {
+              sender_name: emailSenderName,
+              company_name: emailCompanyName,
+              offer_description: emailOfferDesc,
+            },
+          }),
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error || "Follow-up generation failed");
+        setEmailSubject(data.draft.subject);
+        setEmailBody(data.draft.full_email);
+        setEmailFeedback({ type: "success", message: `Polite follow-up prepared by ${data.model}` });
+      } else {
+        const res = await fetch("/api/outreach/generate-email", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            lead: activeEmailLead,
+            sender: {
+              sender_name: emailSenderName,
+              company_name: emailCompanyName,
+              offer_description: emailOfferDesc,
+            },
+          }),
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error || "Draft generation failed");
+        setEmailSubject(data.draft.subject);
+        setEmailBody(data.draft.full_email);
+        setEmailOutreachStatus("DRAFT READY");
+        setLeads((prev) =>
+          prev.map((l) => (l.id === activeEmailLead.id ? { ...l, crm_stage: "DRAFT READY" } : l))
+        );
+        setEmailFeedback({ type: "success", message: `Personalized cold outreach prepared by ${data.model}` });
+      }
+    } catch (e: any) {
+      setEmailFeedback({ type: "error", message: e.message || "Failed to generate draft" });
+    } finally {
+      setEmailGenerating(false);
+    }
+  };
+
+  const handleSendEmail = async () => {
+    if (!activeEmailLead) return;
+    if (emailOutreachStatus === "DO NOT CONTACT") {
+      alert("This lead is marked as DO NOT CONTACT. Outreach is blocked by compliance policy.");
+      return;
+    }
+    if (!emailSubject.trim() || !emailBody.trim()) {
+      alert("Please ensure both subject and email body are present before sending.");
+      return;
+    }
+
+    setEmailSending(true);
+    setEmailFeedback(null);
+    try {
+      const res = await fetch("/api/integrations/gmail/send", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          lead_id: activeEmailLead.id,
+          recipient_email: activeEmailLead.email,
+          recipient_name: activeEmailLead.business_name,
+          subject: emailSubject,
+          body: emailBody,
+          followup_date: emailFollowupDate || undefined,
+          followup_notes: emailFollowupNotes || undefined,
+          outreach_status: emailOutreachStatus,
+        }),
+      });
+
+      const data = await res.json();
+      if (!res.ok) {
+        throw new Error(data.error || "Sending failed");
+      }
+
+      setEmailOutreachStatus("EMAIL SENT");
+      setLeads((prev) =>
+        prev.map((l) =>
+          l.id === activeEmailLead.id
+            ? { ...l, crm_stage: "EMAIL SENT", next_followup: emailFollowupDate || undefined }
+            : l
+        )
+      );
+      setEmailFeedback({
+        type: "success",
+        message: `Email sent successfully via Gmail API! Message ID: ${data.gmail_message_id}`,
+      });
+      setToastMsg(`Email sent to ${activeEmailLead.business_name} via Gmail.`);
+    } catch (e: any) {
+      setEmailFeedback({ type: "error", message: e.message || "Failed to send email via Gmail." });
+    } finally {
+      setEmailSending(false);
+    }
+  };
+
+  const handleUpdateLeadStatus = async (leadId: number, newStatus: string) => {
+    try {
+      await fetch("/api/outreach/records", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ lead_id: leadId, status: newStatus }),
+      });
+      setEmailOutreachStatus(newStatus);
+      setLeads((prev) =>
+        prev.map((l) => (l.id === leadId ? { ...l, crm_stage: newStatus } : l))
+      );
+      setToastMsg(`Lead outreach status updated to ${newStatus}.`);
+    } catch (e) {
+      console.warn("Failed to update status", e);
+    }
+  };
 
   // Selection helpers
   const handleSelectAll = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -511,6 +691,21 @@ export default function SavedLeadsPage() {
                 <option value="phone" className="bg-[#0c1017]">Has Phone</option>
               </select>
 
+              <select
+                value={outreachStatusFilter}
+                onChange={(e) => setOutreachStatusFilter(e.target.value)}
+                className="rounded-xl border border-white/10 bg-white/[0.03] px-3 py-1.5 text-xs text-white focus:border-blue-500 focus:outline-none"
+              >
+                <option value="all" className="bg-[#0c1017]">All Outreach Statuses</option>
+                <option value="NEW" className="bg-[#0c1017]">NEW</option>
+                <option value="DRAFT READY" className="bg-[#0c1017]">DRAFT READY</option>
+                <option value="EMAIL SENT" className="bg-[#0c1017]">EMAIL SENT</option>
+                <option value="REPLIED" className="bg-[#0c1017]">REPLIED</option>
+                <option value="INTERESTED" className="bg-[#0c1017]">INTERESTED</option>
+                <option value="NOT INTERESTED" className="bg-[#0c1017]">NOT INTERESTED</option>
+                <option value="DO NOT CONTACT" className="bg-[#0c1017]">DO NOT CONTACT</option>
+              </select>
+
               <button
                 onClick={fetchSavedLeads}
                 disabled={refreshing}
@@ -529,6 +724,17 @@ export default function SavedLeadsPage() {
                   <span className="text-xs font-bold text-blue-400 font-mono">
                     {selectedIds.length} Selected
                   </span>
+                  <button
+                    onClick={() => {
+                      const first = leads.find((l) => selectedIds.includes(l.id));
+                      if (first) handleOpenEmailModal(first);
+                    }}
+                    className="px-2.5 py-1 text-[11px] font-bold text-blue-300 hover:text-white bg-blue-500/20 hover:bg-blue-500/30 border border-blue-500/30 rounded flex items-center gap-1 cursor-pointer"
+                    title="Open AI Email Assistant for selected lead"
+                  >
+                    <Mail className="h-3 w-3 text-blue-400" />
+                    <span>AI Email</span>
+                  </button>
                   <button
                     onClick={() => handleExport("pdf", "selected")}
                     className="px-2.5 py-1 text-[11px] font-bold text-rose-300 hover:text-white bg-rose-500/20 hover:bg-rose-500/30 border border-rose-500/30 rounded flex items-center gap-1 cursor-pointer"
@@ -615,6 +821,7 @@ export default function SavedLeadsPage() {
                       <th className="py-3 px-3">Email & Verification</th>
                       <th className="py-3 px-3">Phone & WhatsApp</th>
                       <th className="py-3 px-3">Source Evidence</th>
+                      <th className="py-3 px-3">Outreach Status</th>
                       <th className="py-3 px-3">Saved (PKT)</th>
                       <th className="py-3 px-3 text-right">Actions</th>
                     </tr>
@@ -737,12 +944,30 @@ export default function SavedLeadsPage() {
                               </a>
                             )}
                           </td>
+                          <td className="py-3 px-3">
+                            <div className="flex flex-col gap-1 items-start">
+                              {renderOutreachBadge(l.crm_stage)}
+                              {l.next_followup && (
+                                <span className="text-[10px] text-slate-400 font-mono flex items-center gap-1">
+                                  <Calendar className="h-2.5 w-2.5 text-blue-400" />
+                                  <span>{l.next_followup}</span>
+                                </span>
+                              )}
+                            </div>
+                          </td>
                           <td className="py-3 px-3 text-slate-400 font-mono text-[10px]">
                             <div>{l.saved_date || l.extraction_date || "—"}</div>
                             <div className="text-slate-500">{l.saved_time || l.extraction_time || ""}</div>
                           </td>
                           <td className="py-3 px-3 text-right">
                             <div className="flex items-center justify-end gap-1.5">
+                              <button
+                                onClick={() => handleOpenEmailModal(l)}
+                                className="p-1.5 rounded-lg text-blue-400 hover:text-blue-300 hover:bg-blue-500/10 transition-colors cursor-pointer"
+                                title="AI Email Assistant (Gemini + Gmail)"
+                              >
+                                <Mail className="h-3.5 w-3.5" />
+                              </button>
                               <button
                                 onClick={() => handleExport("pdf", "single_lead", { specificLeads: [l] })}
                                 className="p-1.5 rounded-lg text-rose-400 hover:text-rose-300 hover:bg-rose-500/10 transition-colors cursor-pointer"
@@ -1269,6 +1494,283 @@ export default function SavedLeadsPage() {
               >
                 Close
               </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* AI EMAIL ASSISTANT MODAL (GEMINI + GMAIL OUTREACH) */}
+      {isEmailModalOpen && activeEmailLead && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-md">
+          <div className="relative w-full max-w-3xl rounded-2xl border border-white/10 bg-[#0c1017] shadow-2xl flex flex-col max-h-[90vh] overflow-hidden">
+            {/* Modal Header */}
+            <div className="p-5 border-b border-white/[0.08] flex items-center justify-between bg-white/[0.02]">
+              <div className="flex items-center gap-3">
+                <div className="h-10 w-10 rounded-xl bg-blue-600/10 border border-blue-500/20 text-blue-400 flex items-center justify-center">
+                  <Mail className="h-5 w-5" />
+                </div>
+                <div>
+                  <div className="flex items-center gap-2">
+                    <h3 className="text-base font-bold text-white">
+                      {activeEmailLead.business_name}
+                    </h3>
+                    <span className="text-xs text-slate-400 font-mono">
+                      {activeEmailLead.email && activeEmailLead.email !== "Not Found" ? activeEmailLead.email : "No Email Found"}
+                    </span>
+                  </div>
+                  <div className="text-[11px] text-slate-400 mt-0.5 flex items-center gap-3">
+                    <span>{activeEmailLead.city ? `${activeEmailLead.city}, ${activeEmailLead.country}` : activeEmailLead.country || "Global"}</span>
+                    <span>•</span>
+                    <span>{activeEmailLead.industry || "B2B Business"}</span>
+                    {activeEmailLead.website && (
+                      <>
+                        <span>•</span>
+                        <a
+                          href={activeEmailLead.website.startsWith("http") ? activeEmailLead.website : `https://${activeEmailLead.website}`}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="text-blue-400 hover:underline flex items-center gap-0.5"
+                        >
+                          <span>Website</span>
+                          <ExternalLink className="h-2 w-2" />
+                        </a>
+                      </>
+                    )}
+                  </div>
+                </div>
+              </div>
+              <button
+                onClick={() => setIsEmailModalOpen(false)}
+                className="p-1.5 rounded-lg border border-white/10 text-slate-400 hover:text-white hover:bg-white/10 transition-colors cursor-pointer"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+
+            {/* Modal Scrollable Body */}
+            <div className="p-5 overflow-y-auto space-y-4 text-xs">
+              {/* Status selector & Draft mode toggle */}
+              <div className="flex items-center justify-between p-3 rounded-xl bg-white/[0.02] border border-white/[0.06] flex-wrap gap-2">
+                <div className="flex items-center gap-2">
+                  <span className="text-slate-400 font-semibold text-[11px]">Outreach Status:</span>
+                  <select
+                    value={emailOutreachStatus}
+                    onChange={(e) => handleUpdateLeadStatus(activeEmailLead.id, e.target.value)}
+                    className="rounded-lg border border-white/10 bg-[#0c1017] px-2.5 py-1 text-xs text-white font-semibold focus:outline-none"
+                  >
+                    <option value="NEW">NEW</option>
+                    <option value="DRAFT READY">DRAFT READY</option>
+                    <option value="EMAIL SENT">EMAIL SENT</option>
+                    <option value="REPLIED">REPLIED</option>
+                    <option value="INTERESTED">INTERESTED</option>
+                    <option value="NOT INTERESTED">NOT INTERESTED</option>
+                    <option value="DO NOT CONTACT">DO NOT CONTACT</option>
+                  </select>
+                </div>
+
+                <div className="flex rounded-lg bg-black/40 border border-white/10 p-0.5 text-[11px]">
+                  <button
+                    type="button"
+                    onClick={() => setEmailMode("initial")}
+                    className={`px-3 py-1 rounded-md font-bold transition-all cursor-pointer ${
+                      emailMode === "initial" ? "bg-blue-600 text-white shadow-glow-sm" : "text-slate-400 hover:text-white"
+                    }`}
+                  >
+                    Initial Outreach
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setEmailMode("followup")}
+                    className={`px-3 py-1 rounded-md font-bold transition-all cursor-pointer ${
+                      emailMode === "followup" ? "bg-blue-600 text-white shadow-glow-sm" : "text-slate-400 hover:text-white"
+                    }`}
+                  >
+                    Follow-up
+                  </button>
+                </div>
+              </div>
+
+              {/* Feedback banner */}
+              {emailFeedback && (
+                <div
+                  className={`p-3 rounded-xl border text-xs flex items-center gap-2 ${
+                    emailFeedback.type === "success"
+                      ? "bg-emerald-500/10 border-emerald-500/30 text-emerald-300"
+                      : "bg-rose-500/10 border-rose-500/30 text-rose-300"
+                  }`}
+                >
+                  {emailFeedback.type === "success" ? (
+                    <CheckCircle2 className="h-4 w-4 text-emerald-400 flex-shrink-0" />
+                  ) : (
+                    <AlertTriangle className="h-4 w-4 text-rose-400 flex-shrink-0" />
+                  )}
+                  <span>{emailFeedback.message}</span>
+                </div>
+              )}
+
+              {/* DO NOT CONTACT Warning Banner */}
+              {emailOutreachStatus === "DO NOT CONTACT" && (
+                <div className="p-3 rounded-xl border border-rose-500/30 bg-rose-500/10 text-rose-300 text-xs flex items-center gap-2">
+                  <AlertTriangle className="h-4 w-4 text-rose-400 flex-shrink-0" />
+                  <div>
+                    <span className="font-bold">Outreach Blocked by Policy:</span> This business lead is marked as DO NOT CONTACT. Sending emails to this address is disabled to protect your domain reputation.
+                  </div>
+                </div>
+              )}
+
+              {/* Sender Context */}
+              <div className="p-3 rounded-xl border border-white/[0.04] bg-white/[0.01] space-y-2">
+                <div className="flex items-center justify-between text-slate-300 font-semibold text-[11px]">
+                  <span className="flex items-center gap-1.5">
+                    <User className="h-3.5 w-3.5 text-blue-400" /> Sender Profile & Proposition
+                  </span>
+                  <span className="text-[10px] text-slate-500">Auto-configured from your workspace settings</span>
+                </div>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-2 text-[11px]">
+                  <div>
+                    <span className="text-slate-400">Sender Name: </span>
+                    <input
+                      type="text"
+                      value={emailSenderName}
+                      onChange={(e) => setEmailSenderName(e.target.value)}
+                      className="rounded-lg border border-white/10 bg-white/[0.03] px-2 py-0.5 text-xs text-white w-full mt-0.5"
+                    />
+                  </div>
+                  <div>
+                    <span className="text-slate-400">Company Name: </span>
+                    <input
+                      type="text"
+                      value={emailCompanyName}
+                      onChange={(e) => setEmailCompanyName(e.target.value)}
+                      className="rounded-lg border border-white/10 bg-white/[0.03] px-2 py-0.5 text-xs text-white w-full mt-0.5"
+                    />
+                  </div>
+                </div>
+              </div>
+
+              {/* Action to Generate Draft */}
+              <div className="flex items-center justify-between">
+                <button
+                  type="button"
+                  onClick={handleGenerateDraft}
+                  disabled={emailGenerating}
+                  className="px-4 py-2 rounded-xl bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-500 hover:to-indigo-500 text-white font-bold text-xs shadow-glow-sm disabled:opacity-50 flex items-center gap-2 cursor-pointer"
+                >
+                  {emailGenerating ? (
+                    <RefreshCw className="h-3.5 w-3.5 animate-spin" />
+                  ) : (
+                    <Sparkles className="h-3.5 w-3.5" />
+                  )}
+                  <span>
+                    {emailGenerating
+                      ? "Gemini AI Composing..."
+                      : emailMode === "followup"
+                      ? "Generate Follow-up Draft with Gemini"
+                      : "Generate Personalized Draft with Gemini"}
+                  </span>
+                </button>
+                <div className="flex items-center gap-1 text-[11px] text-slate-400 font-mono">
+                  <span className="h-2 w-2 rounded-full bg-emerald-400 animate-pulse"></span>
+                  <span>gemini-3.5-flash-lite (Free Tier)</span>
+                </div>
+              </div>
+
+              {/* Subject Line Input */}
+              <div className="space-y-1">
+                <label className="block text-xs font-semibold text-slate-300">Email Subject Line</label>
+                <input
+                  type="text"
+                  value={emailSubject}
+                  onChange={(e) => setEmailSubject(e.target.value)}
+                  placeholder="e.g. Partnership inquiry for [Business Name]"
+                  className="w-full rounded-xl border border-white/10 bg-white/[0.03] px-3.5 py-2 text-xs text-white font-medium focus:border-blue-500 focus:outline-none"
+                />
+              </div>
+
+              {/* Email Body Textarea */}
+              <div className="space-y-1">
+                <div className="flex items-center justify-between">
+                  <label className="block text-xs font-semibold text-slate-300">Message Body (Editable)</label>
+                  <span className="text-[10px] text-slate-500 font-mono">
+                    {emailBody.length} characters • {emailBody.split(/\s+/).filter(Boolean).length} words
+                  </span>
+                </div>
+                <textarea
+                  rows={8}
+                  value={emailBody}
+                  onChange={(e) => setEmailBody(e.target.value)}
+                  placeholder="Click 'Generate Personalized Draft with Gemini' above to compose a natural, high-converting B2B outreach email based strictly on this lead's verified data."
+                  className="w-full rounded-xl border border-white/10 bg-white/[0.03] p-3 text-xs text-slate-200 leading-relaxed focus:border-blue-500 focus:outline-none font-mono"
+                />
+              </div>
+
+              {/* Follow-up Reminder Setting */}
+              <div className="p-3 rounded-xl border border-white/[0.06] bg-white/[0.02] space-y-2">
+                <div className="flex items-center gap-2 text-xs font-semibold text-white">
+                  <Calendar className="h-3.5 w-3.5 text-blue-400" />
+                  <span>Schedule Follow-up Reminder (Optional)</span>
+                </div>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-3 text-xs">
+                  <div>
+                    <label className="block text-[11px] text-slate-400 mb-0.5">Follow-up Date</label>
+                    <input
+                      type="date"
+                      value={emailFollowupDate}
+                      onChange={(e) => setEmailFollowupDate(e.target.value)}
+                      className="w-full rounded-lg border border-white/10 bg-white/[0.03] px-3 py-1.5 text-xs text-white focus:outline-none"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-[11px] text-slate-400 mb-0.5">Reminder Notes</label>
+                    <input
+                      type="text"
+                      value={emailFollowupNotes}
+                      onChange={(e) => setEmailFollowupNotes(e.target.value)}
+                      placeholder="e.g. Check for response regarding clinic consultation"
+                      className="w-full rounded-lg border border-white/10 bg-white/[0.03] px-3 py-1.5 text-xs text-white focus:outline-none"
+                    />
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            {/* Modal Footer with Explicit Approval Button */}
+            <div className="p-4 border-t border-white/[0.08] flex items-center justify-between text-xs text-slate-400 bg-white/[0.01]">
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => handleUpdateLeadStatus(activeEmailLead.id, "DO NOT CONTACT")}
+                  className="px-3 py-1.5 rounded-lg border border-rose-500/20 text-rose-400 hover:bg-rose-500/10 font-medium transition-colors cursor-pointer text-[11px]"
+                >
+                  Mark DO NOT CONTACT
+                </button>
+                <span className="text-[11px] text-slate-500 hidden sm:inline">
+                  Requires explicit customer approval before sending.
+                </span>
+              </div>
+
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => setIsEmailModalOpen(false)}
+                  className="px-4 py-2 rounded-xl border border-white/10 hover:bg-white/10 text-white font-semibold transition-all cursor-pointer text-xs"
+                >
+                  Close
+                </button>
+                <button
+                  type="button"
+                  onClick={handleSendEmail}
+                  disabled={emailSending || emailOutreachStatus === "DO NOT CONTACT" || !activeEmailLead.email || activeEmailLead.email === "Not Found"}
+                  className="px-5 py-2 rounded-xl bg-blue-600 hover:bg-blue-500 text-white font-bold text-xs shadow-glow-sm disabled:opacity-50 flex items-center gap-1.5 cursor-pointer"
+                >
+                  {emailSending ? (
+                    <RefreshCw className="h-3.5 w-3.5 animate-spin" />
+                  ) : (
+                    <Send className="h-3.5 w-3.5" />
+                  )}
+                  <span>{emailSending ? "Sending via Gmail..." : "Approve & Send via Gmail"}</span>
+                </button>
+              </div>
             </div>
           </div>
         </div>
