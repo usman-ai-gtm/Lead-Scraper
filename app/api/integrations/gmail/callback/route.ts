@@ -135,39 +135,31 @@ export async function GET(request: Request) {
       } else {
         // Automatically create isolated workspace for new client
         const nowIso = new Date().toISOString();
-        const wsName = `${profileName}'s Workspace`;
+        const baseWsName = `${profileName}'s Workspace`;
+        const uniqueWsName = `${baseWsName} #${Date.now().toString().slice(-4)}`;
 
         let newWsId: number;
         try {
           const wsRes = await sql`
-            INSERT INTO workspaces (name, plan, status, max_seats, created_at, updated_at)
-            VALUES (${wsName}, 'STARTER', 'ACTIVE', 1, ${nowIso}, ${nowIso})
+            INSERT INTO workspaces (name, created_at, tenant_id, description)
+            VALUES (${uniqueWsName}, ${nowIso}, 1, 'Google OAuth Workspace')
             RETURNING id, name
           `;
           newWsId = wsRes[0].id;
         } catch {
           const wsRes = await sql`
-            INSERT INTO workspaces (name, created_at, updated_at)
-            VALUES (${wsName}, ${nowIso}, ${nowIso})
+            INSERT INTO workspaces (name, created_at, tenant_id)
+            VALUES (${`${uniqueWsName}-${Date.now()}`}, ${nowIso}, 1)
             RETURNING id, name
           `;
           newWsId = wsRes[0].id;
         }
 
-        let newUserRes: any;
-        try {
-          newUserRes = await sql`
-            INSERT INTO users (email, username, full_name, role, workspace_id, status, created_at, updated_at)
-            VALUES (${profileEmail}, ${profileEmail}, ${profileName}, 'CLIENT', ${newWsId}, 'ACTIVE', ${nowIso}, ${nowIso})
-            RETURNING id, email, full_name, role, workspace_id, status
-          `;
-        } catch {
-          newUserRes = await sql`
-            INSERT INTO users (email, username, full_name, role, workspace_id, status, created_at)
-            VALUES (${profileEmail}, ${profileEmail}, ${profileName}, 'CLIENT', ${newWsId}, 'ACTIVE', ${nowIso})
-            RETURNING id, email, full_name, role, workspace_id, status
-          `;
-        }
+        const newUserRes = await sql`
+          INSERT INTO users (username, email, full_name, role, workspace_id, status, created_at, tenant_id, password_hash)
+          VALUES (${profileEmail}, ${profileEmail}, ${profileName}, 'CLIENT', ${newWsId}, 'ACTIVE', ${nowIso}, 1, 'GOOGLE_OAUTH_USER')
+          RETURNING id, email, full_name, role, workspace_id, status
+        `;
         activeUser = newUserRes[0];
       }
 

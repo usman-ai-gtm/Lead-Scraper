@@ -945,69 +945,54 @@ export async function provisionNeonClient(data: {
   }
 
   const nowIso = new Date().toISOString();
-  const wsName = data.company ? `${data.company.trim()} Workspace` : `${data.fullName.trim()}'s Workspace`;
+  let baseWsName = data.company ? `${data.company.trim()} Workspace` : `${data.fullName.trim()}'s Workspace`;
   const plan = data.plan || "STARTER";
+
+  // Check if workspace name already exists (since name is UNIQUE in schema)
+  const existingWs = await sql.query("SELECT id FROM workspaces WHERE name = $1 LIMIT 1", [baseWsName]);
+  const wsName = existingWs.length > 0 ? `${baseWsName} #${Date.now().toString().slice(-4)}` : baseWsName;
 
   // 3. Create fresh, completely isolated workspace (0 leads, 0 accounts, 0 campaigns)
   let workspaceId: number;
   let createdWsName = wsName;
   try {
     const wsRes = await sql.query(
-      `INSERT INTO workspaces (
-        name, plan, status, max_seats, created_at, updated_at
-      ) VALUES ($1, $2, 'ACTIVE', 1, $3, $3)
-      RETURNING id, name`,
-      [wsName, plan, nowIso]
+      `INSERT INTO workspaces (name, created_at, tenant_id, description)
+       VALUES ($1, $2, 1, $3)
+       RETURNING id, name`,
+      [wsName, nowIso, `Client workspace for ${data.fullName.trim()}`]
     );
     workspaceId = wsRes[0].id;
     createdWsName = wsRes[0].name;
-  } catch (wsErr) {
-    try {
-      const fallbackRes = await sql.query(
-        `INSERT INTO workspaces (name, created_at) VALUES ($1, $2) RETURNING id, name`,
-        [wsName, nowIso]
-      );
-      workspaceId = fallbackRes[0].id;
-      createdWsName = fallbackRes[0].name;
-    } catch {
-      const fallback2 = await sql.query(
-        `INSERT INTO workspaces (name) VALUES ($1) RETURNING id, name`,
-        [wsName]
-      );
-      workspaceId = fallback2[0].id;
-      createdWsName = fallback2[0].name;
-    }
+  } catch (wsErr: any) {
+    const uniqueWsName = `${wsName}-${Date.now()}`;
+    const wsRes = await sql.query(
+      `INSERT INTO workspaces (name, created_at, tenant_id)
+       VALUES ($1, $2, 1)
+       RETURNING id, name`,
+      [uniqueWsName, nowIso]
+    );
+    workspaceId = wsRes[0].id;
+    createdWsName = wsRes[0].name;
   }
 
   // 4. Create client user linked strictly to this new workspace
-  let userRes: any[];
-  try {
-    userRes = await sql.query(
-      `INSERT INTO users (
-        email, username, full_name, role, workspace_id, status, password_hash, created_at, updated_at
-      ) VALUES ($1, $1, $2, 'CLIENT', $3, 'ACTIVE', $4, $5, $5)
-      RETURNING id, email, full_name, role, workspace_id, status, created_at`,
-      [cleanEmail, data.fullName.trim(), workspaceId, data.passwordHash, nowIso]
-    );
-  } catch (uErr) {
-    try {
-      userRes = await sql.query(
-        `INSERT INTO users (
-          email, username, full_name, role, workspace_id, status, password_hash, created_at
-        ) VALUES ($1, $1, $2, 'CLIENT', $3, 'ACTIVE', $4, $5)
-        RETURNING id, email, full_name, role, workspace_id, status, created_at`,
-        [cleanEmail, data.fullName.trim(), workspaceId, data.passwordHash, nowIso]
-      );
-    } catch {
-      userRes = await sql.query(
-        `INSERT INTO users (
-          email, full_name, role, workspace_id, status, password_hash, created_at
-        ) VALUES ($1, $2, 'CLIENT', $3, 'ACTIVE', $4, $5)
-        RETURNING id, email, full_name, role, workspace_id, status, created_at`,
-        [cleanEmail, data.fullName.trim(), workspaceId, data.passwordHash, nowIso]
-      );
-    }
-  }
+  const userRes = await sql.query(
+    `INSERT INTO users (
+      username, email, password_hash, full_name, role, workspace_id, status, created_at, tenant_id, client_notes, max_leads_quota
+    ) VALUES ($1, $2, $3, $4, 'CLIENT', $5, 'ACTIVE', $6, 1, $7, $8)
+    RETURNING id, email, full_name, role, workspace_id, status, created_at`,
+    [
+      cleanEmail,
+      cleanEmail,
+      data.passwordHash,
+      data.fullName.trim(),
+      workspaceId,
+      nowIso,
+      data.company ? `Company: ${data.company}` : "",
+      data.maxQuota || 5000,
+    ]
+  );
 
   return {
     client: userRes[0],
