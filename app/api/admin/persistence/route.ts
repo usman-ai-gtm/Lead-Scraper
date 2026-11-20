@@ -28,6 +28,20 @@ export async function GET(req: Request) {
 
         if (pingRes && pingRes.length > 0) {
           dbConnected = true;
+
+          // Safe non-destructive column auto-ensure
+          try {
+            await sql`
+              ALTER TABLE workspaces ADD COLUMN IF NOT EXISTS updated_at TEXT;
+              ALTER TABLE workspaces ADD COLUMN IF NOT EXISTS plan TEXT DEFAULT 'STARTER';
+              ALTER TABLE workspaces ADD COLUMN IF NOT EXISTS status TEXT DEFAULT 'ACTIVE';
+              ALTER TABLE workspaces ADD COLUMN IF NOT EXISTS max_seats INTEGER DEFAULT 1;
+              ALTER TABLE users ADD COLUMN IF NOT EXISTS updated_at TEXT;
+            `;
+          } catch (mErr) {
+            console.warn("Schema migration non-blocking warning:", mErr);
+          }
+
           const leadsRes = await sql`SELECT COUNT(*) as cnt FROM leads`;
           totalLeads = parseInt(leadsRes[0]?.cnt || "0", 10);
 

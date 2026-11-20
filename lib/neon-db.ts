@@ -541,9 +541,11 @@ export async function ensureOutreachTable() {
   try {
     try {
       await sql.query(`
+        ALTER TABLE workspaces ADD COLUMN IF NOT EXISTS updated_at TEXT;
         ALTER TABLE workspaces ADD COLUMN IF NOT EXISTS plan TEXT DEFAULT 'STARTER';
         ALTER TABLE workspaces ADD COLUMN IF NOT EXISTS status TEXT DEFAULT 'ACTIVE';
         ALTER TABLE workspaces ADD COLUMN IF NOT EXISTS max_seats INTEGER DEFAULT 1;
+        ALTER TABLE users ADD COLUMN IF NOT EXISTS updated_at TEXT;
       `);
     } catch {
       // non-blocking
@@ -959,22 +961,42 @@ export async function provisionNeonClient(data: {
     workspaceId = wsRes[0].id;
     createdWsName = wsRes[0].name;
   } catch (wsErr) {
-    const fallbackRes = await sql.query(
-      `INSERT INTO workspaces (name, created_at, updated_at) VALUES ($1, $2, $2) RETURNING id, name`,
-      [wsName, nowIso]
-    );
-    workspaceId = fallbackRes[0].id;
-    createdWsName = fallbackRes[0].name;
+    try {
+      const fallbackRes = await sql.query(
+        `INSERT INTO workspaces (name, created_at) VALUES ($1, $2) RETURNING id, name`,
+        [wsName, nowIso]
+      );
+      workspaceId = fallbackRes[0].id;
+      createdWsName = fallbackRes[0].name;
+    } catch {
+      const fallback2 = await sql.query(
+        `INSERT INTO workspaces (name) VALUES ($1) RETURNING id, name`,
+        [wsName]
+      );
+      workspaceId = fallback2[0].id;
+      createdWsName = fallback2[0].name;
+    }
   }
 
   // 4. Create client user linked strictly to this new workspace
-  const userRes = await sql.query(
-    `INSERT INTO users (
-      email, full_name, role, workspace_id, status, password_hash, created_at, updated_at
-    ) VALUES ($1, $2, 'CLIENT', $3, 'ACTIVE', $4, $5, $5)
-    RETURNING id, email, full_name, role, workspace_id, status, created_at`,
-    [cleanEmail, data.fullName.trim(), workspaceId, data.passwordHash, nowIso]
-  );
+  let userRes: any[];
+  try {
+    userRes = await sql.query(
+      `INSERT INTO users (
+        email, full_name, role, workspace_id, status, password_hash, created_at, updated_at
+      ) VALUES ($1, $2, 'CLIENT', $3, 'ACTIVE', $4, $5, $5)
+      RETURNING id, email, full_name, role, workspace_id, status, created_at`,
+      [cleanEmail, data.fullName.trim(), workspaceId, data.passwordHash, nowIso]
+    );
+  } catch {
+    userRes = await sql.query(
+      `INSERT INTO users (
+        email, full_name, role, workspace_id, status, password_hash, created_at
+      ) VALUES ($1, $2, 'CLIENT', $3, 'ACTIVE', $4, $5)
+      RETURNING id, email, full_name, role, workspace_id, status, created_at`,
+      [cleanEmail, data.fullName.trim(), workspaceId, data.passwordHash, nowIso]
+    );
+  }
 
   return {
     client: userRes[0],
