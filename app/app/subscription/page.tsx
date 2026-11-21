@@ -13,6 +13,7 @@ import {
 export default function SubscriptionPage() {
   const { user } = useAuth();
   const [loading, setLoading] = useState(true);
+  const [profile, setProfile] = useState<any>(null);
   const [stats, setStats] = useState({
     leads_count: 0,
     searches_count: 0,
@@ -21,28 +22,35 @@ export default function SubscriptionPage() {
   });
 
   const WHATSAPP_NUMBER = "+923174383702";
-  const WHATSAPP_LINK = `https://wa.me/923174383702?text=Hello%20Usman%2C%20I%20want%20to%20activate%20my%20subscription%20($25/mo%20or%20$100%20Lifetime)%20for%20my%20registered%20email:%20${encodeURIComponent(user?.email || "")}`;
+  const WHATSAPP_LINK = `https://wa.me/923174383702?text=Assalamualaikum.%20I%20want%20to%20activate%20my%20subscription%20($25/mo%20Basic%20or%20$100%20Lifetime)%20for%20my%20registered%20email:%20${encodeURIComponent(user?.email || "")}`;
 
   useEffect(() => {
-    async function fetchStats() {
+    async function fetchData() {
       try {
-        const res = await api.get<any>("/analytics/overview").catch(() => null);
-        if (res) {
+        const [meRes, statsRes] = await Promise.all([
+          api.get<any>("/auth/me").catch(() => null),
+          api.get<any>("/analytics/overview").catch(() => null),
+        ]);
+        if (meRes) setProfile(meRes);
+        if (statsRes) {
           setStats({
-            leads_count: res.total_leads || 0,
-            searches_count: res.total_searches || 0,
-            connected_accounts: res.connected_accounts || 0,
+            leads_count: statsRes.total_leads || 0,
+            searches_count: statsRes.total_searches || 0,
+            connected_accounts: statsRes.connected_accounts || 0,
             max_leads: 5000,
           });
         }
       } catch {}
       setLoading(false);
     }
-    fetchStats();
+    fetchData();
   }, []);
 
-  const isLocked = user?.status === "LOCKED" || user?.status === "PENDING";
-  const isActive = user?.status === "ACTIVE";
+  const currentStatus = profile?.status || user?.status || "LOCKED";
+  const isLocked = currentStatus === "LOCKED" || currentStatus === "PENDING";
+  const isExpired = currentStatus === "EXPIRED";
+  const isActive = currentStatus === "ACTIVE";
+  const isLifetime = (profile?.plan || "").toUpperCase() === "LIFETIME";
 
   return (
     <div className="space-y-6 max-w-5xl mx-auto pb-16">
@@ -74,36 +82,60 @@ export default function SubscriptionPage() {
 
       {/* Account Status Card */}
       <div className={`rounded-2xl border p-6 ${
-        isLocked
-          ? "border-amber-500/30 bg-gradient-to-r from-amber-500/10 via-[#0e1628] to-[#090d16]"
-          : "border-emerald-500/30 bg-gradient-to-r from-emerald-500/10 via-[#0e1628] to-[#090d16]"
+        isActive
+          ? "border-emerald-500/30 bg-gradient-to-r from-emerald-500/10 via-[#0e1628] to-[#090d16]"
+          : isExpired
+          ? "border-rose-500/30 bg-gradient-to-r from-rose-500/10 via-[#0e1628] to-[#090d16]"
+          : "border-amber-500/30 bg-gradient-to-r from-amber-500/10 via-[#0e1628] to-[#090d16]"
       }`}>
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
           <div className="flex items-start gap-4">
-            <div className={`p-3 rounded-xl ${isLocked ? "bg-amber-500/20 text-amber-400" : "bg-emerald-500/20 text-emerald-400"}`}>
-              {isLocked ? <Lock className="h-6 w-6" /> : <ShieldCheck className="h-6 w-6" />}
+            <div className={`p-3 rounded-xl ${
+              isActive
+                ? "bg-emerald-500/20 text-emerald-400"
+                : isExpired
+                ? "bg-rose-500/20 text-rose-400"
+                : "bg-amber-500/20 text-amber-400"
+            }`}>
+              {isActive ? <ShieldCheck className="h-6 w-6" /> : <Lock className="h-6 w-6" />}
             </div>
             <div>
-              <div className="flex items-center gap-2 mb-1">
+              <div className="flex items-center gap-2 mb-1 flex-wrap">
                 <span className="text-xs text-slate-400">Current Plan:</span>
-                <span className="text-sm font-black text-white">{isActive ? "Unlocked Paid Plan" : "Preview Mode (Tala / Locked)"}</span>
+                <span className="text-sm font-black text-white">
+                  {isLifetime ? "Lifetime Access ($100)" : isActive ? "Basic Plan ($25 / 30 Days)" : "Preview Mode (Tala 🔒 / Locked)"}
+                </span>
                 <span className={`text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded border ${
                   isActive
                     ? "text-emerald-400 bg-emerald-500/10 border-emerald-500/20"
+                    : isExpired
+                    ? "text-rose-400 bg-rose-500/10 border-rose-500/20"
                     : "text-amber-400 bg-amber-500/10 border-amber-500/20"
                 }`}>
-                  {isActive ? "ACTIVE • PAID" : "PREVIEW MODE • LOCKED"}
+                  {currentStatus}
                 </span>
+                {isActive && !isLifetime && profile?.remaining_days !== undefined && (
+                  <span className="text-xs font-mono font-bold text-emerald-300 bg-emerald-500/20 px-2 py-0.5 rounded border border-emerald-500/30">
+                    {profile.remaining_days} days left
+                  </span>
+                )}
+                {isLifetime && (
+                  <span className="text-xs font-mono font-bold text-amber-300 bg-amber-500/20 px-2 py-0.5 rounded border border-amber-500/30">
+                    Permanent • No Expiry
+                  </span>
+                )}
               </div>
               <p className="text-xs text-slate-300">
                 {isActive
-                  ? "Your account is fully activated. You have full access to lead discovery, Gemini email assistant, Gmail outreach, and exports."
-                  : "All features are currently locked with view-only access. To unlock full lead discovery and cold outreach tools, activate for $25/month or $100 Lifetime Deal via WhatsApp."}
+                  ? `Your subscription is active. ${isLifetime ? "You enjoy permanent access to all lead search, Gemini email assistant, Gmail outreach, and exports." : `Valid until ${profile?.subscription_expires_at ? new Date(profile.subscription_expires_at).toLocaleDateString() : "end of billing cycle"}.`}`
+                  : isExpired
+                  ? "Your 30-day Basic subscription has expired. Lead searching and email features are locked. Please renew for $25/mo or upgrade to $100 Lifetime via WhatsApp."
+                  : "All features are currently locked with view-only preview access. To unlock full lead discovery, Gemini AI assistant, and Gmail sending, activate for $25/30 Days or $100 Lifetime Deal via WhatsApp."}
               </p>
             </div>
           </div>
 
-          {isLocked && (
+          {(isLocked || isExpired) && (
             <a
               href={WHATSAPP_LINK}
               target="_blank"

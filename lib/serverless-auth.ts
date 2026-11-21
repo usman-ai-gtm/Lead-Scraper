@@ -1,4 +1,5 @@
 import crypto from "crypto";
+import { getNeonSql, isNeonConfigured } from "@/lib/neon-db";
 
 const JWT_SECRET = process.env.SECRET_KEY || process.env.JWT_SECRET || "usman_ai_gtm_ultra_pro_max_secret_key_change_in_production_jwt_99";
 
@@ -130,9 +131,18 @@ export function verifyJwtToken(token: string): any {
 
 export function getCurrentUserFromRequest(req: Request): any {
   try {
+    let token = "";
     const authHeader = req.headers.get("authorization") || req.headers.get("Authorization");
-    if (!authHeader || !authHeader.startsWith("Bearer ")) return null;
-    const token = authHeader.slice(7).trim();
+    if (authHeader && authHeader.startsWith("Bearer ")) {
+      token = authHeader.slice(7).trim();
+    } else {
+      const cookieHeader = req.headers.get("cookie") || "";
+      const match = cookieHeader.match(/usman_gtm_token=([^;]+)/);
+      if (match) {
+        token = decodeURIComponent(match[1].trim());
+      }
+    }
+    if (!token) return null;
     return verifyJwtToken(token);
   } catch {
     return null;
@@ -797,5 +807,145 @@ export function addServerlessExportHistory(
 
 export function getServerlessExportHistory(workspaceId: number): ServerlessExportHistory[] {
   return serverlessExportHistoryStore.filter((e) => e.workspace_id === workspaceId);
+}
+
+/**
+ * Strict Authoritative Subscription and Access Verification.
+ * - Administrators & System Owners have permanent full access.
+ * - Clients default to LOCKED until paid subscription is approved by Owner.
+ * - BASIC subscription ($25/mo) strictly auto-expires 30 days after activation.
+ * - LIFETIME subscription ($100) never expires unless manually modified by Owner.
+ */
+export async function verifyClientActiveSubscription(user: any): Promise<{
+  allowed: boolean;
+  statusCode?: number;
+  message?: string;
+  userRecord?: any;
+}> {
+  if (!user) {
+    return {
+      allowed: false,
+      statusCode: 401,
+      message: "Authentication required to perform this action.",
+    };
+  }
+
+  // Super-admin / owner bypass
+  const emailLower = String(user.email || "").trim().toLowerCase();
+  const isOwner = [
+    "admin@usmanai.com",
+    "mu0602503@gmail.com",
+    "admin@usmangtm.com",
+    "selftest_founder_2026@usmanai.com",
+    "transaction000001@gmail.com",
+  ].includes(emailLower);
+
+  if (user.role === "ADMIN" || isOwner) {
+    return { allowed: true };
+  }
+
+  // For CLIENT users, query the authoritative Neon cloud database
+  if (isNeonConfigured()) {
+    const sql = getNeonSql();
+    if (sql) {
+      try {
+        const rows = await sql.query(
+          `SELECT id, email, role, status, plan, subscription_start, subscription_expires_at, subscription_status
+           FROM users
+           WHERE id = $1
+           LIMIT 1`,
+          [user.id]
+        );
+
+        if (!rows || rows.length === 0) {
+          return {
+            allowed: false,
+            statusCode: 404,
+            message: "User account not found.",
+          };
+        }
+
+        const u = rows[0];
+        const statusUpper = (u.status || "LOCKED").toUpperCase();
+
+        if (statusUpper === "SUSPENDED" || statusUpper === "REVOKED") {
+          return {
+            allowed: false,
+            statusCode: 403,
+            message: "Account Suspended or Revoked. Contact Administrator via WhatsApp (+923174383702).",
+            userRecord: u,
+          };
+        }
+
+        if (statusUpper === "LOCKED" || statusUpper === "PENDING") {
+          return {
+            allowed: false,
+            statusCode: 403,
+            message: "Account Locked — Subscription Activation Required ($25/month or $100 Lifetime). Contact Owner via WhatsApp (+923174383702) for Instant Activation.",
+            userRecord: u,
+          };
+        }
+
+        const planUpper = (u.plan || "BASIC").toUpperCase();
+        if (planUpper === "BASIC") {
+          if (u.subscription_expires_at) {
+            const expTime = new Date(u.subscription_expires_at).getTime();
+            if (expTime < Date.now()) {
+              // Expired: update status in database
+              await sql.query(
+                "UPDATE users SET status = 'EXPIRED', subscription_status = 'EXPIRED', updated_at = NOW() WHERE id = $1",
+                [u.id]
+              );
+              return {
+                allowed: false,
+                statusCode: 403,
+                message: "Your Basic subscription has expired. Please renew for $25/month or upgrade to $100 Lifetime via WhatsApp (+923174383702).",
+                userRecord: { ...u, status: "EXPIRED" },
+              };
+            }
+          } else {
+            return {
+              allowed: false,
+              statusCode: 403,
+              message: "Account Locked — Subscription Activation Required ($25/month or $100 Lifetime). Contact Owner via WhatsApp (+923174383702) for Instant Activation.",
+              userRecord: u,
+            };
+          }
+        }
+
+        if (statusUpper === "EXPIRED") {
+          return {
+            allowed: false,
+            statusCode: 403,
+            message: "Your Basic subscription has expired. Please renew for $25/month or upgrade to $100 Lifetime via WhatsApp (+923174383702).",
+            userRecord: u,
+          };
+        }
+
+        return { allowed: true, userRecord: u };
+      } catch (e) {
+        console.error("verifyClientActiveSubscription Neon error:", e);
+      }
+    }
+  }
+
+  // Fallback in-memory status check
+  const statusUpper = (user.status || "LOCKED").toUpperCase();
+  if (statusUpper === "LOCKED" || statusUpper === "PENDING") {
+    return {
+      allowed: false,
+      statusCode: 403,
+      message: "Account Locked — Subscription Activation Required ($25/month or $100 Lifetime). Contact Owner via WhatsApp (+923174383702) for Instant Activation.",
+    };
+  }
+  if (statusUpper === "SUSPENDED" || statusUpper === "REVOKED") {
+    return {
+      allowed: false,
+      statusCode: 403,
+      message: "Account Suspended or Revoked. Contact Administrator via WhatsApp (+923174383702).",
+    };
+  }
+
+  return { allowed: true };
 }
 

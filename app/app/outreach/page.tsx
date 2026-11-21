@@ -42,6 +42,8 @@ function ColdEmailContent() {
 
   // Sender state
   const [senderAccount, setSenderAccount] = useState<any | null>(null);
+  const [allAccounts, setAllAccounts] = useState<any[]>([]);
+  const [selectedAccountId, setSelectedAccountId] = useState<string>("ROUND_ROBIN");
   const [isGmailConnected, setIsGmailConnected] = useState(false);
   const [checkingSender, setCheckingSender] = useState(true);
 
@@ -92,12 +94,14 @@ function ColdEmailContent() {
         headers: getAuthHeaders(),
       });
       const data = await res.json();
-      if (data && data.status_code === "CONNECTED" && data.account) {
+      if (data && data.status_code === "CONNECTED" && (data.account || (data.accounts && data.accounts.length > 0))) {
         setIsGmailConnected(true);
-        setSenderAccount(data.account);
+        setSenderAccount(data.account || data.accounts[0]);
+        setAllAccounts(data.accounts || (data.account ? [data.account] : []));
       } else {
         setIsGmailConnected(false);
         setSenderAccount(null);
+        setAllAccounts([]);
       }
     } catch {
       setIsGmailConnected(false);
@@ -177,7 +181,7 @@ function ColdEmailContent() {
   const renderTemplate = (text: string, lead: LeadItem) => {
     const contactName = lead.business_name || "Business Owner";
     const senderName = senderAccount?.sender_name || user?.full_name || "USMAN AI GTM";
-    return text
+    let rendered = text
       .replace(/{{business_name}}/g, lead.business_name || "your business")
       .replace(/{{contact_name}}/g, contactName)
       .replace(/{{city}}/g, lead.city || "your region")
@@ -185,6 +189,13 @@ function ColdEmailContent() {
       .replace(/{{industry}}/g, lead.industry || "industry")
       .replace(/{{website}}/g, lead.website || "")
       .replace(/{{sender_name}}/g, senderName);
+
+    // Strict Anti-Glitch Cleanup: strip any leftover unresolved placeholders
+    rendered = rendered
+      .replace(/\{\{[^}]+\}\}/g, "")
+      .replace(/\[(?:Business Name|Contact Name|Name|Your Name|Company Name|Sender Name|Title)\]/gi, "");
+
+    return rendered.trim();
   };
 
   // Generate personalized email draft using Gemini AI
@@ -325,6 +336,7 @@ function ColdEmailContent() {
             recipient_name: lead.business_name,
             subject: personalizedSubject,
             body: personalizedBody,
+            account_id: selectedAccountId !== "ROUND_ROBIN" ? Number(selectedAccountId) : undefined,
           }),
         });
 
@@ -401,10 +413,25 @@ function ColdEmailContent() {
           </p>
         </div>
 
-        {/* Sender Account Status Pill */}
+        {/* Sender Account Status Pill & Multiple Account Selector */}
         <div className="flex items-center gap-2">
           {checkingSender ? (
-            <span className="text-xs text-slate-500">Checking mailbox...</span>
+            <span className="text-xs text-slate-500">Checking mailboxes...</span>
+          ) : isGmailConnected && allAccounts.length > 1 ? (
+            <div className="flex items-center gap-2">
+              <select
+                value={selectedAccountId}
+                onChange={(e) => setSelectedAccountId(e.target.value)}
+                className="rounded-xl border border-emerald-500/30 bg-[#0e1628] px-3 py-1.5 text-xs font-semibold text-emerald-400 focus:outline-none"
+              >
+                <option value="ROUND_ROBIN">All Connected Accounts ({allAccounts.length} Mailboxes • Round-Robin)</option>
+                {allAccounts.map((acc: any) => (
+                  <option key={acc.id} value={acc.id}>
+                    {acc.sender_email} ({acc.sent_today || 0}/{acc.daily_limit || 500} sent)
+                  </option>
+                ))}
+              </select>
+            </div>
           ) : isGmailConnected && senderAccount ? (
             <div className="flex items-center gap-2 px-3 py-1.5 rounded-xl bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 text-xs">
               <Mail className="h-3.5 w-3.5" />

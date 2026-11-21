@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { getCurrentUserFromRequest } from "@/lib/serverless-auth";
-import { getNeonGmailAccount } from "@/lib/neon-db";
+import { getNeonGmailAccount, getNeonSql, isNeonConfigured } from "@/lib/neon-db";
 
 export async function GET(request: Request) {
   const currentUser = getCurrentUserFromRequest(request);
@@ -12,6 +12,24 @@ export async function GET(request: Request) {
   const isGoogleConfigured = Boolean(clientId.length > 0 && clientSecret.length > 0);
 
   const account = await getNeonGmailAccount(workspaceId);
+
+  let allAccounts: any[] = [];
+  if (isNeonConfigured()) {
+    const sql = getNeonSql();
+    if (sql) {
+      try {
+        allAccounts = await sql.query(
+          `SELECT id, sender_email, sender_name, account_name, health_status, daily_limit, sent_today, created_at
+           FROM email_accounts
+           WHERE workspace_id = $1 AND is_active = 1
+           ORDER BY id ASC`,
+          [workspaceId]
+        );
+      } catch (e) {
+        console.error("Fetch email_accounts status error:", e);
+      }
+    }
+  }
 
   let statusCode: "CONNECTED" | "NOT_CONNECTED" | "CONFIGURATION_ERROR" | "RECONNECT_REQUIRED" = "NOT_CONNECTED";
   if (!isGoogleConfigured) {
@@ -28,8 +46,11 @@ export async function GET(request: Request) {
     configured: isGoogleConfigured,
     connected: statusCode === "CONNECTED",
     status_code: statusCode,
+    connected_count: allAccounts.length,
+    accounts: allAccounts,
     account: account
       ? {
+          id: account.id,
           sender_email: account.sender_email,
           sender_name: account.sender_name,
           account_name: account.account_name,

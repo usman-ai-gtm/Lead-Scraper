@@ -29,6 +29,11 @@ export function ClientProvisioningSection() {
   const [copied, setCopied] = useState(false);
   const [actionLoadingId, setActionLoadingId] = useState<number | null>(null);
 
+  // Tab & Inquiries State
+  const [activeTab, setActiveTab] = useState<"clients" | "inquiries">("clients");
+  const [inquiries, setInquiries] = useState<any[]>([]);
+  const [inquiriesLoading, setInquiriesLoading] = useState(false);
+
   // Form state
   const [formData, setFormData] = useState({
     email: "",
@@ -55,8 +60,21 @@ export function ClientProvisioningSection() {
     }
   };
 
+  const fetchInquiries = async () => {
+    setInquiriesLoading(true);
+    try {
+      const data = await api.get<any>("/inquiries");
+      setInquiries(data?.inquiries || []);
+    } catch {
+      // Inquiries default to empty
+    } finally {
+      setInquiriesLoading(false);
+    }
+  };
+
   useEffect(() => {
     fetchClients();
+    fetchInquiries();
   }, []);
 
   // Compute active client seat statistics
@@ -192,6 +210,33 @@ export function ClientProvisioningSection() {
     }
   };
 
+  const handleSubscriptionAction = async (clientId: number, action: string, notes?: string) => {
+    setActionLoadingId(clientId);
+    setError(null);
+    try {
+      await api.post(`/admin/clients/${clientId}/subscription`, { action, notes });
+      setSuccessMsg(`Action ${action} executed successfully for Client #${clientId}.`);
+      setTimeout(() => setSuccessMsg(null), 3500);
+      fetchClients();
+    } catch (err: any) {
+      setError(err?.message || `Failed to execute ${action}`);
+    } finally {
+      setActionLoadingId(null);
+    }
+  };
+
+  const handleUpdateInquiryStatus = async (inquiryId: number, newStatus: string) => {
+    setError(null);
+    try {
+      await api.patch("/inquiries", { id: inquiryId, status: newStatus });
+      setSuccessMsg(`Inquiry #${inquiryId} updated to ${newStatus}.`);
+      setTimeout(() => setSuccessMsg(null), 3000);
+      fetchInquiries();
+    } catch (e: any) {
+      setError(e?.message || "Failed to update inquiry");
+    }
+  };
+
   const copyCredsToClipboard = () => {
     if (!oneTimeCreds) return;
     const text = `USMAN AI GTM — CLIENT ACCESS CREDENTIALS\n` +
@@ -292,191 +337,385 @@ export function ClientProvisioningSection() {
         </div>
       )}
 
-      {/* CLIENTS TABLE */}
-      <div className="rounded-2xl border border-white/[0.08] bg-[#0c1017] p-6 space-y-4">
-        <div className="flex items-center justify-between">
-          <h3 className="text-sm font-bold text-white flex items-center gap-2">
-            <span>Provisioned Client Workspaces</span>
-            <span className="text-xs font-mono font-semibold text-slate-500">({clients.length} total)</span>
-          </h3>
-        </div>
+      {/* TAB NAVIGATION: CLIENTS VS BUYING INQUIRIES */}
+      <div className="flex items-center gap-2 border-b border-white/[0.08] pb-2">
+        <button
+          onClick={() => setActiveTab("clients")}
+          className={`px-4 py-2 text-xs font-bold rounded-xl transition-all flex items-center gap-2 ${
+            activeTab === "clients"
+              ? "bg-blue-600 text-white shadow-glow-sm"
+              : "text-slate-400 hover:text-white hover:bg-white/[0.04]"
+          }`}
+        >
+          <Users className="h-4 w-4" />
+          <span>Client Accounts ({clients.length})</span>
+        </button>
 
-        {/* Real-time Indicator for New Google Signups Pending Activation */}
-        {clients.some((c) => c.status === "LOCKED" || c.status === "PENDING") && (
-          <div className="p-4 rounded-xl bg-gradient-to-r from-amber-500/20 to-orange-500/20 border border-amber-500/30 flex flex-col sm:flex-row items-center justify-between gap-3 text-xs">
-            <div className="flex items-center gap-2.5 text-amber-200">
-              <AlertTriangle className="h-4 w-4 text-amber-400 shrink-0" />
-              <span>
-                <strong>New Client Signups Pending Owner Activation:</strong>{" "}
-                {clients.filter((c) => c.status === "LOCKED" || c.status === "PENDING").map((c) => c.email).join(", ")}
-              </span>
-            </div>
-            <span className="text-[10px] font-bold uppercase tracking-wider text-amber-300 bg-amber-500/20 px-2.5 py-1 rounded border border-amber-500/30 shrink-0">
-              Action Required
+        <button
+          onClick={() => setActiveTab("inquiries")}
+          className={`px-4 py-2 text-xs font-bold rounded-xl transition-all flex items-center gap-2 ${
+            activeTab === "inquiries"
+              ? "bg-amber-600 text-white shadow-glow-sm"
+              : "text-slate-400 hover:text-white hover:bg-white/[0.04]"
+          }`}
+        >
+          <KeyRound className="h-4 w-4" />
+          <span>Buying Inquiries ({inquiries.length})</span>
+          {inquiries.some((i: any) => i.status === "NEW") && (
+            <span className="h-2 w-2 rounded-full bg-amber-400 animate-ping" />
+          )}
+        </button>
+      </div>
+
+      {activeTab === "clients" ? (
+        /* CLIENTS TABLE */
+        <div className="rounded-2xl border border-white/[0.08] bg-[#0c1017] p-6 space-y-4">
+          <div className="flex items-center justify-between">
+            <h3 className="text-sm font-bold text-white flex items-center gap-2">
+              <span>Client Accounts & Subscriptions</span>
+              <span className="text-xs font-mono font-semibold text-slate-500">({clients.length} registered)</span>
+            </h3>
+            <span className="text-[11px] text-slate-400 font-mono">
+              Basic: $25 / 30 Days • Lifetime: $100
             </span>
           </div>
-        )}
 
-        {loading ? (
-          <div className="py-12 text-center text-xs text-slate-500">Loading provisioned clients...</div>
-        ) : clients.length === 0 ? (
-          <div className="py-12 text-center text-xs text-slate-400 space-y-2">
-            <Users className="h-8 w-8 mx-auto text-slate-600" />
-            <p className="font-semibold text-slate-300">No client accounts provisioned yet.</p>
-            <p className="text-slate-500">Click &ldquo;Provision New Client&rdquo; above to onboard your first client with an isolated workspace.</p>
-          </div>
-        ) : (
-          <div className="overflow-x-auto">
-            <table className="w-full text-left text-xs">
-              <thead className="border-b border-white/[0.08] text-slate-400 uppercase tracking-wider font-semibold">
-                <tr>
-                  <th className="py-3 px-3">Client & Google Email</th>
-                  <th className="py-3 px-3">Business Name</th>
-                  <th className="py-3 px-3">Account & Workspace</th>
-                  <th className="py-3 px-3">Dates & Activity</th>
-                  <th className="py-3 px-3">Plan</th>
-                  <th className="py-3 px-3">Payment</th>
-                  <th className="py-3 px-3">Status</th>
-                  <th className="py-3 px-3">Actual Usage</th>
-                  <th className="py-3 px-3 text-right">Actions</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-white/[0.04]">
-                {clients.map((c) => {
-                  const isPending = c.status === "LOCKED" || c.status === "PENDING";
-                  const isSuspended = c.status === "SUSPENDED";
-                  const isRevoked = c.status === "REVOKED";
-                  const isActive = c.status === "ACTIVE";
+          {/* Real-time Indicator for Locked / Pending Accounts */}
+          {clients.some((c) => c.status === "LOCKED" || c.status === "PENDING" || c.status === "EXPIRED") && (
+            <div className="p-4 rounded-xl bg-gradient-to-r from-amber-500/20 to-orange-500/20 border border-amber-500/30 flex flex-col sm:flex-row items-center justify-between gap-3 text-xs">
+              <div className="flex items-center gap-2.5 text-amber-200">
+                <AlertTriangle className="h-4 w-4 text-amber-400 shrink-0" />
+                <span>
+                  <strong>Clients Awaiting Activation or Renewal:</strong>{" "}
+                  {clients
+                    .filter((c) => c.status === "LOCKED" || c.status === "PENDING" || c.status === "EXPIRED")
+                    .map((c) => `${c.email} (${c.status})`)
+                    .join(", ")}
+                </span>
+              </div>
+              <span className="text-[10px] font-bold uppercase tracking-wider text-amber-300 bg-amber-500/20 px-2.5 py-1 rounded border border-amber-500/30 shrink-0">
+                Action Required
+              </span>
+            </div>
+          )}
 
-                  return (
-                    <tr key={c.id} className="hover:bg-white/[0.02]">
-                      {/* Client Name & Registered Google Email */}
-                      <td className="py-3 px-3">
-                        <div className="font-bold text-white">{c.full_name}</div>
-                        <div className="text-[11px] text-slate-400 font-mono">{c.email}</div>
-                      </td>
+          {loading ? (
+            <div className="py-12 text-center text-xs text-slate-500">Loading client roster...</div>
+          ) : clients.length === 0 ? (
+            <div className="py-12 text-center text-xs text-slate-400 space-y-2">
+              <Users className="h-8 w-8 mx-auto text-slate-600" />
+              <p className="font-semibold text-slate-300">No client accounts found.</p>
+              <p className="text-slate-500">Clients register via Google login and appear here in LOCKED status.</p>
+            </div>
+          ) : (
+            <div className="overflow-x-auto">
+              <table className="w-full text-left text-xs">
+                <thead className="border-b border-white/[0.08] text-slate-400 uppercase tracking-wider font-semibold">
+                  <tr>
+                    <th className="py-3 px-3">Client & Google Email</th>
+                    <th className="py-3 px-3">Account & Workspace</th>
+                    <th className="py-3 px-3">Reg & Last Login</th>
+                    <th className="py-3 px-3">Plan</th>
+                    <th className="py-3 px-3">Duration / Expiry</th>
+                    <th className="py-3 px-3">Gmail</th>
+                    <th className="py-3 px-3">Status</th>
+                    <th className="py-3 px-3">Usage</th>
+                    <th className="py-3 px-3 text-right">Owner Control Actions</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-white/[0.04]">
+                  {clients.map((c) => {
+                    const isPending = c.status === "LOCKED" || c.status === "PENDING";
+                    const isExpired = c.status === "EXPIRED";
+                    const isSuspended = c.status === "SUSPENDED";
+                    const isRevoked = c.status === "REVOKED";
+                    const isActive = c.status === "ACTIVE";
+                    const isLifetime = (c.raw_plan || "").toUpperCase() === "LIFETIME";
 
-                      {/* Business Name */}
-                      <td className="py-3 px-3">
-                        <div className="font-medium text-slate-200">{c.company || c.workspace_name}</div>
-                      </td>
+                    return (
+                      <tr key={c.id} className="hover:bg-white/[0.02]">
+                        {/* Client Name & Real Google Email */}
+                        <td className="py-3 px-3">
+                          <div className="font-bold text-white">{c.full_name}</div>
+                          <div className="text-[11px] text-slate-400 font-mono">{c.email}</div>
+                          {c.company && <div className="text-[10px] text-slate-500">{c.company}</div>}
+                        </td>
 
-                      {/* Account ID & Workspace ID */}
-                      <td className="py-3 px-3 font-mono text-[11px]">
-                        <div className="text-slate-300">ID: #{c.id}</div>
-                        <div className="text-slate-500">WS: #{c.workspace_id}</div>
-                      </td>
+                        {/* Account ID & Workspace ID */}
+                        <td className="py-3 px-3 font-mono text-[11px]">
+                          <div className="text-slate-300 font-bold">ID: #{c.id}</div>
+                          <div className="text-slate-500 text-[10px]">WS: #{c.workspace_id}</div>
+                        </td>
 
-                      {/* Dates: Registration & Last Login */}
-                      <td className="py-3 px-3 text-[11px] text-slate-400">
-                        <div>Reg: {c.created_at ? new Date(c.created_at).toLocaleDateString() : "N/A"}</div>
-                        <div className="text-[10px] text-slate-500">
-                          Login: {c.last_login ? new Date(c.last_login).toLocaleDateString() : "Never"}
-                        </div>
-                      </td>
+                        {/* Registration Date & Last Login */}
+                        <td className="py-3 px-3 text-[11px] text-slate-400">
+                          <div>{c.created_at ? new Date(c.created_at).toLocaleDateString() : "N/A"}</div>
+                          <div className="text-[10px] text-slate-500">
+                            Login: {c.last_login ? new Date(c.last_login).toLocaleDateString() : "Never"}
+                          </div>
+                        </td>
 
-                      {/* Plan */}
-                      <td className="py-3 px-3">
-                        <span className="text-[10px] font-bold uppercase tracking-wider text-blue-400 bg-blue-500/10 px-2 py-0.5 rounded border border-blue-500/20">
-                          {c.plan || "$25/mo Starter"}
-                        </span>
-                      </td>
-
-                      {/* Payment Status */}
-                      <td className="py-3 px-3">
-                        <span
-                          className={`text-[10px] font-bold px-2 py-0.5 rounded border ${
-                            isActive
-                              ? "text-emerald-400 bg-emerald-500/10 border-emerald-500/20"
-                              : "text-amber-400 bg-amber-500/10 border-amber-500/20"
-                          }`}
-                        >
-                          {isActive ? "PAID" : "PENDING"}
-                        </span>
-                      </td>
-
-                      {/* Account Status */}
-                      <td className="py-3 px-3">
-                        <span
-                          className={`text-[10px] font-bold px-2 py-0.5 rounded border ${
-                            isActive
-                              ? "text-emerald-400 bg-emerald-500/10 border-emerald-500/20"
-                              : isPending
-                              ? "text-amber-400 bg-amber-500/10 border-amber-500/20 animate-pulse"
-                              : isSuspended
-                              ? "text-rose-400 bg-rose-500/10 border-rose-500/20"
-                              : "text-slate-400 bg-slate-500/10 border-slate-500/20"
-                          }`}
-                        >
-                          {c.status}
-                        </span>
-                      </td>
-
-                      {/* Actual Usage */}
-                      <td className="py-3 px-3 font-mono text-[11px] text-slate-300">
-                        <div>{(c as any).total_leads ?? 0} leads</div>
-                        <div className="text-[10px] text-slate-500">{(c as any).total_searches ?? 0} searches</div>
-                      </td>
-
-                      {/* Actions */}
-                      <td className="py-3 px-3 text-right">
-                        <div className="inline-flex items-center gap-1.5">
-                          {/* Activate / Reactivate button */}
-                          {(isPending || isSuspended) && (
-                            <button
-                              onClick={() => handleToggleStatus(c.id, c.status)}
-                              disabled={actionLoadingId === c.id}
-                              className="px-2.5 py-1 text-[11px] font-bold text-white bg-emerald-600 hover:bg-emerald-500 rounded-lg shadow-sm transition-colors disabled:opacity-40"
-                              title="Verify Payment and Activate Account"
-                            >
-                              <CheckCircle2 className="h-3 w-3 inline mr-1" />
-                              Activate
-                            </button>
-                          )}
-
-                          {/* Suspend button */}
-                          {isActive && (
-                            <button
-                              onClick={() => handleToggleStatus(c.id, c.status)}
-                              disabled={actionLoadingId === c.id}
-                              className="px-2.5 py-1 text-[11px] font-semibold text-amber-300 border border-amber-500/20 bg-amber-500/10 hover:bg-amber-500/20 rounded-lg transition-colors disabled:opacity-40"
-                              title="Suspend Client Access"
-                            >
-                              <Power className="h-3 w-3 inline mr-1" />
-                              Suspend
-                            </button>
-                          )}
-
-                          <button
-                            onClick={() => handleResetPassword(c.id, c.full_name)}
-                            disabled={actionLoadingId === c.id || isRevoked}
-                            className="px-2 py-1 text-[11px] font-semibold text-slate-300 hover:text-white bg-white/[0.04] hover:bg-white/[0.08] border border-white/10 rounded-lg transition-colors disabled:opacity-40"
-                            title="Generate new temporary password"
+                        {/* Plan */}
+                        <td className="py-3 px-3">
+                          <span
+                            className={`text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded border ${
+                              isLifetime
+                                ? "text-amber-300 bg-amber-500/15 border-amber-500/30"
+                                : "text-blue-400 bg-blue-500/10 border-blue-500/20"
+                            }`}
                           >
-                            <KeyRound className="h-3 w-3 inline mr-1 text-amber-400" />
-                            Pass
-                          </button>
+                            {isLifetime ? "Lifetime ($100)" : "Basic ($25/30d)"}
+                          </span>
+                        </td>
 
-                          {!isRevoked && (
-                            <button
-                              onClick={() => handleRevokeClient(c.id, c.full_name)}
-                              disabled={actionLoadingId === c.id}
-                              className="p-1 text-slate-500 hover:text-rose-400 transition-colors disabled:opacity-40"
-                              title="Revoke Seat"
-                            >
-                              <Trash2 className="h-3.5 w-3.5" />
-                            </button>
+                        {/* Duration / Expiry / Remaining Days */}
+                        <td className="py-3 px-3 text-[11px]">
+                          {isLifetime ? (
+                            <span className="text-amber-400 font-bold">Permanent — No Expiry</span>
+                          ) : (
+                            <div>
+                              <div className={typeof c.remaining_days === "number" && c.remaining_days <= 3 ? "text-rose-400 font-bold" : "text-slate-300 font-semibold"}>
+                                {typeof c.remaining_days === "number"
+                                  ? `${c.remaining_days} days left`
+                                  : c.remaining_days || "30 Days"}
+                              </div>
+                              <div className="text-[10px] text-slate-500">
+                                {c.subscription_expires_at
+                                  ? `Exp: ${new Date(c.subscription_expires_at).toLocaleDateString()}`
+                                  : "Pending start"}
+                              </div>
+                            </div>
                           )}
+                        </td>
+
+                        {/* Connected Gmail Count */}
+                        <td className="py-3 px-3 font-mono text-[11px]">
+                          <span className={`px-2 py-0.5 rounded ${
+                            (c.connected_accounts ?? 0) > 0
+                              ? "bg-emerald-500/10 text-emerald-400 border border-emerald-500/20"
+                              : "bg-white/[0.03] text-slate-500"
+                          }`}>
+                            {c.connected_accounts ?? 0} connected
+                          </span>
+                        </td>
+
+                        {/* Status */}
+                        <td className="py-3 px-3">
+                          <span
+                            className={`text-[10px] font-bold px-2 py-0.5 rounded border inline-flex items-center gap-1 ${
+                              isActive
+                                ? "text-emerald-400 bg-emerald-500/10 border-emerald-500/20"
+                                : isPending
+                                ? "text-amber-400 bg-amber-500/10 border-amber-500/20 animate-pulse"
+                                : isExpired
+                                ? "text-rose-400 bg-rose-500/10 border-rose-500/20"
+                                : isSuspended
+                                ? "text-purple-400 bg-purple-500/10 border-purple-500/20"
+                                : "text-slate-400 bg-slate-500/10 border-slate-500/20"
+                            }`}
+                          >
+                            {(isPending || isExpired) && <Lock className="h-3 w-3 inline" />}
+                            {c.status}
+                          </span>
+                        </td>
+
+                        {/* Usage */}
+                        <td className="py-3 px-3 font-mono text-[11px] text-slate-300">
+                          <div>{c.total_leads ?? 0} leads</div>
+                          <div className="text-[10px] text-slate-500">{c.total_searches ?? 0} searches</div>
+                        </td>
+
+                        {/* Owner Actions */}
+                        <td className="py-3 px-3 text-right">
+                          <div className="inline-flex items-center gap-1.5 flex-wrap justify-end">
+                            {/* Activate Basic ($25) */}
+                            <button
+                              onClick={() => handleSubscriptionAction(c.id, "ACTIVATE_BASIC")}
+                              disabled={actionLoadingId === c.id}
+                              className="px-2 py-1 text-[10px] font-bold text-white bg-blue-600 hover:bg-blue-500 rounded shadow-sm disabled:opacity-40"
+                              title="Activate 30-Day Basic Plan ($25)"
+                            >
+                              $25 Basic
+                            </button>
+
+                            {/* Activate Lifetime ($100) */}
+                            <button
+                              onClick={() => handleSubscriptionAction(c.id, "ACTIVATE_LIFETIME")}
+                              disabled={actionLoadingId === c.id}
+                              className="px-2 py-1 text-[10px] font-bold text-black bg-gradient-to-r from-amber-400 to-yellow-500 hover:from-amber-300 hover:to-yellow-400 rounded shadow-sm disabled:opacity-40"
+                              title="Activate Lifetime Plan ($100)"
+                            >
+                              $100 Lifetime
+                            </button>
+
+                            {/* Extend +30 Days */}
+                            {isActive && !isLifetime && (
+                              <button
+                                onClick={() => handleSubscriptionAction(c.id, "EXTEND_30")}
+                                disabled={actionLoadingId === c.id}
+                                className="px-1.5 py-1 text-[10px] font-semibold text-emerald-300 bg-emerald-500/15 border border-emerald-500/30 hover:bg-emerald-500/25 rounded disabled:opacity-40"
+                                title="Add 30 Days to Subscription"
+                              >
+                                +30d
+                              </button>
+                            )}
+
+                            {/* Lock / Unlock */}
+                            {isActive ? (
+                              <button
+                                onClick={() => handleSubscriptionAction(c.id, "LOCK")}
+                                disabled={actionLoadingId === c.id}
+                                className="px-1.5 py-1 text-[10px] font-semibold text-amber-300 bg-amber-500/10 border border-amber-500/20 hover:bg-amber-500/20 rounded disabled:opacity-40"
+                                title="Lock account (require purchase)"
+                              >
+                                Lock 🔒
+                              </button>
+                            ) : (
+                              <button
+                                onClick={() => handleSubscriptionAction(c.id, "UNLOCK")}
+                                disabled={actionLoadingId === c.id}
+                                className="px-1.5 py-1 text-[10px] font-semibold text-emerald-300 bg-emerald-500/10 border border-emerald-500/20 hover:bg-emerald-500/20 rounded disabled:opacity-40"
+                                title="Unlock account"
+                              >
+                                Unlock
+                              </button>
+                            )}
+
+                            {/* Suspend */}
+                            <button
+                              onClick={() => handleToggleStatus(c.id, c.status)}
+                              disabled={actionLoadingId === c.id}
+                              className="px-1.5 py-1 text-[10px] font-semibold text-rose-300 bg-rose-500/10 border border-rose-500/20 hover:bg-rose-500/20 rounded disabled:opacity-40"
+                              title="Toggle Suspension"
+                            >
+                              <Power className="h-2.5 w-2.5 inline" />
+                            </button>
+
+                            {/* Revoke */}
+                            {!isRevoked && (
+                              <button
+                                onClick={() => handleRevokeClient(c.id, c.full_name)}
+                                disabled={actionLoadingId === c.id}
+                                className="p-1 text-slate-500 hover:text-rose-400 transition-colors disabled:opacity-40"
+                                title="Revoke Seat"
+                              >
+                                <Trash2 className="h-3 w-3" />
+                              </button>
+                            )}
+                          </div>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
+      ) : (
+        /* BUYING INQUIRIES TAB */
+        <div className="rounded-2xl border border-white/[0.08] bg-[#0c1017] p-6 space-y-4">
+          <div className="flex items-center justify-between">
+            <h3 className="text-sm font-bold text-white flex items-center gap-2">
+              <span>Customer Buying Inquiries</span>
+              <span className="text-xs font-mono font-semibold text-slate-500">({inquiries.length} inquiries)</span>
+            </h3>
+            <button
+              onClick={fetchInquiries}
+              className="text-xs text-slate-400 hover:text-white flex items-center gap-1"
+            >
+              <RefreshCw className="h-3 w-3" /> Refresh
+            </button>
+          </div>
+
+          {inquiriesLoading ? (
+            <div className="py-12 text-center text-xs text-slate-500">Loading buying inquiries...</div>
+          ) : inquiries.length === 0 ? (
+            <div className="py-12 text-center text-xs text-slate-400 space-y-2">
+              <KeyRound className="h-8 w-8 mx-auto text-slate-600" />
+              <p className="font-semibold text-slate-300">No buying inquiries received yet.</p>
+              <p className="text-slate-500">Inquiries submitted from the Pricing and Contact pages will appear here in real time.</p>
+            </div>
+          ) : (
+            <div className="overflow-x-auto">
+              <table className="w-full text-left text-xs">
+                <thead className="border-b border-white/[0.08] text-slate-400 uppercase tracking-wider font-semibold">
+                  <tr>
+                    <th className="py-3 px-3">Customer Name</th>
+                    <th className="py-3 px-3">Contact (WhatsApp / Phone)</th>
+                    <th className="py-3 px-3">Email</th>
+                    <th className="py-3 px-3">Plan Requested</th>
+                    <th className="py-3 px-3">Inquiry Date</th>
+                    <th className="py-3 px-3">Message</th>
+                    <th className="py-3 px-3">Status</th>
+                    <th className="py-3 px-3 text-right">Inquiry Actions</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-white/[0.04]">
+                  {inquiries.map((iq: any) => (
+                    <tr key={iq.id} className="hover:bg-white/[0.02]">
+                      <td className="py-3 px-3 font-bold text-white">{iq.customer_name}</td>
+                      <td className="py-3 px-3 text-slate-300 font-mono">
+                        <a
+                          href={`https://wa.me/${(iq.contact_info || "").replace(/[^0-9]/g, "")}`}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="text-emerald-400 hover:underline"
+                        >
+                          {iq.contact_info}
+                        </a>
+                      </td>
+                      <td className="py-3 px-3 text-slate-400 font-mono">{iq.email || "N/A"}</td>
+                      <td className="py-3 px-3">
+                        <span className={`text-[10px] font-bold px-2 py-0.5 rounded border ${
+                          iq.plan === "LIFETIME"
+                            ? "text-amber-300 bg-amber-500/10 border-amber-500/20"
+                            : "text-blue-400 bg-blue-500/10 border-blue-500/20"
+                        }`}>
+                          {iq.plan === "LIFETIME" ? "$100 Lifetime" : "$25 Basic"}
+                        </span>
+                      </td>
+                      <td className="py-3 px-3 text-slate-400">
+                        {iq.created_at ? new Date(iq.created_at).toLocaleString() : "N/A"}
+                      </td>
+                      <td className="py-3 px-3 text-slate-300 max-w-xs truncate" title={iq.message}>
+                        {iq.message || "—"}
+                      </td>
+                      <td className="py-3 px-3">
+                        <span className={`text-[10px] font-bold px-2 py-0.5 rounded border ${
+                          iq.status === "NEW"
+                            ? "text-amber-400 bg-amber-500/10 border-amber-500/20"
+                            : iq.status === "ACTIVATED"
+                            ? "text-emerald-400 bg-emerald-500/10 border-emerald-500/20"
+                            : "text-slate-300 bg-white/5 border-white/10"
+                        }`}>
+                          {iq.status}
+                        </span>
+                      </td>
+                      <td className="py-3 px-3 text-right">
+                        <div className="inline-flex items-center gap-1.5 justify-end">
+                          <button
+                            onClick={() => handleUpdateInquiryStatus(iq.id, "CONTACTED")}
+                            className="px-2 py-1 text-[10px] font-semibold text-slate-300 bg-white/[0.04] hover:bg-white/[0.08] rounded border border-white/10"
+                          >
+                            Contacted
+                          </button>
+                          <button
+                            onClick={() => handleUpdateInquiryStatus(iq.id, "ACTIVATED")}
+                            className="px-2 py-1 text-[10px] font-bold text-white bg-emerald-600 hover:bg-emerald-500 rounded"
+                          >
+                            Mark Activated
+                          </button>
                         </div>
                       </td>
                     </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
-        )}
-      </div>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
+      )}
 
       {/* PROVISION NEW CLIENT MODAL */}
       {provisionModalOpen && (

@@ -1,5 +1,10 @@
 import { NextResponse } from "next/server";
-import { getCurrentUserFromRequest, saveServerlessSearchRecordAndLeads, getPktDateTime } from "@/lib/serverless-auth";
+import {
+  getCurrentUserFromRequest,
+  verifyClientActiveSubscription,
+  saveServerlessSearchRecordAndLeads,
+  getPktDateTime,
+} from "@/lib/serverless-auth";
 import { saveNeonSearchRecordAndLeads, isNeonConfigured } from "@/lib/neon-db";
 import {
   cleanDomain,
@@ -33,28 +38,14 @@ export async function POST(req: Request) {
   try {
     const body = await req.json().catch(() => ({}));
     const currentUser = getCurrentUserFromRequest(req);
-    if (!currentUser) {
-      return NextResponse.json(
-        { status: "error", message: "Authentication required to search leads." },
-        { status: 401 }
-      );
-    }
-    if (currentUser.status === "LOCKED" || currentUser.status === "PENDING") {
+    const authCheck = await verifyClientActiveSubscription(currentUser);
+    if (!authCheck.allowed) {
       return NextResponse.json(
         {
           status: "error",
-          message: "Account Locked — Subscription Activation Required ($25/month or $100 Lifetime). Contact Owner via WhatsApp (+923174383702) for Instant Activation."
+          message: authCheck.message,
         },
-        { status: 403 }
-      );
-    }
-    if (currentUser.status === "SUSPENDED" || currentUser.status === "REVOKED") {
-      return NextResponse.json(
-        {
-          status: "error",
-          message: "Account Suspended or Revoked. Contact Administrator via WhatsApp (+923174383702)."
-        },
-        { status: 403 }
+        { status: authCheck.statusCode || 403 }
       );
     }
     const workspaceId = currentUser.workspace_id || 1;

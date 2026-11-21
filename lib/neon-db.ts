@@ -608,17 +608,28 @@ export async function getNeonGmailAccount(workspaceId: number) {
 /**
  * Get raw Gmail tokens securely for sending (server-side only)
  */
-export async function getNeonGmailTokens(workspaceId: number) {
+export async function getNeonGmailTokens(workspaceId: number, accountId?: number) {
   const sql = getNeonSql();
   if (!sql) return null;
   try {
-    const rows = await sql.query(
-      `SELECT id, sender_email, sender_name, oauth_token_json, daily_limit, sent_today
-       FROM email_accounts
-       WHERE workspace_id = $1 AND is_active = 1
-       ORDER BY id DESC LIMIT 1`,
-      [workspaceId]
-    );
+    let rows: any[] = [];
+    if (accountId) {
+      rows = await sql.query(
+        `SELECT id, sender_email, sender_name, oauth_token_json, daily_limit, sent_today
+         FROM email_accounts
+         WHERE workspace_id = $1 AND id = $2 AND is_active = 1
+         LIMIT 1`,
+        [workspaceId, accountId]
+      );
+    } else {
+      rows = await sql.query(
+        `SELECT id, sender_email, sender_name, oauth_token_json, daily_limit, sent_today
+         FROM email_accounts
+         WHERE workspace_id = $1 AND is_active = 1
+         ORDER BY id DESC LIMIT 1`,
+        [workspaceId]
+      );
+    }
     if (!rows[0]) return null;
     let tokens: any = decryptToken(rows[0].oauth_token_json) || {};
     return {
@@ -636,7 +647,36 @@ export async function getNeonGmailTokens(workspaceId: number) {
 }
 
 /**
- * Save or connect Gmail OAuth account in workspace
+ * Retrieve ALL active Gmail OAuth accounts with decrypted tokens for round-robin rotation
+ */
+export async function getNeonAllActiveGmailTokens(workspaceId: number) {
+  const sql = getNeonSql();
+  if (!sql) return [];
+  try {
+    const rows = await sql.query(
+      `SELECT id, sender_email, sender_name, oauth_token_json, daily_limit, sent_today
+       FROM email_accounts
+       WHERE workspace_id = $1 AND is_active = 1
+       ORDER BY id ASC`,
+      [workspaceId]
+    );
+    return rows.map((r: any) => ({
+      accountId: r.id,
+      senderEmail: r.sender_email,
+      senderName: r.sender_name,
+      dailyLimit: r.daily_limit || 500,
+      sentToday: r.sent_today || 0,
+      tokens: decryptToken(r.oauth_token_json) || {},
+    }));
+  } catch (e) {
+    console.error("Neon getNeonAllActiveGmailTokens error:", e);
+    return [];
+  }
+}
+
+/**
+ * Save or connect Gmail OAuth account in workspace.
+ * Supports multiple accounts per workspace without overwriting existing accounts.
  */
 export async function saveNeonGmailAccount(
   workspaceId: number,
@@ -652,16 +692,31 @@ export async function saveNeonGmailAccount(
   if (!sql) return null;
   try {
     const nowIso = new Date().toISOString();
-    // Deactivate previous accounts in this workspace
-    await sql.query(
-      "UPDATE email_accounts SET is_active = 0 WHERE workspace_id = $1",
-      [workspaceId]
-    );
-
+    const cleanEmail = data.senderEmail.toLowerCase().trim();
     const tokens = data.tokenData || data.oauthTokens || {};
     const encryptedTokens = encryptToken(tokens);
     const limit = data.dailyLimit || 500;
 
+    // Check if this senderEmail is already connected in this workspace
+    const existing = await sql.query(
+      "SELECT id FROM email_accounts WHERE workspace_id = $1 AND LOWER(sender_email) = $2 LIMIT 1",
+      [workspaceId, cleanEmail]
+    );
+
+    if (existing && existing.length > 0) {
+      // Update existing account credentials and reactivate
+      const rows = await sql.query(
+        `UPDATE email_accounts
+         SET oauth_token_json = $1, sender_name = $2, is_active = 1,
+             health_status = 'CONNECTED', daily_limit = $3, updated_at = $4
+         WHERE id = $5
+         RETURNING id, workspace_id, account_name, sender_name, sender_email, health_status, daily_limit`,
+        [encryptedTokens, data.senderName, limit, nowIso, existing[0].id]
+      );
+      return rows[0] || null;
+    }
+
+    // Insert new connected Gmail account for this workspace
     const rows = await sql.query(
       `INSERT INTO email_accounts (
         workspace_id, account_name, sender_name, sender_email,
@@ -671,9 +726,9 @@ export async function saveNeonGmailAccount(
       RETURNING id, workspace_id, account_name, sender_name, sender_email, health_status, daily_limit`,
       [
         workspaceId,
-        `Gmail (${data.senderEmail})`,
+        `Gmail (${cleanEmail})`,
         data.senderName,
-        data.senderEmail.toLowerCase().trim(),
+        cleanEmail,
         "GMAIL_OAUTH",
         encryptedTokens,
         limit,
@@ -692,19 +747,64 @@ export async function saveNeonGmailAccount(
 }
 
 /**
- * Disconnect Gmail from workspace
+ * Disconnect Gmail account(s) from workspace.
+ * If accountId is provided, disconnects only that account. Otherwise disconnects all.
  */
-export async function disconnectNeonGmailAccount(workspaceId: number): Promise<boolean> {
+export async function disconnectNeonGmailAccount(workspaceId: number, accountId?: number): Promise<boolean> {
   const sql = getNeonSql();
   if (!sql) return false;
   try {
-    await sql.query(
-      "UPDATE email_accounts SET is_active = 0, health_status = 'DISCONNECTED', oauth_token_json = NULL, updated_at = $1 WHERE workspace_id = $2",
-      [new Date().toISOString(), workspaceId]
-    );
+    if (accountId) {
+      await sql.query(
+        "UPDATE email_accounts SET is_active = 0, health_status = 'DISCONNECTED', oauth_token_json = NULL, updated_at = $1 WHERE workspace_id = $2 AND id = $3",
+        [new Date().toISOString(), workspaceId, accountId]
+      );
+    } else {
+      await sql.query(
+        "UPDATE email_accounts SET is_active = 0, health_status = 'DISCONNECTED', oauth_token_json = NULL, updated_at = $1 WHERE workspace_id = $2",
+        [new Date().toISOString(), workspaceId]
+      );
+    }
     return true;
   } catch (e) {
     console.error("Neon disconnectGmailAccount error:", e);
+    return false;
+  }
+}
+
+/**
+ * Check if a recipient email is suppressed in this workspace
+ */
+export async function isRecipientSuppressed(workspaceId: number, email: string): Promise<boolean> {
+  const sql = getNeonSql();
+  if (!sql) return false;
+  try {
+    const rows = await sql.query(
+      "SELECT id FROM email_suppressions WHERE workspace_id = $1 AND LOWER(email) = LOWER($2) LIMIT 1",
+      [workspaceId, email.trim()]
+    );
+    return rows.length > 0;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Check duplicate outreach: recipient already emailed within X days
+ */
+export async function isDuplicateOutreach(workspaceId: number, email: string, withinDays: number = 30): Promise<boolean> {
+  const sql = getNeonSql();
+  if (!sql) return false;
+  try {
+    const rows = await sql.query(
+      `SELECT id FROM outreach_records
+       WHERE workspace_id = $1 AND LOWER(recipient_email) = LOWER($2)
+       AND sent_at >= (NOW() - ($3 || ' days')::INTERVAL)
+       LIMIT 1`,
+      [workspaceId, email.trim(), String(withinDays)]
+    );
+    return rows.length > 0;
+  } catch {
     return false;
   }
 }
@@ -890,14 +990,14 @@ export async function getNeonClients() {
         u.role,
         u.workspace_id,
         u.status,
+        COALESCE(u.plan, 'BASIC') as plan,
+        u.subscription_start,
+        u.subscription_expires_at,
+        u.subscription_status,
+        u.subscription_notes,
         u.created_at,
         u.last_login,
         COALESCE(w.name, u.full_name || '''s Workspace') as workspace_name,
-        'STARTER ($25/mo)' as plan,
-        CASE 
-          WHEN u.status = 'ACTIVE' THEN 'PAID'
-          ELSE 'PENDING'
-        END as payment_status,
         COALESCE((SELECT COUNT(*) FROM leads l WHERE l.workspace_id = u.workspace_id), 0) as total_leads,
         COALESCE((SELECT COUNT(*) FROM search_records sr WHERE sr.workspace_id = u.workspace_id), 0) as total_searches,
         COALESCE((SELECT COUNT(*) FROM email_accounts ea WHERE ea.workspace_id = u.workspace_id AND ea.is_active = 1), 0) as connected_accounts
@@ -906,12 +1006,41 @@ export async function getNeonClients() {
       WHERE u.role != 'ADMIN'
       ORDER BY u.id DESC
     `);
-    return clients.map((c: any) => ({
-      ...c,
-      total_leads: parseInt(c.total_leads || "0", 10),
-      total_searches: parseInt(c.total_searches || "0", 10),
-      connected_accounts: parseInt(c.connected_accounts || "0", 10),
-    }));
+
+    const now = Date.now();
+    return clients.map((c: any) => {
+      const planUpper = String(c.plan || 'BASIC').toUpperCase();
+      let remainingDays: number | string = 'Lifetime Access — No Expiry';
+      let isExpired = false;
+
+      if (planUpper === 'BASIC') {
+        if (c.subscription_expires_at) {
+          const expTime = new Date(c.subscription_expires_at).getTime();
+          const diffDays = Math.ceil((expTime - now) / (1000 * 60 * 60 * 24));
+          remainingDays = Math.max(0, diffDays);
+          if (diffDays <= 0) {
+            isExpired = true;
+          }
+        } else {
+          remainingDays = 0;
+          isExpired = true;
+        }
+      }
+
+      const displayStatus = isExpired && c.status === 'ACTIVE' ? 'EXPIRED' : (c.status || 'LOCKED');
+
+      return {
+        ...c,
+        raw_plan: planUpper,
+        plan: planUpper === 'LIFETIME' ? 'LIFETIME ($100)' : 'BASIC ($25/30 Days)',
+        status: displayStatus,
+        payment_status: displayStatus === 'ACTIVE' ? 'PAID' : 'PENDING',
+        remaining_days: remainingDays,
+        total_leads: parseInt(c.total_leads || "0", 10),
+        total_searches: parseInt(c.total_searches || "0", 10),
+        connected_accounts: parseInt(c.connected_accounts || "0", 10),
+      };
+    });
   } catch (e) {
     console.error("Neon getNeonClients error:", e);
     return [];

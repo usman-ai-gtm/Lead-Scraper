@@ -23,6 +23,16 @@ interface GmailStatusResponse {
     health_status: string;
     last_sent_at?: string;
   } | null;
+  accounts?: Array<{
+    id: number;
+    sender_name: string;
+    sender_email: string;
+    daily_limit: number;
+    sent_today: number;
+    health_status: string;
+    created_at?: string;
+  }>;
+  connected_count?: number;
   provider: string;
   daily_quota: number;
   cost: string;
@@ -137,8 +147,8 @@ function EmailAccountsContent() {
     }
   };
 
-  const handleDisconnect = async () => {
-    if (!confirm("Are you sure you want to disconnect your Gmail account from this workspace?")) {
+  const handleDisconnect = async (accountId?: number) => {
+    if (!confirm(accountId ? "Are you sure you want to disconnect this mailbox?" : "Are you sure you want to disconnect Gmail accounts from this workspace?")) {
       return;
     }
     setDisconnecting(true);
@@ -146,10 +156,11 @@ function EmailAccountsContent() {
       const res = await fetch("/api/integrations/gmail/disconnect", {
         method: "POST",
         headers: getAuthHeaders(),
+        body: JSON.stringify({ account_id: accountId }),
       });
       if (res.ok) {
         setToastType("info");
-        setToastMsg("Gmail account disconnected successfully.");
+        setToastMsg(accountId ? "Mailbox disconnected successfully." : "Gmail account disconnected successfully.");
         await fetchStatus();
       } else {
         const err = await res.json().catch(() => ({}));
@@ -321,23 +332,31 @@ function EmailAccountsContent() {
             </div>
           </div>
 
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2 flex-wrap">
             {isConnected ? (
               <>
                 <button
                   onClick={() => setTestModalOpen(true)}
-                  className="px-3.5 py-2 text-xs font-semibold text-white bg-blue-600 hover:bg-blue-500 rounded-xl transition-all flex items-center gap-1.5"
+                  className="px-3 py-2 text-xs font-semibold text-white bg-blue-600 hover:bg-blue-500 rounded-xl transition-all flex items-center gap-1.5"
                 >
                   <Send className="h-3.5 w-3.5" />
                   <span>Send Test Email</span>
                 </button>
                 <button
-                  onClick={handleDisconnect}
+                  onClick={handleConnectGmail}
+                  disabled={connecting}
+                  className="px-3 py-2 text-xs font-semibold text-slate-200 bg-white/[0.04] hover:bg-white/[0.08] border border-white/10 rounded-xl transition-all flex items-center gap-1.5"
+                >
+                  <Mail className="h-3.5 w-3.5 text-blue-400" />
+                  <span>+ Connect Another Gmail</span>
+                </button>
+                <button
+                  onClick={() => handleDisconnect()}
                   disabled={disconnecting}
-                  className="px-3.5 py-2 text-xs font-semibold text-rose-400 hover:text-white bg-rose-500/10 hover:bg-rose-500/20 border border-rose-500/20 rounded-xl transition-all flex items-center gap-1.5 disabled:opacity-50"
+                  className="px-3 py-2 text-xs font-semibold text-rose-400 hover:text-white bg-rose-500/10 hover:bg-rose-500/20 border border-rose-500/20 rounded-xl transition-all flex items-center gap-1.5 disabled:opacity-50"
                 >
                   <Power className="h-3.5 w-3.5" />
-                  <span>{disconnecting ? "Disconnecting..." : "Disconnect"}</span>
+                  <span>{disconnecting ? "..." : "Disconnect All"}</span>
                 </button>
               </>
             ) : (
@@ -370,8 +389,41 @@ function EmailAccountsContent() {
           </div>
         </div>
 
-        {/* Account Details when Connected */}
-        {isConnected && statusData?.account ? (
+        {/* Multi-Account Mailbox Grid */}
+        {isConnected && statusData?.accounts && statusData.accounts.length > 0 ? (
+          <div className="space-y-3">
+            <div className="text-xs font-bold text-slate-300">
+              Active Sending Mailboxes ({statusData.accounts.length} connected)
+            </div>
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+              {statusData.accounts.map((acc: any) => (
+                <div key={acc.id} className="p-4 rounded-xl bg-white/[0.02] border border-white/[0.08] space-y-2">
+                  <div className="flex items-center justify-between">
+                    <span className="text-[10px] font-bold uppercase tracking-wider text-emerald-400 bg-emerald-500/10 px-2 py-0.5 rounded border border-emerald-500/20">
+                      CONNECTED
+                    </span>
+                    <button
+                      onClick={() => handleDisconnect(acc.id)}
+                      className="text-[10px] text-rose-400 hover:text-rose-300 hover:underline"
+                    >
+                      Disconnect
+                    </button>
+                  </div>
+                  <div className="font-bold text-white text-xs font-mono truncate" title={acc.sender_email}>
+                    {acc.sender_email}
+                  </div>
+                  <div className="text-[11px] text-slate-400">
+                    Sender: {acc.sender_name || "Sales Outreach"}
+                  </div>
+                  <div className="text-[10px] text-slate-400 border-t border-white/[0.04] pt-2 flex justify-between">
+                    <span>Sent Today: {acc.sent_today || 0} / {acc.daily_limit || 500}</span>
+                    <span className="text-emerald-400 font-mono">AES-256</span>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        ) : isConnected && statusData?.account ? (
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
             <div className="p-4 rounded-xl bg-white/[0.02] border border-white/[0.06]">
               <div className="text-[11px] font-semibold text-slate-400 uppercase tracking-wider mb-1">

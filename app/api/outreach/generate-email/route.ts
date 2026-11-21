@@ -1,30 +1,15 @@
 import { NextResponse } from "next/server";
-import { getCurrentUserFromRequest } from "@/lib/serverless-auth";
+import { getCurrentUserFromRequest, verifyClientActiveSubscription } from "@/lib/serverless-auth";
 import { generatePersonalizedEmail, RecipientLead, SenderProfile } from "@/lib/gemini-email-assistant";
 import { updateNeonLeadOutreachStatus, getNeonGmailAccount } from "@/lib/neon-db";
 
 export async function POST(request: Request) {
   const currentUser = getCurrentUserFromRequest(request);
-  if (!currentUser) {
+  const authCheck = await verifyClientActiveSubscription(currentUser);
+  if (!authCheck.allowed) {
     return NextResponse.json(
-      { error: "Authentication required to generate emails." },
-      { status: 401 }
-    );
-  }
-  if (currentUser.status === "LOCKED" || currentUser.status === "PENDING") {
-    return NextResponse.json(
-      {
-        error: "Account Locked — Subscription Activation Required ($25/month or $100 Lifetime). Contact Owner via WhatsApp (+923174383702) for Instant Activation."
-      },
-      { status: 403 }
-    );
-  }
-  if (currentUser.status === "SUSPENDED" || currentUser.status === "REVOKED") {
-    return NextResponse.json(
-      {
-        error: "Account Suspended or Revoked. Contact Administrator via WhatsApp (+923174383702)."
-      },
-      { status: 403 }
+      { error: authCheck.message },
+      { status: authCheck.statusCode || 403 }
     );
   }
   const workspaceId = currentUser.workspace_id || 1;

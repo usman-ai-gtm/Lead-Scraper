@@ -7,7 +7,15 @@ export async function POST(request: Request) {
   const wsHeader = request.headers.get("x-workspace-id") || request.headers.get("X-Workspace-Id");
   const workspaceId = currentUser ? currentUser.workspace_id : (wsHeader ? Number(wsHeader) : 1);
 
-  const success = await disconnectNeonGmailAccount(workspaceId);
+  let body: any = {};
+  try {
+    body = await request.json();
+  } catch {
+    body = {};
+  }
+
+  const accountId = body.account_id ? Number(body.account_id) : undefined;
+  const success = await disconnectNeonGmailAccount(workspaceId, accountId);
 
   if (!success) {
     return NextResponse.json(
@@ -18,6 +26,8 @@ export async function POST(request: Request) {
 
   return NextResponse.json({
     success: true,
-    message: "Gmail account successfully disconnected from USMAN AI GTM.",
+    message: accountId
+      ? `Gmail account #${accountId} successfully disconnected.`
+      : "Gmail account(s) successfully disconnected from USMAN AI GTM.",
   });
 }

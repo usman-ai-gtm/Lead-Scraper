@@ -102,13 +102,13 @@ export default function PricingPage() {
 
               <div className="space-y-2.5 pt-4 border-t border-white/[0.08]">
                 <a
-                  href={`https://wa.me/923174383702?text=Hello%20Usman%2C%20I%20want%20to%20activate%20the%20$25/mo%20Monthly%20Plan%20for%20my%20registered%20email:`}
+                  href="https://wa.me/923174383702?text=Assalamualaikum.%20I%20want%20to%20buy%20the%20$25%20Basic%20Plan%20(30%20Days)%20for%20my%20registered%20email%3A"
                   target="_blank"
                   rel="noopener noreferrer"
                   className="w-full py-3.5 rounded-xl bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-500 hover:to-indigo-500 text-white font-extrabold text-xs shadow-lg shadow-blue-900/30 flex items-center justify-center gap-2 transition-all cursor-pointer"
                 >
                   <MessageCircle className="h-4 w-4" />
-                  <span>Get Monthly Plan ($25/mo)</span>
+                  <span>Choose Basic ($25 / 30 Days)</span>
                 </a>
               </div>
             </div>
@@ -179,13 +179,13 @@ export default function PricingPage() {
 
               <div className="space-y-2.5 pt-4 border-t border-white/[0.08]">
                 <a
-                  href={`https://wa.me/923174383702?text=Hello%20Usman%2C%20I%20want%20to%20activate%20the%20$100%20Lifetime%20Access%20Deal%20for%20my%20registered%20email:`}
+                  href="https://wa.me/923174383702?text=Assalamualaikum.%20I%20want%20to%20buy%20the%20$100%20Lifetime%20Plan%20for%20my%20registered%20email%3A"
                   target="_blank"
                   rel="noopener noreferrer"
                   className="w-full py-3.5 rounded-xl bg-gradient-to-r from-amber-500 via-yellow-500 to-amber-600 hover:from-amber-400 hover:to-yellow-400 text-black font-black text-xs shadow-lg shadow-amber-900/40 flex items-center justify-center gap-2 transition-all cursor-pointer"
                 >
                   <Crown className="h-4 w-4" />
-                  <span>Get Lifetime Access ($100 One-Time)</span>
+                  <span>Choose Lifetime ($100 One-Time)</span>
                 </a>
               </div>
             </div>

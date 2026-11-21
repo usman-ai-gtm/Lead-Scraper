@@ -19,21 +19,45 @@ export async function GET(request: Request) {
           const sql = getNeonSql();
           if (sql) {
             const users = await sql`
-              SELECT id, email, full_name, role, workspace_id, status
+              SELECT id, email, full_name, role, workspace_id, status, plan, subscription_start, subscription_expires_at, subscription_status
               FROM users
               WHERE id = ${userId}
               LIMIT 1
             `;
             if (users && users.length > 0) {
               const u = users[0];
+              const planName = (u.plan || "BASIC").toUpperCase();
+              let remainingDays: number | string = "Lifetime Access — No Expiry";
+              let computedStatus = u.status || "LOCKED";
+
+              if (planName === "BASIC") {
+                if (u.subscription_expires_at) {
+                  const diff = Math.ceil((new Date(u.subscription_expires_at).getTime() - Date.now()) / (1000 * 60 * 60 * 24));
+                  remainingDays = Math.max(0, diff);
+                  if (diff <= 0 && computedStatus === "ACTIVE") {
+                    computedStatus = "EXPIRED";
+                  }
+                } else {
+                  remainingDays = 0;
+                  if (computedStatus === "ACTIVE") {
+                    computedStatus = "EXPIRED";
+                  }
+                }
+              }
+
               return NextResponse.json({
                 id: u.id,
                 email: u.email,
                 full_name: u.full_name,
                 company: `${u.full_name}'s Enterprise`,
-                role: u.role || "ADMIN",
+                role: u.role || "CLIENT",
                 workspace_id: u.workspace_id,
-                is_active: u.status === "ACTIVE",
+                status: computedStatus,
+                plan: planName,
+                subscription_start: u.subscription_start,
+                subscription_expires_at: u.subscription_expires_at,
+                remaining_days: remainingDays,
+                is_active: computedStatus === "ACTIVE",
               });
             }
           }

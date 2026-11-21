@@ -1,10 +1,17 @@
 import { NextResponse } from "next/server";
-import { getCurrentUserFromRequest } from "@/lib/serverless-auth";
+import { getCurrentUserFromRequest, verifyClientActiveSubscription } from "@/lib/serverless-auth";
 import { generateFollowupEmail, RecipientLead, SenderProfile } from "@/lib/gemini-email-assistant";
 import { getNeonGmailAccount } from "@/lib/neon-db";
 
 export async function POST(request: Request) {
   const currentUser = getCurrentUserFromRequest(request);
+  const authCheck = await verifyClientActiveSubscription(currentUser);
+  if (!authCheck.allowed) {
+    return NextResponse.json(
+      { error: authCheck.message },
+      { status: authCheck.statusCode || 403 }
+    );
+  }
   const workspaceId = currentUser ? currentUser.workspace_id : 1;
 
   let body: any = {};

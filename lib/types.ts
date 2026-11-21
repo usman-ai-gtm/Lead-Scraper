@@ -18,7 +18,7 @@ export interface ClientAccount {
   workspace_id: number;
   workspace_name: string;
   role: string;
-  status: "ACTIVE" | "SUSPENDED" | "REVOKED" | "LOCKED" | "PENDING";
+  status: "ACTIVE" | "SUSPENDED" | "REVOKED" | "LOCKED" | "PENDING" | "EXPIRED";
   must_change_password: boolean;
   max_leads_quota: number;
   client_notes?: string;
@@ -26,7 +26,13 @@ export interface ClientAccount {
   last_login?: string;
   leads_count: number;
   plan?: string;
+  raw_plan?: string;
   payment_status?: string;
+  subscription_start?: string;
+  subscription_expires_at?: string;
+  subscription_status?: string;
+  subscription_notes?: string;
+  remaining_days?: number | string;
   total_leads?: number;
   total_searches?: number;
   connected_accounts?: number;

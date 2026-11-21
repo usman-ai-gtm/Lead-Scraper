@@ -1,37 +1,25 @@
 import { NextResponse } from "next/server";
-import { getCurrentUserFromRequest } from "@/lib/serverless-auth";
+import { getCurrentUserFromRequest, verifyClientActiveSubscription } from "@/lib/serverless-auth";
 import {
   getNeonGmailTokens,
-  getNeonGmailAccount,
+  getNeonAllActiveGmailTokens,
   saveNeonGmailAccount,
   saveNeonOutreachRecord,
   updateNeonLeadOutreachStatus,
+  isRecipientSuppressed,
+  isDuplicateOutreach,
 } from "@/lib/neon-db";
 
 export async function POST(request: Request) {
   const currentUser = getCurrentUserFromRequest(request);
-  if (!currentUser) {
+  const authCheck = await verifyClientActiveSubscription(currentUser);
+  if (!authCheck.allowed) {
     return NextResponse.json(
-      { error: "Authentication required to send outreach emails." },
-      { status: 401 }
+      { error: authCheck.message },
+      { status: authCheck.statusCode || 403 }
     );
   }
-  if (currentUser.status === "LOCKED" || currentUser.status === "PENDING") {
-    return NextResponse.json(
-      {
-        error: "Account Locked — Subscription Activation Required ($25/month or $100 Lifetime). Contact Owner via WhatsApp (+923174383702) for Instant Activation."
-      },
-      { status: 403 }
-    );
-  }
-  if (currentUser.status === "SUSPENDED" || currentUser.status === "REVOKED") {
-    return NextResponse.json(
-      {
-        error: "Account Suspended or Revoked. Contact Administrator via WhatsApp (+923174383702)."
-      },
-      { status: 403 }
-    );
-  }
+
   const workspaceId = currentUser.workspace_id || 1;
   const userId = currentUser.id || 1;
 
@@ -51,6 +39,8 @@ export async function POST(request: Request) {
     followup_date,
     followup_notes,
     outreach_status,
+    account_id,
+    allow_duplicate,
   } = body;
 
   if (!recipient_email || !subject || !emailBody) {
@@ -60,7 +50,10 @@ export async function POST(request: Request) {
     );
   }
 
-  // 1. DO NOT CONTACT Policy Enforcement
+  const cleanRecipientEmail = recipient_email.trim().toLowerCase();
+  const cleanRecipientName = (recipient_name || "").replace(/[\r\n"<>]/g, "").trim();
+
+  // 1. DO NOT CONTACT & Suppression List Policy Enforcement
   if (outreach_status === "DO NOT CONTACT") {
     return NextResponse.json(
       { error: "Recipient is marked as DO NOT CONTACT. Outreach blocked by compliance policy." },
@@ -68,9 +61,30 @@ export async function POST(request: Request) {
     );
   }
 
-  // 2. Fetch connected Gmail account & tokens
-  const account = await getNeonGmailAccount(workspaceId);
-  if (!account || account.health_status !== "CONNECTED" || account.is_active !== 1) {
+  const suppressed = await isRecipientSuppressed(workspaceId, cleanRecipientEmail);
+  if (suppressed) {
+    return NextResponse.json(
+      { error: "Recipient email is on your workspace suppression list. Message dispatch blocked." },
+      { status: 400 }
+    );
+  }
+
+  // Duplicate outreach protection (30 days) unless explicitly bypassed
+  if (!allow_duplicate) {
+    const isDup = await isDuplicateOutreach(workspaceId, cleanRecipientEmail, 30);
+    if (isDup) {
+      return NextResponse.json(
+        { error: `Duplicate outreach prevented: ${cleanRecipientEmail} was already contacted within the last 30 days.` },
+        { status: 400 }
+      );
+    }
+  }
+
+  // 2. Resolve target Gmail account (Supports Multiple Accounts & Round-Robin Rotation)
+  let activeAccount: any = null;
+  const allAccounts = await getNeonAllActiveGmailTokens(workspaceId);
+
+  if (!allAccounts || allAccounts.length === 0) {
     return NextResponse.json(
       {
         error: "No active Gmail account connected for this workspace. Please connect Gmail in Settings > Gmail & Domain Health.",
@@ -79,11 +93,31 @@ export async function POST(request: Request) {
     );
   }
 
-  const tokenRecord = await getNeonGmailTokens(workspaceId);
-  const tokens = tokenRecord?.tokens;
+  if (account_id) {
+    activeAccount = allAccounts.find((a: any) => a.accountId === Number(account_id));
+    if (!activeAccount) {
+      return NextResponse.json(
+        { error: `Requested sending account #${account_id} not found or inactive in this workspace.` },
+        { status: 404 }
+      );
+    }
+  } else {
+    // Fair Round-Robin: select active account with lowest sent_today
+    activeAccount = allAccounts.slice().sort((a: any, b: any) => (a.sentToday || 0) - (b.sentToday || 0))[0];
+  }
+
+  // Daily quota check
+  if ((activeAccount.sentToday || 0) >= (activeAccount.dailyLimit || 500)) {
+    return NextResponse.json(
+      { error: `Daily limit reached for account ${activeAccount.senderEmail} (${activeAccount.sentToday}/${activeAccount.dailyLimit}). Select another account or wait for tomorrow.` },
+      { status: 429 }
+    );
+  }
+
+  const tokens = activeAccount.tokens;
   if (!tokens || !tokens.access_token) {
     return NextResponse.json(
-      { error: "Stored Gmail OAuth credentials are missing or expired. Please reconnect your account." },
+      { error: `Stored Gmail credentials for ${activeAccount.senderEmail} are expired. Please reconnect.` },
       { status: 401 }
     );
   }
@@ -92,7 +126,7 @@ export async function POST(request: Request) {
   const clientId = process.env.GOOGLE_CLIENT_ID || process.env.NEXT_PUBLIC_GOOGLE_CLIENT_ID || "";
   const clientSecret = process.env.GOOGLE_CLIENT_SECRET || "";
 
-  // 3. Helper to refresh token if needed
+  // Helper to refresh token
   async function refreshAccessToken(): Promise<string | null> {
     if (!tokens.refresh_token || !clientId || !clientSecret) return null;
     try {
@@ -115,10 +149,10 @@ export async function POST(request: Request) {
           expires_in: data.expires_in || tokens.expires_in,
         };
         await saveNeonGmailAccount(workspaceId, {
-          senderName: account.sender_name,
-          senderEmail: account.sender_email,
+          senderName: activeAccount.senderName,
+          senderEmail: activeAccount.senderEmail,
           tokenData: updatedTokens,
-          dailyLimit: account.daily_limit || 500,
+          dailyLimit: activeAccount.dailyLimit || 500,
         });
         return newAccessToken;
       }
@@ -128,18 +162,15 @@ export async function POST(request: Request) {
     return null;
   }
 
-  // 4. Construct RFC 2822 standard email message
-  const senderName = account.sender_name || "Sales Outreach";
-  const senderEmail = account.sender_email;
-  const cleanRecipientName = (recipient_name || "").replace(/[\r\n"<>]/g, "").trim();
-  const cleanRecipientEmail = recipient_email.trim();
+  // Construct RFC 2822 standard email message
+  const senderName = activeAccount.senderName || "Sales Outreach";
+  const senderEmail = activeAccount.senderEmail;
 
   const toHeader = cleanRecipientName
     ? `"${cleanRecipientName}" <${cleanRecipientEmail}>`
     : cleanRecipientEmail;
   const fromHeader = `"${senderName.replace(/[\r\n"<>]/g, "").trim()}" <${senderEmail}>`;
 
-  // Encode subject with UTF-8 base64 header if it contains non-ASCII characters
   const encodedSubject = `=?utf-8?B?${Buffer.from(subject).toString("base64")}?=`;
 
   const rfc2822Lines = [
@@ -160,7 +191,7 @@ export async function POST(request: Request) {
     .replace(/\//g, "_")
     .replace(/=+$/, "");
 
-  // 5. Send message via Google Gmail API
+  // Send message via Google Gmail API
   async function attemptSend(token: string) {
     return fetch("https://gmail.googleapis.com/gmail/v1/users/me/messages/send", {
       method: "POST",
@@ -174,7 +205,6 @@ export async function POST(request: Request) {
 
   let sendRes = await attemptSend(accessToken);
 
-  // If unauthorized (401), attempt token refresh once
   if (sendRes.status === 401 && tokens.refresh_token) {
     const refreshed = await refreshAccessToken();
     if (refreshed) {
@@ -190,7 +220,7 @@ export async function POST(request: Request) {
 
     return NextResponse.json(
       {
-        error: `Failed to send email via Gmail: ${errMsg}`,
+        error: `Failed to send email via Gmail (${senderEmail}): ${errMsg}`,
         details: errData?.error || null,
       },
       { status: sendRes.status === 403 ? 403 : 500 }
@@ -199,7 +229,7 @@ export async function POST(request: Request) {
 
   const sendResult = await sendRes.json();
 
-  // 6. Record sent email in Neon PostgreSQL outreach_records
+  // Record sent email in Neon PostgreSQL outreach_records
   const savedRecord = await saveNeonOutreachRecord({
     workspaceId,
     userId,
@@ -217,7 +247,7 @@ export async function POST(request: Request) {
     followupNotes: followup_notes || undefined,
   });
 
-  // 7. Update lead CRM stage to 'EMAIL SENT' and next_followup
+  // Update lead CRM stage to 'EMAIL SENT'
   if (lead_id) {
     await updateNeonLeadOutreachStatus(
       workspaceId,
@@ -229,7 +259,10 @@ export async function POST(request: Request) {
 
   return NextResponse.json({
     success: true,
-    message: "Outreach email sent successfully via Gmail API.",
+    message: `Outreach email sent successfully via Gmail API (${senderEmail}).`,
+    sender_email: senderEmail,
+    sender_name: senderName,
+    account_id: activeAccount.accountId,
     gmail_message_id: sendResult.id,
     gmail_thread_id: sendResult.threadId,
     lead_id: lead_id || null,
