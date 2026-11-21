@@ -143,7 +143,11 @@ export function getCurrentUserFromRequest(req: Request): any {
       }
     }
     if (!token) return null;
-    return verifyJwtToken(token);
+    const payload = verifyJwtToken(token);
+    if (payload && !payload.id && payload.sub) {
+      payload.id = Number(payload.sub);
+    }
+    return payload;
   } catch {
     return null;
   }
@@ -849,12 +853,13 @@ export async function verifyClientActiveSubscription(user: any): Promise<{
     const sql = getNeonSql();
     if (sql) {
       try {
+        const userId = Number(user.id || user.sub) || 0;
         const rows = await sql.query(
           `SELECT id, email, role, status, plan, subscription_start, subscription_expires_at, subscription_status
            FROM users
-           WHERE id = $1
+           WHERE id = $1 OR LOWER(email) = LOWER($2)
            LIMIT 1`,
-          [user.id]
+          [userId, emailLower]
         );
 
         if (!rows || rows.length === 0) {

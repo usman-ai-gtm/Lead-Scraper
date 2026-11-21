@@ -11,7 +11,7 @@ export const dynamic = "force-dynamic";
 export async function POST(request: Request) {
   try {
     const body = await request.json();
-    const email = String(body.email || "").trim().toLowerCase();
+    const email = String(body.email || body.username || body.workEmail || "").trim().toLowerCase();
     const password = String(body.password || "").trim();
 
     if (!email || !password) {
