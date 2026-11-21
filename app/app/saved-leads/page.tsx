@@ -14,6 +14,7 @@ import {
   History, Calendar, Clock, FileSpreadsheet, FileText, X,
   Layers, Eye, Check, Sparkles, Send, ShieldCheck, User
 } from "lucide-react";
+import { AiLeadResearchModal } from "@/components/leads/AiLeadResearchModal";
 
 interface SearchRecord {
   id: string;
@@ -118,6 +119,10 @@ export default function SavedLeadsPage() {
   const [emailOutreachStatus, setEmailOutreachStatus] = useState("NEW");
   const [emailMode, setEmailMode] = useState<"initial" | "followup">("initial");
   const [emailFeedback, setEmailFeedback] = useState<{ type: "success" | "error"; message: string } | null>(null);
+
+  // AI Lead Research Agent State (Lifetime Plan Exclusive)
+  const [isResearchModalOpen, setIsResearchModalOpen] = useState(false);
+  const [selectedResearchLead, setSelectedResearchLead] = useState<Lead | null>(null);
 
   // Fetch Saved Master Leads
   const fetchSavedLeads = async () => {
@@ -753,6 +758,20 @@ export default function SavedLeadsPage() {
                     <span>AI Email</span>
                   </button>
                   <button
+                    onClick={() => {
+                      const first = leads.find((l) => selectedIds.includes(l.id));
+                      if (first) {
+                        setSelectedResearchLead(first);
+                        setIsResearchModalOpen(true);
+                      }
+                    }}
+                    className="px-2.5 py-1 text-[11px] font-bold text-amber-300 hover:text-white bg-amber-500/20 hover:bg-amber-500/30 border border-amber-500/30 rounded flex items-center gap-1 cursor-pointer"
+                    title="AI Lead Research Agent (Lifetime Exclusive)"
+                  >
+                    <Sparkles className="h-3 w-3 text-amber-400" />
+                    <span>AI Research</span>
+                  </button>
+                  <button
                     onClick={() => handleExport("pdf", "selected")}
                     className="px-2.5 py-1 text-[11px] font-bold text-rose-300 hover:text-white bg-rose-500/20 hover:bg-rose-500/30 border border-rose-500/30 rounded flex items-center gap-1 cursor-pointer"
                   >
@@ -978,6 +997,16 @@ export default function SavedLeadsPage() {
                           </td>
                           <td className="py-3 px-3 text-right">
                             <div className="flex items-center justify-end gap-1.5">
+                              <button
+                                onClick={() => {
+                                  setSelectedResearchLead(l);
+                                  setIsResearchModalOpen(true);
+                                }}
+                                className="p-1.5 rounded-lg text-amber-400 hover:text-amber-300 hover:bg-amber-500/10 transition-colors cursor-pointer"
+                                title="AI Lead Research Agent (Lifetime Exclusive)"
+                              >
+                                <Sparkles className="h-3.5 w-3.5" />
+                              </button>
                               <button
                                 onClick={() => handleOpenEmailModal(l)}
                                 className="p-1.5 rounded-lg text-blue-400 hover:text-blue-300 hover:bg-blue-500/10 transition-colors cursor-pointer"
@@ -1792,6 +1821,20 @@ export default function SavedLeadsPage() {
           </div>
         </div>
       )}
+
+      {/* AI LEAD RESEARCH AGENT MODAL (LIFETIME EXCLUSIVE) */}
+      <AiLeadResearchModal
+        isOpen={isResearchModalOpen}
+        onClose={() => setIsResearchModalOpen(false)}
+        lead={selectedResearchLead}
+        onPushToOutreach={(draft) => {
+          if (selectedResearchLead) {
+            handleOpenEmailModal(selectedResearchLead);
+            setEmailSubject(draft.subject);
+            setEmailBody(draft.body);
+          }
+        }}
+      />
     </div>
   );
 }

@@ -48,6 +48,7 @@ class ApiClient {
     }
     
     const config: RequestInit = {
+      cache: "no-store",
       ...options,
       headers: {
         ...this.getHeaders(),

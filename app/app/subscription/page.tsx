@@ -206,6 +206,67 @@ export default function SubscriptionPage() {
         </div>
       </div>
 
+      {/* PLAN COMPARISON GRID */}
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+        {/* $25 BASIC */}
+        <div className={`p-6 rounded-2xl border transition-all ${
+          isActive && !isLifetime
+            ? "border-blue-500/50 bg-[#0e1628]"
+            : "border-white/[0.08] bg-[#0c1017]"
+        }`}>
+          <div className="flex items-center justify-between mb-3">
+            <span className="text-xs font-bold text-blue-400 uppercase tracking-wider">30-Day Subscription</span>
+            <span className="text-xl font-extrabold text-white">$25 <span className="text-xs text-slate-400 font-normal">/ mo</span></span>
+          </div>
+          <h3 className="text-base font-bold text-white mb-2">Basic Plan</h3>
+          <ul className="space-y-1.5 text-xs text-slate-300 mb-4">
+            <li className="flex items-center gap-2">✓ 5,000 Verified B2B Leads per month</li>
+            <li className="flex items-center gap-2">✓ Real-time multi-provider search engine</li>
+            <li className="flex items-center gap-2">✓ Gmail OAuth cold outreach integration</li>
+            <li className="flex items-center gap-2">✓ Standard Gemini email personalization</li>
+            <li className="flex items-center gap-2">✓ Auto-locks on expiration until renewed</li>
+          </ul>
+          <a
+            href="https://wa.me/923174383702?text=Hi%20Usman%2C%20I%20want%20to%20activate%20the%20Basic%20Plan%20($25%20/%2030%20Days)"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="w-full py-2.5 rounded-xl bg-blue-600 hover:bg-blue-500 text-white font-bold text-xs flex items-center justify-center gap-2 transition-all"
+          >
+            <MessageCircle className="h-3.5 w-3.5" />
+            <span>Select Basic ($25 / 30 Days)</span>
+          </a>
+        </div>
+
+        {/* $100 LIFETIME */}
+        <div className={`p-6 rounded-2xl border transition-all ${
+          isLifetime
+            ? "border-amber-500/60 bg-[#191508]"
+            : "border-amber-500/30 bg-gradient-to-b from-[#14120a] to-[#0c1017]"
+        }`}>
+          <div className="flex items-center justify-between mb-3">
+            <span className="text-xs font-bold text-amber-400 uppercase tracking-wider">Lifetime Deal</span>
+            <span className="text-xl font-extrabold text-amber-300">$100 <span className="text-xs text-slate-400 font-normal">one-time</span></span>
+          </div>
+          <h3 className="text-base font-bold text-amber-200 mb-2">Lifetime Access Plan</h3>
+          <ul className="space-y-1.5 text-xs text-slate-300 mb-4">
+            <li className="flex items-center gap-2 font-semibold text-white">✓ Everything in Basic with NO EXPIRY</li>
+            <li className="flex items-center gap-2 font-semibold text-amber-300">★ Exclusive AI Lead Research Agent</li>
+            <li className="flex items-center gap-2">✓ Multi-account Gmail rotation</li>
+            <li className="flex items-center gap-2">✓ Unlimited search operations & saved leads</li>
+            <li className="flex items-center gap-2">✓ Priority WhatsApp Founder support</li>
+          </ul>
+          <a
+            href="https://wa.me/923174383702?text=Hi%20Usman%2C%20I%20want%20to%20activate%20the%20Lifetime%20Plan%20($100)"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="w-full py-2.5 rounded-xl bg-gradient-to-r from-amber-400 to-yellow-500 hover:from-amber-300 hover:to-yellow-400 text-black font-bold text-xs flex items-center justify-center gap-2 transition-all shadow-md"
+          >
+            <Sparkles className="h-3.5 w-3.5" />
+            <span>Select Lifetime ($100 One-Time)</span>
+          </a>
+        </div>
+      </div>
+
       {/* Manual WhatsApp Payment Instructions Card */}
       <div className="rounded-2xl border border-white/[0.08] bg-[#0c1017] p-6 space-y-4">
         <div className="flex items-center justify-between">

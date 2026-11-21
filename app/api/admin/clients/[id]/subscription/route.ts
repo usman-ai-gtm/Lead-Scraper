@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { getCurrentUserFromRequest } from "@/lib/serverless-auth";
-import { getNeonSql, isNeonConfigured } from "@/lib/neon-db";
+import { getNeonSql, isNeonConfigured, logAccountAudit } from "@/lib/neon-db";
 
 export const dynamic = "force-dynamic";
 
@@ -35,7 +35,7 @@ export async function POST(req: Request, { params }: RouteParams) {
 
     // Fetch current client
     const existing = await sql`
-      SELECT id, email, role, status, plan, subscription_start, subscription_expires_at, subscription_status
+      SELECT id, email, full_name, role, status, plan, subscription_start, subscription_expires_at, subscription_status
       FROM users
       WHERE id = ${clientId} AND role != 'ADMIN'
       LIMIT 1
@@ -67,7 +67,7 @@ export async function POST(req: Request, { params }: RouteParams) {
       }
 
       case "ACTIVATE_LIFETIME": {
-        // Lifetime: no expiry
+        // Lifetime: permanent, no expiry
         updated = await sql`
           UPDATE users
           SET status = 'ACTIVE',
@@ -135,15 +135,34 @@ export async function POST(req: Request, { params }: RouteParams) {
       }
 
       case "UNLOCK": {
-        updated = await sql`
-          UPDATE users
-          SET status = 'ACTIVE',
-              subscription_status = 'ACTIVE',
-              subscription_notes = COALESCE(${notes}, subscription_notes),
-              updated_at = NOW()
-          WHERE id = ${clientId}
-          RETURNING id, email, full_name, status, plan, subscription_start, subscription_expires_at, subscription_status
-        `;
+        // If plan is BASIC and expiry is in the past or missing, grant a fresh 30-day active period
+        const isLifetime = (client.plan || "").toUpperCase() === "LIFETIME";
+        const isPastOrNull = !client.subscription_expires_at || new Date(client.subscription_expires_at).getTime() <= Date.now();
+
+        if (!isLifetime && isPastOrNull) {
+          updated = await sql`
+            UPDATE users
+            SET status = 'ACTIVE',
+                plan = 'BASIC',
+                subscription_status = 'ACTIVE',
+                subscription_start = NOW(),
+                subscription_expires_at = NOW() + INTERVAL '30 days',
+                subscription_notes = COALESCE(${notes}, subscription_notes),
+                updated_at = NOW()
+            WHERE id = ${clientId}
+            RETURNING id, email, full_name, status, plan, subscription_start, subscription_expires_at, subscription_status
+          `;
+        } else {
+          updated = await sql`
+            UPDATE users
+            SET status = 'ACTIVE',
+                subscription_status = 'ACTIVE',
+                subscription_notes = COALESCE(${notes}, subscription_notes),
+                updated_at = NOW()
+            WHERE id = ${clientId}
+            RETURNING id, email, full_name, status, plan, subscription_start, subscription_expires_at, subscription_status
+          `;
+        }
         break;
       }
 
@@ -160,12 +179,41 @@ export async function POST(req: Request, { params }: RouteParams) {
         break;
       }
 
+      case "REVOKE":
+      case "DEACTIVATE": {
+        updated = await sql`
+          UPDATE users
+          SET status = 'REVOKED',
+              subscription_status = 'REVOKED',
+              subscription_notes = COALESCE(${notes}, subscription_notes),
+              updated_at = NOW()
+          WHERE id = ${clientId}
+          RETURNING id, email, full_name, status, plan, subscription_start, subscription_expires_at, subscription_status
+        `;
+        break;
+      }
+
       default:
         return NextResponse.json(
-          { detail: "Invalid action. Supported: ACTIVATE_BASIC, ACTIVATE_LIFETIME, EXTEND_30, SET_EXPIRY, LOCK, UNLOCK, SUSPEND" },
+          { detail: "Invalid action. Supported: ACTIVATE_BASIC, ACTIVATE_LIFETIME, EXTEND_30, SET_EXPIRY, LOCK, UNLOCK, SUSPEND, REVOKE" },
           { status: 400 }
         );
     }
+
+    // Log action to account_audit_logs
+    await logAccountAudit({
+      adminId: user.id,
+      adminEmail: user.email,
+      clientId: client.id,
+      clientEmail: client.email,
+      action: `SUBSCRIPTION_${action}`,
+      details: {
+        previous_status: client.status,
+        previous_plan: client.plan,
+        updated_to: updated?.[0],
+        notes,
+      },
+    });
 
     return NextResponse.json({
       status: "success",

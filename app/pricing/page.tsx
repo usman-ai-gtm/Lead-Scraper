@@ -152,6 +152,10 @@ export default function PricingPage() {
                   </div>
                   <div className="flex items-center gap-2">
                     <Check className="h-4 w-4 text-amber-400 shrink-0" />
+                    <span className="font-semibold text-amber-300">Exclusive AI Lead Research Agent (Company Analysis & Custom Proposals)</span>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <Check className="h-4 w-4 text-amber-400 shrink-0" />
                     <span>Permanent Isolated Workspace Access</span>
                   </div>
                   <div className="flex items-center gap-2">

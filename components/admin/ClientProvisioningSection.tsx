@@ -17,6 +17,22 @@ interface OneTimeCreds {
   note?: string;
 }
 
+function isTestAccount(email: string): boolean {
+  if (!email) return false;
+  const lower = email.toLowerCase();
+  return (
+    lower.startsWith("audit_user_") ||
+    lower.startsWith("test_") ||
+    lower.startsWith("selftest_") ||
+    lower.startsWith("client_alpha_") ||
+    lower.startsWith("client_beta_") ||
+    lower.startsWith("verify_client_") ||
+    lower.startsWith("verify_beta_") ||
+    lower.startsWith("diag_locked_") ||
+    lower.includes("example.com")
+  );
+}
+
 export function ClientProvisioningSection() {
   const [clients, setClients] = useState<ClientAccount[]>([]);
   const [loading, setLoading] = useState(true);
@@ -381,23 +397,47 @@ export function ClientProvisioningSection() {
           </div>
 
           {/* Real-time Indicator for Locked / Pending Accounts */}
-          {clients.some((c) => c.status === "LOCKED" || c.status === "PENDING" || c.status === "EXPIRED") && (
-            <div className="p-4 rounded-xl bg-gradient-to-r from-amber-500/20 to-orange-500/20 border border-amber-500/30 flex flex-col sm:flex-row items-center justify-between gap-3 text-xs">
-              <div className="flex items-center gap-2.5 text-amber-200">
-                <AlertTriangle className="h-4 w-4 text-amber-400 shrink-0" />
-                <span>
-                  <strong>Clients Awaiting Activation or Renewal:</strong>{" "}
-                  {clients
-                    .filter((c) => c.status === "LOCKED" || c.status === "PENDING" || c.status === "EXPIRED")
-                    .map((c) => `${c.email} (${c.status})`)
-                    .join(", ")}
-                </span>
-              </div>
-              <span className="text-[10px] font-bold uppercase tracking-wider text-amber-300 bg-amber-500/20 px-2.5 py-1 rounded border border-amber-500/30 shrink-0">
-                Action Required
-              </span>
-            </div>
-          )}
+          {(() => {
+            const pendingRealClients = clients.filter(
+              (c) => !isTestAccount(c.email) && (c.status === "LOCKED" || c.status === "PENDING" || c.status === "EXPIRED")
+            );
+            const pendingTestAccounts = clients.filter(
+              (c) => isTestAccount(c.email) && (c.status === "LOCKED" || c.status === "PENDING" || c.status === "EXPIRED")
+            );
+
+            if (pendingRealClients.length > 0) {
+              return (
+                <div className="p-4 rounded-xl bg-gradient-to-r from-amber-500/20 to-orange-500/20 border border-amber-500/30 flex flex-col sm:flex-row items-center justify-between gap-3 text-xs">
+                  <div className="flex items-center gap-2.5 text-amber-200">
+                    <AlertTriangle className="h-4 w-4 text-amber-400 shrink-0" />
+                    <span>
+                      <strong>Genuine Clients Awaiting Activation or Renewal:</strong>{" "}
+                      {pendingRealClients
+                        .map((c) => `${c.email} (${c.status})`)
+                        .join(", ")}
+                    </span>
+                  </div>
+                  <span className="text-[10px] font-bold uppercase tracking-wider text-amber-300 bg-amber-500/20 px-2.5 py-1 rounded border border-amber-500/30 shrink-0">
+                    Action Required
+                  </span>
+                </div>
+              );
+            }
+
+            if (pendingTestAccounts.length > 0) {
+              return (
+                <div className="p-3 rounded-xl bg-white/[0.02] border border-white/10 flex items-center justify-between text-xs text-slate-400">
+                  <span className="flex items-center gap-2">
+                    <CheckCircle2 className="h-4 w-4 text-emerald-400" />
+                    All genuine client accounts are active. ({pendingTestAccounts.length} test accounts in staging/locked)
+                  </span>
+                  <span className="text-[10px] text-slate-500 font-mono">Staging Active</span>
+                </div>
+              );
+            }
+
+            return null;
+          })()}
 
           {loading ? (
             <div className="py-12 text-center text-xs text-slate-500">Loading client roster...</div>
@@ -436,7 +476,18 @@ export function ClientProvisioningSection() {
                       <tr key={c.id} className="hover:bg-white/[0.02]">
                         {/* Client Name & Real Google Email */}
                         <td className="py-3 px-3">
-                          <div className="font-bold text-white">{c.full_name}</div>
+                          <div className="font-bold text-white flex items-center gap-1.5 flex-wrap">
+                            <span>{c.full_name}</span>
+                            {isTestAccount(c.email) ? (
+                              <span className="text-[9px] font-mono text-slate-500 bg-white/[0.04] border border-white/10 px-1.5 py-0.5 rounded">
+                                Test / System
+                              </span>
+                            ) : (
+                              <span className="text-[9px] font-mono text-emerald-400 bg-emerald-500/10 border border-emerald-500/20 px-1.5 py-0.5 rounded">
+                                Genuine Customer
+                              </span>
+                            )}
+                          </div>
                           <div className="text-[11px] text-slate-400 font-mono">{c.email}</div>
                           {c.company && <div className="text-[10px] text-slate-500">{c.company}</div>}
                         </td>

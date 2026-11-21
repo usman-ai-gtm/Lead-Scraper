@@ -13,6 +13,7 @@ import {
   Layers, Sparkles, Search, FileSpreadsheet,
   AlertCircle, AlertTriangle, Check, HelpCircle, Hash
 } from "lucide-react";
+import { AiLeadResearchModal } from "@/components/leads/AiLeadResearchModal";
 
 interface QualifiedLead {
   id: number;
@@ -68,6 +69,8 @@ function LeadsSearchComponent() {
   const [exportLoading, setExportLoading] = useState<boolean>(false);
   const [savingIds, setSavingIds] = useState<Record<number, boolean>>({});
   const [saveStatus, setSaveStatus] = useState<"SAVING" | "SAVED" | "FAILED" | "IDLE">("IDLE");
+  const [isResearchModalOpen, setIsResearchModalOpen] = useState<boolean>(false);
+  const [selectedResearchLead, setSelectedResearchLead] = useState<any | null>(null);
 
   // Active verified non-Maps sources
   const configuredSourcesList = [
@@ -725,24 +728,50 @@ function LeadsSearchComponent() {
                         <div className="text-[10px] text-slate-500">{lead.extraction_time || lead.saved_time}</div>
                       </td>
 
-                      {/* Honest Save Status */}
+                      {/* Actions & Save Status */}
                       <td className="py-3.5 px-4 text-right">
-                        {saveStatus === "SAVING" ? (
-                          <span className="px-2.5 py-1 rounded-md bg-blue-500/10 text-blue-400 border border-blue-500/20 font-semibold text-[11px] inline-flex items-center gap-1.5 font-mono">
-                            <RefreshCw className="h-3 w-3 animate-spin" />
-                            <span>Saving...</span>
-                          </span>
-                        ) : saveStatus === "FAILED" ? (
-                          <span className="px-2.5 py-1 rounded-md bg-rose-500/10 text-rose-400 border border-rose-500/20 font-semibold text-[11px] inline-flex items-center gap-1.5 font-mono">
-                            <AlertTriangle className="h-3 w-3" />
-                            <span>Failed to Save</span>
-                          </span>
-                        ) : (
-                          <span className="px-2.5 py-1 rounded-md bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 font-semibold text-[11px] inline-flex items-center gap-1.5 font-mono">
-                            <CheckCircle2 className="h-3 w-3" />
-                            <span>Saved to Workspace</span>
-                          </span>
-                        )}
+                        <div className="inline-flex items-center gap-2 justify-end">
+                          <button
+                            onClick={() => {
+                              setSelectedResearchLead({
+                                id: lead.id,
+                                company_name: lead.business_name,
+                                business_name: lead.business_name,
+                                domain: lead.domain || lead.website,
+                                website: lead.website,
+                                email: lead.email,
+                                phone: lead.phone,
+                                city: lead.city,
+                                country: lead.country,
+                                industry: lead.industry || keyword,
+                                address: lead.address,
+                              });
+                              setIsResearchModalOpen(true);
+                            }}
+                            className="px-2.5 py-1 rounded-md bg-gradient-to-r from-amber-500/15 to-yellow-500/15 border border-amber-500/30 text-amber-300 hover:text-white hover:bg-amber-500/25 font-bold text-[10px] inline-flex items-center gap-1 transition-all cursor-pointer shadow-sm"
+                            title="AI Lead Research Agent (Lifetime Exclusive)"
+                          >
+                            <Sparkles className="h-3 w-3 text-amber-400" />
+                            <span>AI Research</span>
+                          </button>
+
+                          {saveStatus === "SAVING" ? (
+                            <span className="px-2.5 py-1 rounded-md bg-blue-500/10 text-blue-400 border border-blue-500/20 font-semibold text-[11px] inline-flex items-center gap-1.5 font-mono">
+                              <RefreshCw className="h-3 w-3 animate-spin" />
+                              <span>Saving...</span>
+                            </span>
+                          ) : saveStatus === "FAILED" ? (
+                            <span className="px-2.5 py-1 rounded-md bg-rose-500/10 text-rose-400 border border-rose-500/20 font-semibold text-[11px] inline-flex items-center gap-1.5 font-mono">
+                              <AlertTriangle className="h-3 w-3" />
+                              <span>Failed to Save</span>
+                            </span>
+                          ) : (
+                            <span className="px-2.5 py-1 rounded-md bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 font-semibold text-[11px] inline-flex items-center gap-1.5 font-mono">
+                              <CheckCircle2 className="h-3 w-3" />
+                              <span>Saved</span>
+                            </span>
+                          )}
+                        </div>
                       </td>
                     </tr>
                   );
@@ -752,6 +781,13 @@ function LeadsSearchComponent() {
           </table>
         </div>
       </div>
+
+      {/* AI Lead Research Modal */}
+      <AiLeadResearchModal
+        isOpen={isResearchModalOpen}
+        onClose={() => setIsResearchModalOpen(false)}
+        lead={selectedResearchLead}
+      />
     </div>
   );
 }

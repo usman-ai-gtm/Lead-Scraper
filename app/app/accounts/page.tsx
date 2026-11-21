@@ -592,6 +592,50 @@ function EmailAccountsContent() {
         )}
       </div>
 
+      {/* GOOGLE OAUTH MULTI-ACCOUNT & VERIFICATION RESOLUTION GUIDE */}
+      <div className="rounded-2xl border border-white/[0.08] bg-[#0c1017] p-6 space-y-4">
+        <div className="flex items-center gap-2">
+          <Shield className="h-5 w-5 text-blue-400" />
+          <h3 className="text-sm font-bold text-white">
+            Google OAuth Setup & Multi-Account Outreach Guide
+          </h3>
+        </div>
+        <p className="text-xs text-slate-400 leading-relaxed">
+          USMAN AI GTM connects to official personal Gmail accounts via Google OAuth 2.0. Each client workspace maintains isolated tokens and zero cross-account data leakage.
+        </p>
+
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-xs">
+          <div className="p-4 rounded-xl bg-white/[0.02] border border-white/[0.06] space-y-2">
+            <div className="flex items-center gap-2 font-bold text-amber-300">
+              <AlertTriangle className="h-4 w-4" />
+              <span>Resolving &quot;Access blocked: App is currently being tested&quot;</span>
+            </div>
+            <p className="text-slate-400 leading-relaxed text-[11px]">
+              If a secondary Gmail account displays this Google prompt during connection, your Google Cloud OAuth Consent Screen is currently in <strong>Testing</strong> mode.
+            </p>
+            <div className="space-y-1 text-slate-300 font-mono text-[10px] bg-black/40 p-2.5 rounded-lg border border-white/5">
+              <div>1. Go to Google Cloud Console (Project: semiotic-tracer-466311-j4)</div>
+              <div>2. Navigate to: APIs & Services &gt; OAuth consent screen</div>
+              <div>3. Click &quot;PUBLISH APP&quot; to switch from Testing to In Production</div>
+              <div>OR add the user&apos;s Gmail under &quot;Test users&quot; (+ ADD USERS)</div>
+            </div>
+          </div>
+
+          <div className="p-4 rounded-xl bg-white/[0.02] border border-white/[0.06] space-y-2">
+            <div className="flex items-center gap-2 font-bold text-emerald-300">
+              <CheckCircle2 className="h-4 w-4" />
+              <span>Multi-Mailbox Isolation & Quotas</span>
+            </div>
+            <ul className="space-y-1 text-slate-400 text-[11px] list-disc list-inside leading-relaxed">
+              <li>Each workspace connects its own Gmail accounts independently.</li>
+              <li>Free Gmail accounts send up to 500 emails/day at $0 cost.</li>
+              <li>Google Workspace accounts send up to 2,000 emails/day.</li>
+              <li>Tokens are encrypted at rest with AES-256-GCM.</li>
+            </ul>
+          </div>
+        </div>
+      </div>
+
       {/* TEST SEND MODAL */}
       {testModalOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/75 backdrop-blur-sm px-4">

@@ -1141,7 +1141,7 @@ export async function updateNeonClientStatus(clientId: number, newStatus: string
   const sql = getNeonSql();
   if (!sql) return false;
   try {
-    const validStatus = ["ACTIVE", "SUSPENDED", "REVOKED"].includes(newStatus.toUpperCase())
+    const validStatus = ["ACTIVE", "LOCKED", "SUSPENDED", "REVOKED"].includes(newStatus.toUpperCase())
       ? newStatus.toUpperCase()
       : "ACTIVE";
     const res = await sql.query(
@@ -1152,6 +1152,39 @@ export async function updateNeonClientStatus(clientId: number, newStatus: string
   } catch (e) {
     console.error("Neon updateNeonClientStatus error:", e);
     return false;
+  }
+}
+
+export async function logAccountAudit(data: {
+  adminId?: number;
+  adminEmail?: string;
+  clientId: number;
+  clientEmail?: string;
+  action: string;
+  workspaceId?: number;
+  result?: string;
+  details?: any;
+}) {
+  const sql = getNeonSql();
+  if (!sql) return;
+  try {
+    const actor = data.adminEmail || "admin";
+    const detailsStr = typeof data.details === "string" ? data.details : JSON.stringify(data.details || {});
+    await sql.query(
+      `INSERT INTO account_audit_logs (workspace_id, actor, account_id, action, result, details, timestamp)
+       VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+      [
+        data.workspaceId || 1,
+        actor,
+        data.clientId,
+        data.action,
+        data.result || "SUCCESS",
+        detailsStr,
+        new Date().toISOString(),
+      ]
+    );
+  } catch (err) {
+    console.warn("[Audit Log] Failed to record audit log:", err);
   }
 }
 

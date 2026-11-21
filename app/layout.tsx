@@ -1,6 +1,7 @@
 import type { Metadata, Viewport } from "next";
 import "./globals.css";
 import { AuthProvider } from "@/lib/auth-context";
+import { AiSupportWidget } from "@/components/support/AiSupportWidget";
 
 export const viewport: Viewport = {
   width: "device-width",
@@ -26,7 +27,10 @@ export default function RootLayout({
   return (
     <html lang="en" className="dark">
       <body className="min-h-screen bg-[#07090e] text-slate-100 antialiased selection:bg-blue-600 selection:text-white">
-        <AuthProvider>{children}</AuthProvider>
+        <AuthProvider>
+          {children}
+          <AiSupportWidget />
+        </AuthProvider>
       </body>
     </html>
   );
