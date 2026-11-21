@@ -10,9 +10,22 @@ import {
 
 export async function POST(request: Request) {
   const currentUser = getCurrentUserFromRequest(request);
-  const wsHeader = request.headers.get("x-workspace-id") || request.headers.get("X-Workspace-Id");
-  const workspaceId = currentUser ? currentUser.workspace_id : (wsHeader ? Number(wsHeader) : 1);
-  const userId = currentUser ? currentUser.id : 1;
+  if (!currentUser) {
+    return NextResponse.json(
+      { error: "Authentication required to send outreach emails." },
+      { status: 401 }
+    );
+  }
+  if (currentUser.status === "LOCKED") {
+    return NextResponse.json(
+      {
+        error: "Account Locked — Subscription Activation Required ($10/month). Contact Owner via WhatsApp (+923174383702) for Instant Activation."
+      },
+      { status: 403 }
+    );
+  }
+  const workspaceId = currentUser.workspace_id || 1;
+  const userId = currentUser.id || 1;
 
   let body: any = {};
   try {

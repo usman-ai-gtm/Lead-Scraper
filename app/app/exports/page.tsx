@@ -57,9 +57,13 @@ export default function ExportsPage() {
         return;
       }
 
+      const token = typeof window !== "undefined" ? localStorage.getItem("usman_gtm_token") : null;
       const exportRes = await fetch("/api/leads/export", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: {
+          "Content-Type": "application/json",
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        },
         body: JSON.stringify({
           leads: leadsToExport,
           format,

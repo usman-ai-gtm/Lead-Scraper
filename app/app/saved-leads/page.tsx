@@ -54,6 +54,14 @@ interface ExportHistoryItem {
   created_at: string;
 }
 
+function getSavedLeadsAuthHeaders() {
+  const token = typeof window !== "undefined" ? localStorage.getItem("usman_gtm_token") : null;
+  return {
+    "Content-Type": "application/json",
+    ...(token ? { Authorization: `Bearer ${token}` } : {}),
+  };
+}
+
 export default function SavedLeadsPage() {
   const { user } = useAuth();
 
@@ -268,7 +276,7 @@ export default function SavedLeadsPage() {
       if (emailMode === "followup") {
         const res = await fetch("/api/outreach/generate-followup", {
           method: "POST",
-          headers: { "Content-Type": "application/json" },
+          headers: getSavedLeadsAuthHeaders(),
           body: JSON.stringify({
             original_subject: emailSubject || `Strategic partnership with ${activeEmailLead.business_name}`,
             original_body: emailBody || "Previous note regarding B2B services.",
@@ -288,7 +296,7 @@ export default function SavedLeadsPage() {
       } else {
         const res = await fetch("/api/outreach/generate-email", {
           method: "POST",
-          headers: { "Content-Type": "application/json" },
+          headers: getSavedLeadsAuthHeaders(),
           body: JSON.stringify({
             lead: activeEmailLead,
             sender: {
@@ -331,7 +339,7 @@ export default function SavedLeadsPage() {
     try {
       const res = await fetch("/api/integrations/gmail/send", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: getSavedLeadsAuthHeaders(),
         body: JSON.stringify({
           lead_id: activeEmailLead.id,
           recipient_email: activeEmailLead.email,
@@ -373,7 +381,7 @@ export default function SavedLeadsPage() {
     try {
       await fetch("/api/outreach/records", {
         method: "PATCH",
-        headers: { "Content-Type": "application/json" },
+        headers: getSavedLeadsAuthHeaders(),
         body: JSON.stringify({ lead_id: leadId, status: newStatus }),
       });
       setEmailOutreachStatus(newStatus);
@@ -527,7 +535,7 @@ export default function SavedLeadsPage() {
     try {
       const res = await fetch("/api/leads/export", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: getSavedLeadsAuthHeaders(),
         body: JSON.stringify({
           leads: leadsToExport,
           format: format,

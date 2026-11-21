@@ -122,13 +122,22 @@ export async function GET(request: Request) {
         LIMIT 1
       `;
 
+      const isOwner = [
+        "admin@usmanai.com",
+        "mu0602503@gmail.com",
+        "admin@usmangtm.com",
+        "selftest_founder_2026@usmanai.com",
+        "transaction000001@gmail.com"
+      ].includes(profileEmail);
+
       let activeUser: any = null;
 
       if (users && users.length > 0) {
         const u = users[0];
-        if (u.status && u.status.toUpperCase() !== "ACTIVE") {
+        const statusUpper = (u.status || "ACTIVE").toUpperCase();
+        if (statusUpper === "SUSPENDED" || statusUpper === "REVOKED") {
           return NextResponse.redirect(
-            `${appBase}/login?error=Your+account+is+suspended+or+inactive.+Please+contact+administrator.`
+            `${appBase}/login?error=Your+account+has+been+suspended+or+revoked.+Please+contact+administrator+on+WhatsApp+(%2B923174383702).`
           );
         }
         activeUser = u;
@@ -155,9 +164,12 @@ export async function GET(request: Request) {
           newWsId = wsRes[0].id;
         }
 
+        const assignedRole = isOwner ? 'ADMIN' : 'CLIENT';
+        const initialStatus = isOwner ? 'ACTIVE' : 'LOCKED';
+
         const newUserRes = await sql`
           INSERT INTO users (username, email, full_name, role, workspace_id, status, created_at, tenant_id, password_hash)
-          VALUES (${profileEmail}, ${profileEmail}, ${profileName}, 'CLIENT', ${newWsId}, 'ACTIVE', ${nowIso}, 1, 'GOOGLE_OAUTH_USER')
+          VALUES (${profileEmail}, ${profileEmail}, ${profileName}, ${assignedRole}, ${newWsId}, ${initialStatus}, ${nowIso}, 1, 'GOOGLE_OAUTH_USER')
           RETURNING id, email, full_name, role, workspace_id, status
         `;
         activeUser = newUserRes[0];
@@ -169,6 +181,7 @@ export async function GET(request: Request) {
         full_name: activeUser.full_name,
         role: activeUser.role,
         workspace_id: activeUser.workspace_id,
+        status: activeUser.status || "ACTIVE",
       });
 
       const sessionPayload = encodeURIComponent(
@@ -180,6 +193,7 @@ export async function GET(request: Request) {
             full_name: activeUser.full_name,
             role: activeUser.role,
             workspace_id: activeUser.workspace_id,
+            status: activeUser.status || "ACTIVE",
           },
           workspace_id: activeUser.workspace_id,
         })

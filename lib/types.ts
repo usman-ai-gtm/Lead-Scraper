@@ -18,7 +18,7 @@ export interface ClientAccount {
   workspace_id: number;
   workspace_name: string;
   role: string;
-  status: "ACTIVE" | "SUSPENDED" | "REVOKED";
+  status: "ACTIVE" | "SUSPENDED" | "REVOKED" | "LOCKED" | "PENDING";
   must_change_password: boolean;
   max_leads_quota: number;
   client_notes?: string;

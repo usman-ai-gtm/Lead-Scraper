@@ -33,7 +33,22 @@ export async function POST(req: Request) {
   try {
     const body = await req.json().catch(() => ({}));
     const currentUser = getCurrentUserFromRequest(req);
-    const workspaceId = currentUser?.workspace_id || 1;
+    if (!currentUser) {
+      return NextResponse.json(
+        { status: "error", message: "Authentication required to search leads." },
+        { status: 401 }
+      );
+    }
+    if (currentUser.status === "LOCKED") {
+      return NextResponse.json(
+        {
+          status: "error",
+          message: "Account Locked — Subscription Activation Required ($10/month). Contact Owner via WhatsApp (+923174383702) for Instant Activation."
+        },
+        { status: 403 }
+      );
+    }
+    const workspaceId = currentUser.workspace_id || 1;
 
     const rawKeyword = String(body.keyword || body.query || "").trim();
     const rawCountry = String(body.country || "United States").trim();

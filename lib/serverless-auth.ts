@@ -86,6 +86,7 @@ export function createJwtToken(payload: {
   workspace_id: number;
   tenant_id?: number;
   must_change_password?: boolean;
+  status?: string;
 }): string {
   const header = Buffer.from(JSON.stringify({ alg: "HS256", typ: "JWT" })).toString("base64url");
   const now = Math.floor(Date.now() / 1000);

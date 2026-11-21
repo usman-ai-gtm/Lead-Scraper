@@ -5,7 +5,21 @@ import { updateNeonLeadOutreachStatus, getNeonGmailAccount } from "@/lib/neon-db
 
 export async function POST(request: Request) {
   const currentUser = getCurrentUserFromRequest(request);
-  const workspaceId = currentUser ? currentUser.workspace_id : 1;
+  if (!currentUser) {
+    return NextResponse.json(
+      { error: "Authentication required to generate emails." },
+      { status: 401 }
+    );
+  }
+  if (currentUser.status === "LOCKED") {
+    return NextResponse.json(
+      {
+        error: "Account Locked — Subscription Activation Required ($10/month). Contact Owner via WhatsApp (+923174383702) for Instant Activation."
+      },
+      { status: 403 }
+    );
+  }
+  const workspaceId = currentUser.workspace_id || 1;
 
   let body: any = {};
   try {

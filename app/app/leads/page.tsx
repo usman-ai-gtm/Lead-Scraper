@@ -10,7 +10,7 @@ import {
   Download, CheckCircle2, RefreshCw, Mail, Phone, Globe,
   ShieldCheck, ExternalLink, Building2, Database,
   Layers, Sparkles, Search, FileSpreadsheet,
-  AlertCircle, Check, HelpCircle, Hash
+  AlertCircle, AlertTriangle, Check, HelpCircle, Hash
 } from "lucide-react";
 
 interface QualifiedLead {
@@ -64,6 +64,7 @@ function LeadsSearchComponent() {
   const [toastMsg, setToastMsg] = useState<string | null>(null);
   const [exportLoading, setExportLoading] = useState<boolean>(false);
   const [savingIds, setSavingIds] = useState<Record<number, boolean>>({});
+  const [saveStatus, setSaveStatus] = useState<"SAVING" | "SAVED" | "FAILED" | "IDLE">("IDLE");
 
   // Active verified non-Maps sources
   const configuredSourcesList = [
@@ -108,7 +109,7 @@ function LeadsSearchComponent() {
             setQualifiedLeads(parsed);
           }
         }
-      } catch {}
+      } catch { }
     }
   }, [searchParams]);
 
@@ -125,7 +126,7 @@ function LeadsSearchComponent() {
     if (typeof window !== "undefined") {
       try {
         localStorage.setItem("usman_qualified_leads_session", JSON.stringify(leadsList));
-      } catch {}
+      } catch { }
     }
   };
 
@@ -137,14 +138,19 @@ function LeadsSearchComponent() {
     }
 
     setIsExtracting(true);
+    setSaveStatus("SAVING");
     setStatusMessage(
       `Running multi-platform search across all non-Maps sources for "${keyword.trim()}" (Target: ${targetCount} leads)...`
     );
 
     try {
+      const token = typeof window !== "undefined" ? localStorage.getItem("usman_gtm_token") : null;
       const res = await fetch("/api/leads/search", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: {
+          "Content-Type": "application/json",
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        },
         body: JSON.stringify({
           keyword: keyword.trim(),
           country: country,
@@ -155,6 +161,7 @@ function LeadsSearchComponent() {
 
       const data = await res.json();
       if (!res.ok || data.status === "error") {
+        setSaveStatus("FAILED");
         throw new Error(data.message || "Extraction failed.");
       }
 
@@ -164,14 +171,16 @@ function LeadsSearchComponent() {
         setSourcesBreakdown(data.sources_breakdown);
       }
       syncStorage(fresh);
+      setSaveStatus("SAVED");
 
       setStatusMessage(data.message || `Successfully discovered ${fresh.length} unique qualified prospects with verified emails.`);
       setToastMsg(
         fresh.length >= targetCount
-          ? `Target reached: ${fresh.length} verified qualified leads extracted!`
-          : `Extracted ${fresh.length} legitimate qualified leads. (All available contacts retrieved without synthetic data).`
+          ? `Target reached: ${fresh.length} verified qualified leads extracted and saved to your workspace!`
+          : `Extracted ${fresh.length} legitimate qualified leads. Permanently saved to your workspace.`
       );
     } catch (err: any) {
+      setSaveStatus("FAILED");
       setStatusMessage(`Notice: ${err?.message || "Search request could not be completed."}`);
       setToastMsg(err?.message || "Extraction error.");
     } finally {
@@ -190,9 +199,13 @@ function LeadsSearchComponent() {
     setToastMsg(`Preparing professional ${format.toUpperCase()} export...`);
 
     try {
+      const token = typeof window !== "undefined" ? localStorage.getItem("usman_gtm_token") : null;
       const res = await fetch("/api/leads/export", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: {
+          "Content-Type": "application/json",
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        },
         body: JSON.stringify({
           leads: qualifiedLeads,
           format: format,
@@ -397,11 +410,10 @@ function LeadsSearchComponent() {
                 key={qty}
                 type="button"
                 onClick={() => setTargetCount(qty)}
-                className={`px-2.5 py-1 rounded-lg text-[11px] font-mono font-semibold transition-all ${
-                  targetCount === qty
-                    ? "bg-blue-600 text-white shadow-glow-sm"
-                    : "bg-white/[0.04] text-slate-300 hover:bg-white/[0.08] hover:text-white border border-white/10"
-                }`}
+                className={`px-2.5 py-1 rounded-lg text-[11px] font-mono font-semibold transition-all ${targetCount === qty
+                  ? "bg-blue-600 text-white shadow-glow-sm"
+                  : "bg-white/[0.04] text-slate-300 hover:bg-white/[0.08] hover:text-white border border-white/10"
+                  }`}
               >
                 {qty}
               </button>
@@ -670,12 +682,24 @@ function LeadsSearchComponent() {
                         <div className="text-[10px] text-slate-500">{lead.extraction_time || lead.saved_time}</div>
                       </td>
 
-                      {/* Auto-Saved Status */}
+                      {/* Honest Save Status */}
                       <td className="py-3.5 px-4 text-right">
-                        <span className="px-2.5 py-1 rounded-md bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 font-semibold text-[11px] inline-flex items-center gap-1.5 font-mono">
-                          <CheckCircle2 className="h-3 w-3" />
-                          <span>Auto-Saved</span>
-                        </span>
+                        {saveStatus === "SAVING" ? (
+                          <span className="px-2.5 py-1 rounded-md bg-blue-500/10 text-blue-400 border border-blue-500/20 font-semibold text-[11px] inline-flex items-center gap-1.5 font-mono">
+                            <RefreshCw className="h-3 w-3 animate-spin" />
+                            <span>Saving...</span>
+                          </span>
+                        ) : saveStatus === "FAILED" ? (
+                          <span className="px-2.5 py-1 rounded-md bg-rose-500/10 text-rose-400 border border-rose-500/20 font-semibold text-[11px] inline-flex items-center gap-1.5 font-mono">
+                            <AlertTriangle className="h-3 w-3" />
+                            <span>Failed to Save</span>
+                          </span>
+                        ) : (
+                          <span className="px-2.5 py-1 rounded-md bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 font-semibold text-[11px] inline-flex items-center gap-1.5 font-mono">
+                            <CheckCircle2 className="h-3 w-3" />
+                            <span>Saved to Workspace</span>
+                          </span>
+                        )}
                       </td>
                     </tr>
                   );

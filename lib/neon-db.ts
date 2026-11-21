@@ -886,13 +886,20 @@ export async function getNeonClients() {
         u.id,
         u.email,
         u.full_name,
+        u.company,
         u.role,
         u.workspace_id,
         u.status,
         u.created_at,
+        u.last_login,
         COALESCE(w.name, u.full_name || '''s Workspace') as workspace_name,
-        'STARTER' as plan,
+        'STARTER ($10/mo)' as plan,
+        CASE 
+          WHEN u.status = 'ACTIVE' THEN 'PAID'
+          ELSE 'PENDING'
+        END as payment_status,
         COALESCE((SELECT COUNT(*) FROM leads l WHERE l.workspace_id = u.workspace_id), 0) as total_leads,
+        COALESCE((SELECT COUNT(*) FROM search_records sr WHERE sr.workspace_id = u.workspace_id), 0) as total_searches,
         COALESCE((SELECT COUNT(*) FROM email_accounts ea WHERE ea.workspace_id = u.workspace_id AND ea.is_active = 1), 0) as connected_accounts
       FROM users u
       LEFT JOIN workspaces w ON u.workspace_id = w.id
@@ -902,6 +909,7 @@ export async function getNeonClients() {
     return clients.map((c: any) => ({
       ...c,
       total_leads: parseInt(c.total_leads || "0", 10),
+      total_searches: parseInt(c.total_searches || "0", 10),
       connected_accounts: parseInt(c.connected_accounts || "0", 10),
     }));
   } catch (e) {

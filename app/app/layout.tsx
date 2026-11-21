@@ -8,7 +8,8 @@ import { ForcedPasswordModal } from "@/components/auth/ForcedPasswordModal";
 import {
   LayoutDashboard, Search, Database, Download, Settings,
   Shield, Users2, SlidersHorizontal, Activity, LogOut,
-  Menu, X, Sparkles, Bell, CheckCircle2, Mail, Send
+  Menu, X, Sparkles, Bell, CheckCircle2, Mail, Send,
+  Briefcase, History, CreditCard, Receipt, MessageCircle, AlertCircle
 } from "lucide-react";
 
 interface NavItem {
@@ -56,34 +57,40 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
     return () => window.removeEventListener("keydown", handleKeyDown);
   }, []);
 
-  // Exactly 6 Client Navigation Items
+  // Exactly 8 Client Navigation Items (Section 13)
   const clientNav: NavItem[] = [
     { name: "Dashboard", href: "/app", icon: LayoutDashboard },
+    { name: "Business Profile", href: "/app/business-profile", icon: Briefcase },
     { name: "Find Leads", href: "/app/leads", icon: Search },
     { name: "Saved Leads", href: "/app/saved-leads", icon: Database },
+    { name: "Search History", href: "/app/history", icon: History },
     { name: "Email Accounts", href: "/app/accounts", icon: Mail },
     { name: "Cold Email", href: "/app/outreach", icon: Send },
-    { name: "Usage & Settings", href: "/app/settings", icon: Settings },
+    { name: "Usage & Subscription", href: "/app/subscription", icon: CreditCard },
   ];
 
-  // Exactly 3 Admin Navigation Items (Role: ADMIN only)
+  // Exactly 4 Admin Navigation Items (Role: ADMIN only - Section 13)
   const adminNav: NavItem[] = [
     { name: "Client Accounts", href: "/app/admin/clients", icon: Users2 },
+    { name: "Payments", href: "/app/admin/payments", icon: Receipt },
     { name: "API Configuration", href: "/app/admin/providers", icon: SlidersHorizontal },
     { name: "System Usage", href: "/app/admin", icon: Activity },
   ];
 
   const searchShortcuts = [
     { title: "Dashboard Overview", subtitle: "Command center and real workspace metrics", url: "/app", badge: "DASHBOARD" },
+    { title: "Business Profile", subtitle: "Gemini-assisted ICP and target keyword setup wizard", url: "/app/business-profile", badge: "PROFILE" },
     { title: "Find Leads", subtitle: "Extract public commercial contacts across 193 countries", url: "/app/leads", badge: "SEARCH" },
     { title: "Saved Leads", subtitle: "Manage saved leads and private company data", url: "/app/saved-leads", badge: "SAVED" },
+    { title: "Search History", subtitle: "Reopen past search snapshots organized by PKT date & time", url: "/app/history", badge: "HISTORY" },
     { title: "Email Accounts", subtitle: "Connect your official Gmail account for $0 cold outreach", url: "/app/accounts", badge: "GMAIL" },
     { title: "Cold Email Outreach", subtitle: "Dispatch personalized business emails via Gmail API", url: "/app/outreach", badge: "OUTREACH" },
-    { title: "Usage & Settings", subtitle: "Manage profile, workspace password, and preferences", url: "/app/settings", badge: "SETTINGS" },
+    { title: "Usage & Subscription", subtitle: "$10/mo plan status, quotas, and WhatsApp activation", url: "/app/subscription", badge: "BILLING" },
     ...(isAdmin ? [
-      { title: "50-Client Account Seats", subtitle: "Provision and manage client accounts", url: "/app/admin/clients", badge: "ADMIN" },
+      { title: "Client Accounts", subtitle: "Manage client workspaces, activation, and usage limits", url: "/app/admin/clients", badge: "ADMIN" },
+      { title: "Payments & Verification", subtitle: "Review and approve manual WhatsApp payment requests", url: "/app/admin/payments", badge: "ADMIN" },
       { title: "API Provider Configuration", subtitle: "Check Serper and Gemini API engine status", url: "/app/admin/providers", badge: "ADMIN" },
-      { title: "System Usage & Audit Logs", subtitle: "Database metrics and live serverless activity", url: "/app/admin", badge: "ADMIN" },
+      { title: "System Usage & Telemetry", subtitle: "Database metrics and live serverless activity", url: "/app/admin", badge: "ADMIN" },
     ] : [])
   ];
 
@@ -290,6 +297,27 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
             </Link>
           </div>
         </header>
+
+        {/* LOCKED ACCOUNT / PREVIEW MODE BANNER */}
+        {user?.status === "LOCKED" && (
+          <div className="bg-gradient-to-r from-amber-500/15 via-orange-500/15 to-amber-500/15 border-b border-amber-500/30 px-4 py-3 sm:px-6 flex flex-col sm:flex-row items-center justify-between gap-3 text-xs">
+            <div className="flex items-center gap-2.5 text-amber-200">
+              <AlertCircle className="h-4 w-4 text-amber-400 shrink-0" />
+              <span>
+                <strong>Account in Preview Mode (Locked):</strong> Paid features (lead search, email dispatch, exports) require subscription activation ($10/month).
+              </span>
+            </div>
+            <a
+              href={`https://wa.me/923174383702?text=Hello%20Usman%20AI%20GTM,%20I%20want%20to%20activate%20my%20subscription%20for%20my%20registered%20email:%20${encodeURIComponent(user?.email || "")}`}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs shadow-md transition-all shrink-0 cursor-pointer"
+            >
+              <MessageCircle className="h-3.5 w-3.5" />
+              <span>Activate on WhatsApp (+923174383702)</span>
+            </a>
+          </div>
+        )}
 
         {/* PAGE CONTENT */}
         <main className="flex-1 p-4 sm:p-6 lg:p-8 max-w-7xl w-full mx-auto">

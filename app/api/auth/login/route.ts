@@ -36,9 +36,10 @@ export async function POST(request: Request) {
           if (users && users.length > 0) {
             const user = users[0];
 
-            if (user.status && user.status.toUpperCase() !== "ACTIVE") {
+            const statusUpper = (user.status || "ACTIVE").toUpperCase();
+            if (statusUpper === "SUSPENDED" || statusUpper === "REVOKED") {
               return NextResponse.json(
-                { detail: "Account is inactive or suspended. Please contact your administrator." },
+                { detail: "Account has been suspended or revoked. Please contact administrator on WhatsApp (+923174383702)." },
                 { status: 403 }
               );
             }
@@ -59,6 +60,7 @@ export async function POST(request: Request) {
               role: user.role || "ADMIN",
               workspace_id: user.workspace_id || 1,
               tenant_id: user.tenant_id || 1,
+              status: user.status || "ACTIVE",
             });
 
             // Fetch workspace metadata
@@ -87,6 +89,7 @@ export async function POST(request: Request) {
                 full_name: user.full_name,
                 role: user.role || "ADMIN",
                 workspace_id: user.workspace_id || 1,
+                status: user.status || "ACTIVE",
               },
               workspace: {
                 id: user.workspace_id || 1,

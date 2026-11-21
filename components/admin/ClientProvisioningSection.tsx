@@ -301,6 +301,22 @@ export function ClientProvisioningSection() {
           </h3>
         </div>
 
+        {/* Real-time Indicator for New Google Signups Pending Activation */}
+        {clients.some((c) => c.status === "LOCKED" || c.status === "PENDING") && (
+          <div className="p-4 rounded-xl bg-gradient-to-r from-amber-500/20 to-orange-500/20 border border-amber-500/30 flex flex-col sm:flex-row items-center justify-between gap-3 text-xs">
+            <div className="flex items-center gap-2.5 text-amber-200">
+              <AlertTriangle className="h-4 w-4 text-amber-400 shrink-0" />
+              <span>
+                <strong>New Client Signups Pending Owner Activation:</strong>{" "}
+                {clients.filter((c) => c.status === "LOCKED" || c.status === "PENDING").map((c) => c.email).join(", ")}
+              </span>
+            </div>
+            <span className="text-[10px] font-bold uppercase tracking-wider text-amber-300 bg-amber-500/20 px-2.5 py-1 rounded border border-amber-500/30 shrink-0">
+              Action Required
+            </span>
+          </div>
+        )}
+
         {loading ? (
           <div className="py-12 text-center text-xs text-slate-500">Loading provisioned clients...</div>
         ) : clients.length === 0 ? (
@@ -314,104 +330,148 @@ export function ClientProvisioningSection() {
             <table className="w-full text-left text-xs">
               <thead className="border-b border-white/[0.08] text-slate-400 uppercase tracking-wider font-semibold">
                 <tr>
-                  <th className="py-3 px-3">Client</th>
-                  <th className="py-3 px-3">Workspace</th>
-                  <th className="py-3 px-3">Leads Count</th>
-                  <th className="py-3 px-3">Password Status</th>
-                  <th className="py-3 px-3">Seat Status</th>
+                  <th className="py-3 px-3">Client & Google Email</th>
+                  <th className="py-3 px-3">Business Name</th>
+                  <th className="py-3 px-3">Account & Workspace</th>
+                  <th className="py-3 px-3">Dates & Activity</th>
+                  <th className="py-3 px-3">Plan</th>
+                  <th className="py-3 px-3">Payment</th>
+                  <th className="py-3 px-3">Status</th>
+                  <th className="py-3 px-3">Actual Usage</th>
                   <th className="py-3 px-3 text-right">Actions</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-white/[0.04]">
-                {clients.map((c) => (
-                  <tr key={c.id} className="hover:bg-white/[0.02]">
-                    <td className="py-3 px-3">
-                      <div className="font-bold text-white">{c.full_name}</div>
-                      <div className="text-[11px] text-slate-400 font-mono">{c.email}</div>
-                      {c.company && (
-                        <div className="text-[10px] text-slate-500 mt-0.5">{c.company}</div>
-                      )}
-                    </td>
+                {clients.map((c) => {
+                  const isPending = c.status === "LOCKED" || c.status === "PENDING";
+                  const isSuspended = c.status === "SUSPENDED";
+                  const isRevoked = c.status === "REVOKED";
+                  const isActive = c.status === "ACTIVE";
 
-                    <td className="py-3 px-3">
-                      <div className="font-medium text-slate-200">{c.workspace_name}</div>
-                      <div className="text-[10px] text-slate-500 font-mono">Workspace ID: #{c.workspace_id}</div>
-                    </td>
+                  return (
+                    <tr key={c.id} className="hover:bg-white/[0.02]">
+                      {/* Client Name & Registered Google Email */}
+                      <td className="py-3 px-3">
+                        <div className="font-bold text-white">{c.full_name}</div>
+                        <div className="text-[11px] text-slate-400 font-mono">{c.email}</div>
+                      </td>
 
-                    <td className="py-3 px-3 font-mono font-bold text-slate-300">
-                      <span className="inline-block px-2 py-0.5 rounded bg-white/[0.04] border border-white/[0.06]">
-                        {(c as any).total_leads ?? c.leads_count ?? 0} leads
-                      </span>
-                    </td>
+                      {/* Business Name */}
+                      <td className="py-3 px-3">
+                        <div className="font-medium text-slate-200">{c.company || c.workspace_name}</div>
+                      </td>
 
-                    <td className="py-3 px-3">
-                      {c.must_change_password ? (
-                        <span className="inline-flex items-center gap-1 text-[10px] font-bold text-amber-400 bg-amber-500/10 px-2 py-0.5 rounded border border-amber-500/20">
-                          <Lock className="h-3 w-3" />
-                          <span>Pending First Login</span>
+                      {/* Account ID & Workspace ID */}
+                      <td className="py-3 px-3 font-mono text-[11px]">
+                        <div className="text-slate-300">ID: #{c.id}</div>
+                        <div className="text-slate-500">WS: #{c.workspace_id}</div>
+                      </td>
+
+                      {/* Dates: Registration & Last Login */}
+                      <td className="py-3 px-3 text-[11px] text-slate-400">
+                        <div>Reg: {c.created_at ? new Date(c.created_at).toLocaleDateString() : "N/A"}</div>
+                        <div className="text-[10px] text-slate-500">
+                          Login: {c.last_login ? new Date(c.last_login).toLocaleDateString() : "Never"}
+                        </div>
+                      </td>
+
+                      {/* Plan */}
+                      <td className="py-3 px-3">
+                        <span className="text-[10px] font-bold uppercase tracking-wider text-blue-400 bg-blue-500/10 px-2 py-0.5 rounded border border-blue-500/20">
+                          $10/mo Starter
                         </span>
-                      ) : (
-                        <span className="inline-flex items-center gap-1 text-[10px] font-bold text-emerald-400 bg-emerald-500/10 px-2 py-0.5 rounded border border-emerald-500/20">
-                          <CheckCircle2 className="h-3 w-3" />
-                          <span>Password Set</span>
-                        </span>
-                      )}
-                    </td>
+                      </td>
 
-                    <td className="py-3 px-3">
-                      <span
-                        className={`text-[10px] font-bold px-2 py-0.5 rounded border ${
-                          c.status === "ACTIVE"
-                            ? "text-emerald-400 bg-emerald-500/10 border-emerald-500/20"
-                            : c.status === "SUSPENDED"
-                            ? "text-amber-400 bg-amber-500/10 border-amber-500/20"
-                            : "text-rose-400 bg-rose-500/10 border-rose-500/20"
-                        }`}
-                      >
-                        {c.status}
-                      </span>
-                    </td>
-
-                    <td className="py-3 px-3 text-right">
-                      <div className="inline-flex items-center gap-1.5">
-                        <button
-                          onClick={() => handleResetPassword(c.id, c.full_name)}
-                          disabled={actionLoadingId === c.id || c.status === "REVOKED"}
-                          className="px-2.5 py-1 text-[11px] font-semibold text-slate-300 hover:text-white bg-white/[0.04] hover:bg-white/[0.08] border border-white/10 rounded-lg transition-colors disabled:opacity-40"
-                          title="Generate new temporary password"
-                        >
-                          <KeyRound className="h-3.5 w-3.5 inline mr-1 text-amber-400" />
-                          Reset Pass
-                        </button>
-
-                        <button
-                          onClick={() => handleToggleStatus(c.id, c.status)}
-                          disabled={actionLoadingId === c.id || c.status === "REVOKED"}
-                          className={`px-2.5 py-1 text-[11px] font-semibold rounded-lg border transition-colors disabled:opacity-40 ${
-                            c.status === "ACTIVE"
-                              ? "text-amber-300 border-amber-500/20 bg-amber-500/10 hover:bg-amber-500/20"
-                              : "text-emerald-300 border-emerald-500/20 bg-emerald-500/10 hover:bg-emerald-500/20"
+                      {/* Payment Status */}
+                      <td className="py-3 px-3">
+                        <span
+                          className={`text-[10px] font-bold px-2 py-0.5 rounded border ${
+                            isActive
+                              ? "text-emerald-400 bg-emerald-500/10 border-emerald-500/20"
+                              : "text-amber-400 bg-amber-500/10 border-amber-500/20"
                           }`}
-                          title={c.status === "ACTIVE" ? "Suspend Client Access" : "Activate Client Access"}
                         >
-                          <Power className="h-3.5 w-3.5 inline mr-1" />
-                          {c.status === "ACTIVE" ? "Suspend" : "Activate"}
-                        </button>
+                          {isActive ? "PAID" : "PENDING"}
+                        </span>
+                      </td>
 
-                        {c.status !== "REVOKED" && (
+                      {/* Account Status */}
+                      <td className="py-3 px-3">
+                        <span
+                          className={`text-[10px] font-bold px-2 py-0.5 rounded border ${
+                            isActive
+                              ? "text-emerald-400 bg-emerald-500/10 border-emerald-500/20"
+                              : isPending
+                              ? "text-amber-400 bg-amber-500/10 border-amber-500/20 animate-pulse"
+                              : isSuspended
+                              ? "text-rose-400 bg-rose-500/10 border-rose-500/20"
+                              : "text-slate-400 bg-slate-500/10 border-slate-500/20"
+                          }`}
+                        >
+                          {c.status}
+                        </span>
+                      </td>
+
+                      {/* Actual Usage */}
+                      <td className="py-3 px-3 font-mono text-[11px] text-slate-300">
+                        <div>{(c as any).total_leads ?? 0} leads</div>
+                        <div className="text-[10px] text-slate-500">{(c as any).total_searches ?? 0} searches</div>
+                      </td>
+
+                      {/* Actions */}
+                      <td className="py-3 px-3 text-right">
+                        <div className="inline-flex items-center gap-1.5">
+                          {/* Activate / Reactivate button */}
+                          {(isPending || isSuspended) && (
+                            <button
+                              onClick={() => handleToggleStatus(c.id, c.status)}
+                              disabled={actionLoadingId === c.id}
+                              className="px-2.5 py-1 text-[11px] font-bold text-white bg-emerald-600 hover:bg-emerald-500 rounded-lg shadow-sm transition-colors disabled:opacity-40"
+                              title="Verify Payment and Activate Account"
+                            >
+                              <CheckCircle2 className="h-3 w-3 inline mr-1" />
+                              Activate
+                            </button>
+                          )}
+
+                          {/* Suspend button */}
+                          {isActive && (
+                            <button
+                              onClick={() => handleToggleStatus(c.id, c.status)}
+                              disabled={actionLoadingId === c.id}
+                              className="px-2.5 py-1 text-[11px] font-semibold text-amber-300 border border-amber-500/20 bg-amber-500/10 hover:bg-amber-500/20 rounded-lg transition-colors disabled:opacity-40"
+                              title="Suspend Client Access"
+                            >
+                              <Power className="h-3 w-3 inline mr-1" />
+                              Suspend
+                            </button>
+                          )}
+
                           <button
-                            onClick={() => handleRevokeClient(c.id, c.full_name)}
-                            disabled={actionLoadingId === c.id}
-                            className="p-1 text-slate-500 hover:text-rose-400 transition-colors disabled:opacity-40"
-                            title="Revoke Seat"
+                            onClick={() => handleResetPassword(c.id, c.full_name)}
+                            disabled={actionLoadingId === c.id || isRevoked}
+                            className="px-2 py-1 text-[11px] font-semibold text-slate-300 hover:text-white bg-white/[0.04] hover:bg-white/[0.08] border border-white/10 rounded-lg transition-colors disabled:opacity-40"
+                            title="Generate new temporary password"
                           >
-                            <Trash2 className="h-3.5 w-3.5" />
+                            <KeyRound className="h-3 w-3 inline mr-1 text-amber-400" />
+                            Pass
                           </button>
-                        )}
-                      </div>
-                    </td>
-                  </tr>
-                ))}
+
+                          {!isRevoked && (
+                            <button
+                              onClick={() => handleRevokeClient(c.id, c.full_name)}
+                              disabled={actionLoadingId === c.id}
+                              className="p-1 text-slate-500 hover:text-rose-400 transition-colors disabled:opacity-40"
+                              title="Revoke Seat"
+                            >
+                              <Trash2 className="h-3.5 w-3.5" />
+                            </button>
+                          )}
+                        </div>
+                      </td>
+                    </tr>
+                  );
+                })}
               </tbody>
             </table>
           </div>
