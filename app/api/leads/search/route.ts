@@ -39,11 +39,20 @@ export async function POST(req: Request) {
         { status: 401 }
       );
     }
-    if (currentUser.status === "LOCKED") {
+    if (currentUser.status === "LOCKED" || currentUser.status === "PENDING") {
       return NextResponse.json(
         {
           status: "error",
           message: "Account Locked — Subscription Activation Required ($10/month). Contact Owner via WhatsApp (+923174383702) for Instant Activation."
+        },
+        { status: 403 }
+      );
+    }
+    if (currentUser.status === "SUSPENDED" || currentUser.status === "REVOKED") {
+      return NextResponse.json(
+        {
+          status: "error",
+          message: "Account Suspended or Revoked. Contact Administrator via WhatsApp (+923174383702)."
         },
         { status: 403 }
       );

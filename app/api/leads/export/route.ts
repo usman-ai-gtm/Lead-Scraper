@@ -350,7 +350,31 @@ export async function GET(req: Request) {
 
 export async function POST(req: Request) {
   try {
-    const body = await req.json();
+    const currentUser = getCurrentUserFromRequest(req);
+    if (!currentUser) {
+      return NextResponse.json(
+        { error: "Authentication required to export leads." },
+        { status: 401 }
+      );
+    }
+    if (currentUser.status === "LOCKED" || currentUser.status === "PENDING") {
+      return NextResponse.json(
+        {
+          error: "Account Locked — Subscription Activation Required ($10/month). Contact Owner via WhatsApp (+923174383702) for Instant Activation."
+        },
+        { status: 403 }
+      );
+    }
+    if (currentUser.status === "SUSPENDED" || currentUser.status === "REVOKED") {
+      return NextResponse.json(
+        {
+          error: "Account Suspended or Revoked. Contact Administrator via WhatsApp (+923174383702)."
+        },
+        { status: 403 }
+      );
+    }
+
+    const body = await req.json().catch(() => ({}));
     const leads = Array.isArray(body.leads) ? body.leads : [];
     const format = String(body.format || "xlsx").toLowerCase();
     const filename = String(body.filename || `USMAN_AI_LEADS_${Date.now()}`);
@@ -378,21 +402,6 @@ export async function POST(req: Request) {
       );
     }
 
-    const currentUser = getCurrentUserFromRequest(req);
-    if (!currentUser) {
-      return NextResponse.json(
-        { error: "Authentication required to export leads." },
-        { status: 401 }
-      );
-    }
-    if (currentUser.status === "LOCKED") {
-      return NextResponse.json(
-        {
-          error: "Account Locked — Subscription Activation Required ($10/month). Contact Owner via WhatsApp (+923174383702) for Instant Activation."
-        },
-        { status: 403 }
-      );
-    }
     const workspaceId = currentUser.workspace_id || 1;
 
     // Record export history in background

@@ -50,6 +50,14 @@ export async function POST(req: Request, { params }: RouteParams) {
   }
 }
 
+export async function PATCH(req: Request, { params }: RouteParams) {
+  return POST(req, { params });
+}
+
+export async function PUT(req: Request, { params }: RouteParams) {
+  return POST(req, { params });
+}
+
 export async function DELETE(req: Request, { params }: RouteParams) {
   try {
     const user = getCurrentUserFromRequest(req);
