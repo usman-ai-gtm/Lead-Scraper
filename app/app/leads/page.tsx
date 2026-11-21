@@ -3,6 +3,7 @@
 import React, { useState, useEffect, Suspense } from "react";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
+import { useAuth } from "@/lib/auth-context";
 import { ALL_193_COUNTRIES } from "@/lib/countries";
 import { getSuggestedCitiesForCountry } from "@/lib/cities";
 import { normalizePhoneNumber, buildWhatsAppClickToChatUrl } from "@/lib/phone-utils";
@@ -49,6 +50,8 @@ interface SourceStatus {
 
 function LeadsSearchComponent() {
   const searchParams = useSearchParams();
+  const { user } = useAuth();
+  const isLocked = user?.status === "LOCKED" || user?.status === "PENDING";
 
   // Search input state (pre-populated from Quick Search Launcher if parameters exist)
   const [keyword, setKeyword] = useState<string>("");
@@ -132,6 +135,10 @@ function LeadsSearchComponent() {
 
   // Execute One Search Action — Full Consolidated Dataset via Internal Pagination
   const handleStartExtraction = async () => {
+    if (isLocked) {
+      setToastMsg("🔒 Feature Locked: Please activate your account via WhatsApp (+923174383702) for $25/month or $100 Lifetime.");
+      return;
+    }
     if (!keyword.trim()) {
       setToastMsg("Please enter a target keyword (e.g. Mobile Accessories, Real Estate Agencies, Software Houses).");
       return;
@@ -328,6 +335,31 @@ function LeadsSearchComponent() {
         )}
       </div>
 
+      {/* LOCKED ACCOUNT BANNER */}
+      {isLocked && (
+        <div className="rounded-2xl border border-amber-500/40 bg-gradient-to-r from-amber-500/15 via-[#161208] to-[#090d16] p-4 flex flex-col sm:flex-row items-center justify-between gap-4">
+          <div className="flex items-center gap-3">
+            <div className="h-10 w-10 rounded-xl bg-amber-500/20 border border-amber-500/40 flex items-center justify-center text-xl shrink-0">
+              🔒
+            </div>
+            <div>
+              <div className="text-sm font-bold text-amber-200">Lead Search is Locked (Preview Mode Only)</div>
+              <div className="text-xs text-slate-300">
+                You can browse the interface, but searching and exporting requires subscription activation for <strong>$25/month</strong> or <strong>$100 Lifetime Deal</strong>.
+              </div>
+            </div>
+          </div>
+          <a
+            href={`https://wa.me/923174383702?text=Hello%20Usman%2C%20I%20want%20to%20activate%20my%20subscription%20($25/mo%20or%20$100%20Lifetime)%20for%20my%20registered%20email:%20${encodeURIComponent(user?.email || "")}`}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs shadow-md transition-all shrink-0 flex items-center gap-2 cursor-pointer"
+          >
+            <span>Unlock via WhatsApp (+923174383702)</span>
+          </a>
+        </div>
+      )}
+
       {/* COMPACT SEARCH CONTROL CENTER */}
       <div className="rounded-2xl border border-white/[0.08] bg-[#0c1017] p-5 space-y-4 shadow-xl">
         <div className="grid grid-cols-1 md:grid-cols-12 gap-3.5">
@@ -420,23 +452,34 @@ function LeadsSearchComponent() {
             ))}
           </div>
 
-          <button
-            onClick={handleStartExtraction}
-            disabled={isExtracting}
-            className="w-full sm:w-auto px-7 py-2.5 rounded-xl bg-blue-600 hover:bg-blue-500 text-white font-bold text-xs shadow-md shadow-blue-900/40 transition-all flex items-center justify-center gap-2 cursor-pointer disabled:opacity-50"
-          >
-            {isExtracting ? (
-              <>
-                <RefreshCw className="h-4 w-4 animate-spin text-white" />
-                <span>Extracting Multi-Platform Leads...</span>
-              </>
-            ) : (
-              <>
-                <Sparkles className="h-4 w-4 text-blue-200" />
-                <span>Start Real Lead Extraction</span>
-              </>
-            )}
-          </button>
+          {isLocked ? (
+            <a
+              href={`https://wa.me/923174383702?text=Hello%20Usman%2C%20I%20want%20to%20activate%20my%20subscription%20($25/mo%20or%20$100%20Lifetime)%20for%20my%20registered%20email:%20${encodeURIComponent(user?.email || "")}`}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="w-full sm:w-auto px-7 py-2.5 rounded-xl bg-amber-600 hover:bg-amber-500 text-white font-bold text-xs shadow-md shadow-amber-900/40 transition-all flex items-center justify-center gap-2 cursor-pointer"
+            >
+              <span>🔒 Search Locked — Unlock via WhatsApp ($25/mo or $100 Lifetime)</span>
+            </a>
+          ) : (
+            <button
+              onClick={handleStartExtraction}
+              disabled={isExtracting}
+              className="w-full sm:w-auto px-7 py-2.5 rounded-xl bg-blue-600 hover:bg-blue-500 text-white font-bold text-xs shadow-md shadow-blue-900/40 transition-all flex items-center justify-center gap-2 cursor-pointer disabled:opacity-50"
+            >
+              {isExtracting ? (
+                <>
+                  <RefreshCw className="h-4 w-4 animate-spin text-white" />
+                  <span>Extracting Multi-Platform Leads...</span>
+                </>
+              ) : (
+                <>
+                  <Sparkles className="h-4 w-4 text-blue-200" />
+                  <span>Start Real Lead Extraction</span>
+                </>
+              )}
+            </button>
+          )}
         </div>
       </div>
 

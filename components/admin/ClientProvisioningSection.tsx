@@ -378,7 +378,7 @@ export function ClientProvisioningSection() {
                       {/* Plan */}
                       <td className="py-3 px-3">
                         <span className="text-[10px] font-bold uppercase tracking-wider text-blue-400 bg-blue-500/10 px-2 py-0.5 rounded border border-blue-500/20">
-                          $10/mo Starter
+                          {c.plan || "$25/mo Starter"}
                         </span>
                       </td>
 
@@ -551,7 +551,8 @@ export function ClientProvisioningSection() {
                     onChange={(e) => setFormData({ ...formData, plan: e.target.value })}
                     className="w-full rounded-xl border border-white/10 bg-[#0c1017] px-3.5 py-2 text-xs text-white focus:border-blue-500 focus:outline-none"
                   >
-                    <option value="STARTER">Starter Plan ($10 / mo)</option>
+                    <option value="STARTER">Starter Plan ($25 / mo)</option>
+                    <option value="LIFETIME">Lifetime Access Deal ($100 One-Time)</option>
                     <option value="GROWTH">Growth Plan ($29 / mo)</option>
                     <option value="SCALE">Scale Plan ($49 / mo)</option>
                     <option value="ENTERPRISE">Enterprise Custom</option>

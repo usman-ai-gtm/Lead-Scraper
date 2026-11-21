@@ -14,7 +14,7 @@ export async function POST(request: Request) {
   if (currentUser.status === "LOCKED" || currentUser.status === "PENDING") {
     return NextResponse.json(
       {
-        error: "Account Locked — Subscription Activation Required ($10/month). Contact Owner via WhatsApp (+923174383702) for Instant Activation."
+        error: "Account Locked — Subscription Activation Required ($25/month or $100 Lifetime). Contact Owner via WhatsApp (+923174383702) for Instant Activation."
       },
       { status: 403 }
     );

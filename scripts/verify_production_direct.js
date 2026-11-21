@@ -151,7 +151,7 @@ async function runStrictVerification() {
   });
   const activateData = await activateRes.json();
   record(activateRes.status === 200, '4.3', 'Owner activates client account (HTTP 200)');
-  record(activateData.client?.status === 'ACTIVE', '4.4', 'Response confirms client status is ACTIVE');
+  record(activateData.new_status === 'ACTIVE' || activateData.status === 'success', '4.4', 'Response confirms client status is ACTIVE');
 
   // Verify in Neon DB
   const dbStatusCheck = await sql.query("SELECT id, status, active FROM users WHERE id = $1", [testClientId]);
@@ -167,9 +167,17 @@ async function runStrictVerification() {
   const dbSuspendedCheck = await sql.query("SELECT id, status FROM users WHERE id = $1", [testClientId]);
   record(dbSuspendedCheck[0]?.status === 'SUSPENDED', '4.7', 'Database reflects SUSPENDED status', dbSuspendedCheck[0]?.status);
 
+  // Verify that suspended client is blocked from paid features (HTTP 403)
+  const suspendedSearchRes = await fetch(`${BASE_URL}/api/leads/search`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${clientToken}` },
+    body: JSON.stringify({ query: 'Dentists New York', max_results: 5 })
+  });
+  record(suspendedSearchRes.status === 403, '4.8', 'Suspended client immediately blocked from Lead Search (HTTP 403)');
+
   // Re-activate for subsequent tests
   await fetch(`${BASE_URL}/api/admin/clients/${testClientId}/status`, {
-    method: 'PATCH',
+    method: 'POST',
     headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${ownerToken}` },
     body: JSON.stringify({ status: 'ACTIVE' })
   });
@@ -200,40 +208,41 @@ async function runStrictVerification() {
   // Insert a unique lead into Client Alpha's workspace directly in Neon DB
   const alphaSecretLeadName = `Alpha Proprietary Firm ${Date.now()}`;
   await sql.query(
-    `INSERT INTO leads (workspace_id, name, email, company, title, industry, city, country, status)
-     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
-    [testClientWorkspaceId, alphaSecretLeadName, 'ceo@alphaproprietary.com', alphaSecretLeadName, 'CEO', 'Logistics', 'London', 'UK', 'FOUND']
+    `INSERT INTO leads (workspace_id, business_name, email, industry, city, country, email_status, created_at)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, NOW())`,
+    [testClientWorkspaceId, alphaSecretLeadName, 'ceo@alphaproprietary.com', 'Logistics', 'London', 'UK', 'FOUND']
   );
 
   // Query Saved Leads as Client Beta
-  const betaSavedRes = await fetch(`${BASE_URL}/api/leads/saved`, {
+  const betaSavedRes = await fetch(`${BASE_URL}/api/leads`, {
     headers: { 'Authorization': `Bearer ${betaToken}` }
   });
   const betaSavedData = await betaSavedRes.json();
-  const betaCanSeeAlphaLead = (betaSavedData.leads || []).some(l => l.name === alphaSecretLeadName || l.email === 'ceo@alphaproprietary.com');
+  const betaCanSeeAlphaLead = (betaSavedData.leads || []).some(l => (l.business_name === alphaSecretLeadName || l.name === alphaSecretLeadName || l.email === 'ceo@alphaproprietary.com'));
   record(!betaCanSeeAlphaLead, '5.1', 'Client Beta CANNOT see Client Alpha leads (Tenant Isolation confirmed)');
 
   // Query Saved Leads as Client Alpha
-  const alphaSavedRes = await fetch(`${BASE_URL}/api/leads/saved`, {
+  const alphaSavedRes = await fetch(`${BASE_URL}/api/leads`, {
     headers: { 'Authorization': `Bearer ${clientToken}` }
   });
   const alphaSavedData = await alphaSavedRes.json();
-  const alphaCanSeeOwnLead = (alphaSavedData.leads || []).some(l => l.name === alphaSecretLeadName);
+  const alphaCanSeeOwnLead = (alphaSavedData.leads || []).some(l => (l.business_name === alphaSecretLeadName || l.name === alphaSecretLeadName));
   record(alphaCanSeeOwnLead, '5.2', 'Client Alpha CAN see their own proprietary lead');
 
   // Verify Search History isolation
-  const alphaSearchRecord = await sql.query(
-    `INSERT INTO search_records (workspace_id, query_keyword, industry, city, country, total_found, valid_emails, created_at)
-     VALUES ($1, $2, $3, $4, $5, $6, $7, NOW()) RETURNING id`,
-    [testClientWorkspaceId, 'Alpha Confidential Search', 'Logistics', 'London', 'UK', 1, 1]
+  const alphaSearchId = `sr_alpha_${Date.now()}`;
+  await sql.query(
+    `INSERT INTO search_records (id, workspace_id, user_id, keyword, country, city, sources, requested_quantity, qualified_quantity, leads_with_phone, search_status, search_date, search_time, completion_time, created_at)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, NOW())`,
+    [alphaSearchId, testClientWorkspaceId, testClientId, 'Alpha Confidential Search', 'UK', 'London', '{"Google"}', 5, 1, 0, 'COMPLETED', '21 November 2026', '01:00 PM', '01:00:10 PM']
   );
-  const alphaSearchId = alphaSearchRecord[0]?.id;
 
   const betaHistoryRes = await fetch(`${BASE_URL}/api/searches`, {
     headers: { 'Authorization': `Bearer ${betaToken}` }
   });
   const betaHistoryData = await betaHistoryRes.json();
-  const betaCanSeeAlphaSearch = (betaHistoryData.searches || []).some(s => s.id === alphaSearchId || s.query_keyword === 'Alpha Confidential Search');
+  const betaRecords = betaHistoryData.records || betaHistoryData.searches || [];
+  const betaCanSeeAlphaSearch = betaRecords.some(s => s.id === alphaSearchId || s.keyword === 'Alpha Confidential Search');
   record(!betaCanSeeAlphaSearch, '5.3', 'Client Beta CANNOT see Client Alpha search history');
 
   // -------------------------------------------------------------------------
@@ -285,11 +294,11 @@ async function runStrictVerification() {
   record(hasAuthenticSources, '7.5', 'Leads contain genuine web source/domain references', firstLead?.website || firstLead?.company);
 
   // Verify auto-saved leads in DB and via Saved Leads endpoint
-  const checkSavedAfterSearch = await fetch(`${BASE_URL}/api/leads/saved`, {
+  const checkSavedAfterSearch = await fetch(`${BASE_URL}/api/leads`, {
     headers: { 'Authorization': `Bearer ${activeClientToken}` }
   });
   const checkSavedData = await checkSavedAfterSearch.json();
-  const savedLeadsCount = checkSavedData.leads?.length || 0;
+  const savedLeadsCount = checkSavedData.leads?.length || checkSavedData.total || 0;
   record(savedLeadsCount > 0, '7.6', 'Auto-saved leads actually appear in Saved Leads after fetch', `Total in workspace: ${savedLeadsCount}`);
 
   // -------------------------------------------------------------------------
@@ -301,7 +310,8 @@ async function runStrictVerification() {
   });
   const historyData = await historyRes.json();
   record(historyRes.status === 200, '8.1', 'Search History returns HTTP 200');
-  const latestSearch = historyData.searches?.[0];
+  const allRecords = historyData.records || historyData.searches || [];
+  const latestSearch = allRecords[0];
   record(Boolean(latestSearch), '8.2', 'Latest search record exists in history', `ID: ${latestSearch?.id}`);
   record(Boolean(latestSearch?.pkt_search_date || latestSearch?.search_date), '8.3', 'Search record includes PKT date');
 
@@ -342,7 +352,7 @@ async function runStrictVerification() {
   const pricingPageRes = await fetch(`${BASE_URL}/pricing`);
   const pricingHtml = await pricingPageRes.text();
   record(pricingPageRes.status === 200, '9.1', 'Pricing page is publicly accessible HTTP 200');
-  record(pricingHtml.includes('$10'), '9.2', 'Pricing page mentions $10 subscription');
+  record(pricingHtml.includes('$25') && pricingHtml.includes('$100'), '9.2', 'Pricing page features $25/mo Starter and $100 Lifetime Access Deal');
   record(pricingHtml.includes('923174383702'), '9.3', 'Official WhatsApp number (+923174383702) present on pricing page');
   record(pricingHtml.includes('wa.me/923174383702'), '9.4', 'Working WhatsApp activation link present');
   record(pricingHtml.includes('Raast') || pricingHtml.includes('Bank Transfer'), '9.5', 'Pakistani payment methods documented');

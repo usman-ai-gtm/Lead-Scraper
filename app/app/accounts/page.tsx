@@ -33,6 +33,7 @@ interface GmailStatusResponse {
 
 function EmailAccountsContent() {
   const { user } = useAuth();
+  const isLocked = user?.status === "LOCKED" || user?.status === "PENDING";
   const searchParams = useSearchParams();
 
   const [statusData, setStatusData] = useState<GmailStatusResponse | null>(null);
@@ -111,6 +112,11 @@ function EmailAccountsContent() {
   }, [searchParams]);
 
   const handleConnectGmail = async () => {
+    if (isLocked) {
+      setToastType("error");
+      setToastMsg("🔒 Feature Locked: Connecting outreach mailboxes requires an active paid subscription ($25/mo or $100 Lifetime). Contact Owner via WhatsApp (+923174383702).");
+      return;
+    }
     setConnecting(true);
     try {
       const res = await fetch("/api/integrations/gmail/url", {

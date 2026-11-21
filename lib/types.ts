@@ -25,6 +25,11 @@ export interface ClientAccount {
   created_at: string;
   last_login?: string;
   leads_count: number;
+  plan?: string;
+  payment_status?: string;
+  total_leads?: number;
+  total_searches?: number;
+  connected_accounts?: number;
 }
 
 export interface Workspace {

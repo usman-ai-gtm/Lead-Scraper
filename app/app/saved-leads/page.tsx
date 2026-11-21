@@ -64,6 +64,7 @@ function getSavedLeadsAuthHeaders() {
 
 export default function SavedLeadsPage() {
   const { user } = useAuth();
+  const isLocked = user?.status === "LOCKED" || user?.status === "PENDING";
 
   // Tab State: "leads" | "history" | "export_history"
   const [activeTab, setActiveTab] = useState<"leads" | "history" | "export_history">("leads");
@@ -257,6 +258,10 @@ export default function SavedLeadsPage() {
   };
 
   const handleOpenEmailModal = (lead: Lead) => {
+    if (isLocked) {
+      setToastMsg("🔒 Cold Email Outreach Locked: Please activate your account via WhatsApp (+923174383702) for $25/month or $100 Lifetime.");
+      return;
+    }
     setActiveEmailLead(lead);
     setEmailOutreachStatus(lead.crm_stage || "NEW");
     setEmailFollowupDate(lead.next_followup || "");
@@ -451,6 +456,10 @@ export default function SavedLeadsPage() {
     targetType: "all" | "selected" | "single_lead" | "search_record" | "date",
     payload?: { specificLeads?: any[]; searchRecord?: SearchRecord; dateStr?: string }
   ) => {
+    if (isLocked) {
+      setToastMsg("🔒 Exports Locked: Please activate your account via WhatsApp (+923174383702) for $25/month or $100 Lifetime.");
+      return;
+    }
     let leadsToExport: any[] = [];
     let filename = "";
     let exportTargetLabel = "";

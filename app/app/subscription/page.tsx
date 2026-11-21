@@ -21,7 +21,7 @@ export default function SubscriptionPage() {
   });
 
   const WHATSAPP_NUMBER = "+923174383702";
-  const WHATSAPP_LINK = `https://wa.me/923174383702?text=Hello%20Usman%20AI%20GTM,%20I%20want%20to%20activate%20my%20subscription%20($10/mo)%20for%20my%20registered%20email:%20${encodeURIComponent(user?.email || "")}`;
+  const WHATSAPP_LINK = `https://wa.me/923174383702?text=Hello%20Usman%2C%20I%20want%20to%20activate%20my%20subscription%20($25/mo%20or%20$100%20Lifetime)%20for%20my%20registered%20email:%20${encodeURIComponent(user?.email || "")}`;
 
   useEffect(() => {
     async function fetchStats() {
@@ -57,7 +57,7 @@ export default function SubscriptionPage() {
           </div>
           <h1 className="text-2xl font-extrabold text-white">Subscription & Usage</h1>
           <p className="text-xs text-slate-400">
-            Manage your monthly $10 subscription, monitor lead quotas, and verify payment activation status.
+            Manage your subscription ($25/mo or $100 Lifetime), monitor lead quotas, and verify payment activation status.
           </p>
         </div>
 
@@ -86,7 +86,7 @@ export default function SubscriptionPage() {
             <div>
               <div className="flex items-center gap-2 mb-1">
                 <span className="text-xs text-slate-400">Current Plan:</span>
-                <span className="text-sm font-black text-white">$10/month Starter SaaS</span>
+                <span className="text-sm font-black text-white">{isActive ? "Unlocked Paid Plan" : "Preview Mode (Tala / Locked)"}</span>
                 <span className={`text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded border ${
                   isActive
                     ? "text-emerald-400 bg-emerald-500/10 border-emerald-500/20"
@@ -98,7 +98,7 @@ export default function SubscriptionPage() {
               <p className="text-xs text-slate-300">
                 {isActive
                   ? "Your account is fully activated. You have full access to lead discovery, Gemini email assistant, Gmail outreach, and exports."
-                  : "Your account is currently in Preview Mode. To activate your 5,000 monthly lead quota and outreach tools, contact the owner via WhatsApp with your payment confirmation."}
+                  : "All features are currently locked with view-only access. To unlock full lead discovery and cold outreach tools, activate for $25/month or $100 Lifetime Deal via WhatsApp."}
               </p>
             </div>
           </div>
@@ -111,7 +111,7 @@ export default function SubscriptionPage() {
               className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white font-bold text-xs shadow transition-all shrink-0 cursor-pointer"
             >
               <MessageCircle className="h-4 w-4" />
-              <span>Activate Account ($10/mo)</span>
+              <span>Unlock Account ($25/mo or $100 Lifetime)</span>
             </a>
           )}
         </div>
@@ -196,9 +196,9 @@ export default function SubscriptionPage() {
             </div>
           </div>
           <div className="p-3 rounded-xl bg-white/[0.02] border border-white/[0.05]">
-            <div className="font-bold text-white mb-1">Step 2: Transfer $10</div>
+            <div className="font-bold text-white mb-1">Step 2: Choose Plan & Transfer</div>
             <div className="text-slate-400">
-              Pay $10 (approx 2,800 PKR) via Raast, Bank Transfer, JazzCash, or Easypaisa.
+              Pay $25/mo (~7,000 PKR) or $100 Lifetime (~28,000 PKR) via Raast, Bank Transfer, JazzCash, or Easypaisa.
             </div>
           </div>
           <div className="p-3 rounded-xl bg-white/[0.02] border border-white/[0.05]">

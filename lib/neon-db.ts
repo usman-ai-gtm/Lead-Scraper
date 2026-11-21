@@ -893,7 +893,7 @@ export async function getNeonClients() {
         u.created_at,
         u.last_login,
         COALESCE(w.name, u.full_name || '''s Workspace') as workspace_name,
-        'STARTER ($10/mo)' as plan,
+        'STARTER ($25/mo)' as plan,
         CASE 
           WHEN u.status = 'ACTIVE' THEN 'PAID'
           ELSE 'PENDING'

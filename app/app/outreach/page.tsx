@@ -33,6 +33,7 @@ interface OutreachRecord {
 
 function ColdEmailContent() {
   const { user } = useAuth();
+  const isLocked = user?.status === "LOCKED" || user?.status === "PENDING";
 
   // State
   const [leads, setLeads] = useState<LeadItem[]>([]);
@@ -188,6 +189,10 @@ function ColdEmailContent() {
 
   // Generate personalized email draft using Gemini AI
   const handleGeminiDraft = async () => {
+    if (isLocked) {
+      alert("🔒 AI Email Generator Locked: Please activate your account via WhatsApp (+923174383702) for $25/month or $100 Lifetime.");
+      return;
+    }
     const firstSelected = leads.find((l) => selectedLeadIds.includes(l.id)) || leads[0];
     if (!firstSelected) {
       alert("Please select at least one lead from the table to draft personalized outreach.");
@@ -229,6 +234,10 @@ function ColdEmailContent() {
 
   // Send test email to user
   const handleSendTest = async () => {
+    if (isLocked) {
+      alert("🔒 Outreach Sending Locked: Please activate your account via WhatsApp (+923174383702) for $25/month or $100 Lifetime.");
+      return;
+    }
     if (!isGmailConnected) {
       alert("Please connect your Gmail account first in Email Accounts.");
       return;
@@ -271,6 +280,10 @@ function ColdEmailContent() {
 
   // Start sending to selected recipients
   const handleStartSending = async () => {
+    if (isLocked) {
+      alert("🔒 Outreach Sending Locked: Please activate your account via WhatsApp (+923174383702) for $25/month or $100 Lifetime.");
+      return;
+    }
     if (selectedLeadIds.length === 0) {
       alert("Please select at least one recipient lead.");
       return;

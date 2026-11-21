@@ -43,7 +43,7 @@ export async function POST(req: Request) {
       return NextResponse.json(
         {
           status: "error",
-          message: "Account Locked — Subscription Activation Required ($10/month). Contact Owner via WhatsApp (+923174383702) for Instant Activation."
+          message: "Account Locked — Subscription Activation Required ($25/month or $100 Lifetime). Contact Owner via WhatsApp (+923174383702) for Instant Activation."
         },
         { status: 403 }
       );

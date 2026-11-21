@@ -39,9 +39,9 @@ export async function POST(request: Request) {
 
     // Check user in Neon PostgreSQL
     const users = await sql`
-      SELECT id, email, full_name, role, workspace_id, status
+      SELECT id, email, username, full_name, role, workspace_id, status
       FROM users
-      WHERE LOWER(email) = LOWER(${email})
+      WHERE LOWER(email) = LOWER(${email}) OR LOWER(username) = LOWER(${email})
       LIMIT 1
     `;
 
@@ -94,6 +94,9 @@ export async function POST(request: Request) {
       const newUserRes = await sql`
         INSERT INTO users (username, email, full_name, role, workspace_id, status, created_at, tenant_id, password_hash)
         VALUES (${email}, ${email}, ${fullName || email.split("@")[0]}, ${assignedRole}, ${workspaceId}, ${initialStatus}, ${nowIso}, 1, 'GOOGLE_OAUTH_USER')
+        ON CONFLICT (username) DO UPDATE
+          SET email = EXCLUDED.email,
+              full_name = COALESCE(users.full_name, EXCLUDED.full_name)
         RETURNING id, email, full_name, role, workspace_id, status
       `;
       activeUser = newUserRes[0];

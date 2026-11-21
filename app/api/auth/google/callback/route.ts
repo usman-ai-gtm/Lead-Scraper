@@ -77,20 +77,28 @@ export async function GET(request: Request) {
 
     // Check if user exists
     const users = await sql`
-      SELECT id, email, full_name, role, workspace_id, status
+      SELECT id, email, username, full_name, role, workspace_id, status
       FROM users
-      WHERE LOWER(email) = LOWER(${email})
+      WHERE LOWER(email) = LOWER(${email}) OR LOWER(username) = LOWER(${email})
       LIMIT 1
     `;
+
+    const isOwner = [
+      "admin@usmanai.com",
+      "mu0602503@gmail.com",
+      "admin@usmangtm.com",
+      "selftest_founder_2026@usmanai.com",
+      "transaction000001@gmail.com"
+    ].includes(email);
 
     let activeUser: any = null;
 
     if (users && users.length > 0) {
       const u = users[0];
-      // Check suspension
-      if (u.status && u.status.toUpperCase() !== "ACTIVE") {
+      const statusUpper = (u.status || "ACTIVE").toUpperCase();
+      if (statusUpper === "SUSPENDED" || statusUpper === "REVOKED") {
         return NextResponse.redirect(
-          `${origin}/login?error=Your+account+is+suspended+or+inactive.+Please+contact+administrator.`
+          `${origin}/login?error=Your+account+has+been+suspended+or+revoked.+Please+contact+administrator+on+WhatsApp+(%2B923174383702).`
         );
       }
       activeUser = u;
@@ -98,17 +106,34 @@ export async function GET(request: Request) {
       // First-time Google login: Provision brand new, completely empty isolated workspace
       const nowIso = new Date().toISOString();
       const wsName = `${fullName}'s Workspace`;
+      const uniqueWsName = `${wsName} #${Date.now().toString().slice(-4)}`;
 
-      const wsRes = await sql`
-        INSERT INTO workspaces (name, plan, status, max_seats, created_at, updated_at)
-        VALUES (${wsName}, 'STARTER', 'ACTIVE', 1, ${nowIso}, ${nowIso})
-        RETURNING id, name, plan
-      `;
-      const workspaceId = wsRes[0].id;
+      let workspaceId: number;
+      try {
+        const wsRes = await sql`
+          INSERT INTO workspaces (name, created_at, tenant_id, description)
+          VALUES (${uniqueWsName}, ${nowIso}, 1, 'Google OAuth Workspace')
+          RETURNING id, name
+        `;
+        workspaceId = wsRes[0].id;
+      } catch {
+        const wsRes = await sql`
+          INSERT INTO workspaces (name, created_at, tenant_id)
+          VALUES (${`${uniqueWsName}-${Date.now()}`}, ${nowIso}, 1)
+          RETURNING id, name
+        `;
+        workspaceId = wsRes[0].id;
+      }
+
+      const assignedRole = isOwner ? 'ADMIN' : 'CLIENT';
+      const initialStatus = isOwner ? 'ACTIVE' : 'LOCKED';
 
       const newUserRes = await sql`
-        INSERT INTO users (email, full_name, role, workspace_id, status, created_at, updated_at)
-        VALUES (${email}, ${fullName}, 'CLIENT', ${workspaceId}, 'ACTIVE', ${nowIso}, ${nowIso})
+        INSERT INTO users (username, email, full_name, role, workspace_id, status, created_at, tenant_id, password_hash)
+        VALUES (${email}, ${email}, ${fullName}, ${assignedRole}, ${workspaceId}, ${initialStatus}, ${nowIso}, 1, 'GOOGLE_OAUTH_USER')
+        ON CONFLICT (username) DO UPDATE
+          SET email = EXCLUDED.email,
+              full_name = COALESCE(users.full_name, EXCLUDED.full_name)
         RETURNING id, email, full_name, role, workspace_id, status
       `;
       activeUser = newUserRes[0];

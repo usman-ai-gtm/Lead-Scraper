@@ -85,7 +85,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
     { title: "Search History", subtitle: "Reopen past search snapshots organized by PKT date & time", url: "/app/history", badge: "HISTORY" },
     { title: "Email Accounts", subtitle: "Connect your official Gmail account for $0 cold outreach", url: "/app/accounts", badge: "GMAIL" },
     { title: "Cold Email Outreach", subtitle: "Dispatch personalized business emails via Gmail API", url: "/app/outreach", badge: "OUTREACH" },
-    { title: "Usage & Subscription", subtitle: "$10/mo plan status, quotas, and WhatsApp activation", url: "/app/subscription", badge: "BILLING" },
+    { title: "Usage & Subscription", subtitle: "$25/mo or $100 Lifetime status, quotas, and WhatsApp activation", url: "/app/subscription", badge: "BILLING" },
     ...(isAdmin ? [
       { title: "Client Accounts", subtitle: "Manage client workspaces, activation, and usage limits", url: "/app/admin/clients", badge: "ADMIN" },
       { title: "Payments & Verification", subtitle: "Review and approve manual WhatsApp payment requests", url: "/app/admin/payments", badge: "ADMIN" },
@@ -143,23 +143,32 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
             Workspace Tools
           </div>
 
-          {/* Client Nav List (5 Items) */}
+          {/* Client Nav List (8 Items) */}
           <nav className="space-y-1">
             {clientNav.map((item) => {
               const Icon = item.icon;
               const isActive = pathname === item.href;
+              const isLockedUser = user?.status === "LOCKED" || user?.status === "PENDING";
+              const isLockedFeature = isLockedUser && ["/app/leads", "/app/saved-leads", "/app/history", "/app/accounts", "/app/outreach"].includes(item.href);
               return (
                 <Link
                   key={item.href}
                   href={item.href}
-                  className={`flex items-center gap-3 px-3 py-2.5 rounded-xl text-xs font-semibold transition-all ${
+                  className={`flex items-center justify-between px-3 py-2.5 rounded-xl text-xs font-semibold transition-all ${
                     isActive
                       ? "bg-blue-600 text-white shadow-glow-sm font-bold"
                       : "text-slate-400 hover:text-white hover:bg-white/[0.04]"
                   }`}
                 >
-                  <Icon className={`h-4 w-4 ${isActive ? "text-white" : "text-slate-400"}`} />
-                  <span>{item.name}</span>
+                  <div className="flex items-center gap-3">
+                    <Icon className={`h-4 w-4 ${isActive ? "text-white" : "text-slate-400"}`} />
+                    <span>{item.name}</span>
+                  </div>
+                  {isLockedFeature && (
+                    <span className="text-[10px] px-1.5 py-0.5 rounded bg-amber-500/20 text-amber-300 border border-amber-500/40 flex items-center gap-1">
+                      🔒 <span className="text-[9px] font-bold">LOCKED</span>
+                    </span>
+                  )}
                 </Link>
               );
             })}
@@ -299,22 +308,22 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
         </header>
 
         {/* LOCKED ACCOUNT / PREVIEW MODE BANNER */}
-        {user?.status === "LOCKED" && (
-          <div className="bg-gradient-to-r from-amber-500/15 via-orange-500/15 to-amber-500/15 border-b border-amber-500/30 px-4 py-3 sm:px-6 flex flex-col sm:flex-row items-center justify-between gap-3 text-xs">
+        {(user?.status === "LOCKED" || user?.status === "PENDING") && (
+          <div className="bg-gradient-to-r from-amber-500/20 via-orange-500/20 to-amber-500/20 border-b border-amber-500/40 px-4 py-3 sm:px-6 flex flex-col sm:flex-row items-center justify-between gap-3 text-xs">
             <div className="flex items-center gap-2.5 text-amber-200">
-              <AlertCircle className="h-4 w-4 text-amber-400 shrink-0" />
+              <span className="text-base">🔒</span>
               <span>
-                <strong>Account in Preview Mode (Locked):</strong> Paid features (lead search, email dispatch, exports) require subscription activation ($10/month).
+                <strong>Account in Preview Mode (Tala / Locked):</strong> All paid features (lead search, email dispatch, exports) are locked with view-only access. Full access requires paid activation (<strong>$25/month</strong> or <strong>$100 Lifetime Deal</strong>).
               </span>
             </div>
             <a
-              href={`https://wa.me/923174383702?text=Hello%20Usman%20AI%20GTM,%20I%20want%20to%20activate%20my%20subscription%20for%20my%20registered%20email:%20${encodeURIComponent(user?.email || "")}`}
+              href={`https://wa.me/923174383702?text=Hello%20Usman%2C%20I%20want%20to%20activate%20my%20subscription%20(%2425%2Fmo%20or%20%24100%20Lifetime)%20for%20my%20registered%20email:%20${encodeURIComponent(user?.email || "")}`}
               target="_blank"
               rel="noopener noreferrer"
-              className="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs shadow-md transition-all shrink-0 cursor-pointer"
+              className="inline-flex items-center gap-1.5 px-4 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs shadow-md transition-all shrink-0 cursor-pointer"
             >
               <MessageCircle className="h-3.5 w-3.5" />
-              <span>Activate on WhatsApp (+923174383702)</span>
+              <span>Unlock via WhatsApp (+923174383702)</span>
             </a>
           </div>
         )}

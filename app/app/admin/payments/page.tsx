@@ -136,16 +136,16 @@ export default function AdminPaymentsPage() {
             <CheckCircle2 className="h-4 w-4 text-emerald-400" />
           </div>
           <div className="text-2xl font-black text-emerald-400">{paidActive.length} Clients</div>
-          <div className="text-[10px] text-slate-400">$10/month subscription active</div>
+          <div className="text-[10px] text-slate-400">$25/mo or $100 Lifetime active</div>
         </div>
 
         <div className="p-5 rounded-2xl border border-white/[0.08] bg-[#0c1017] space-y-1">
           <div className="text-xs text-slate-400 flex items-center justify-between">
-            <span>Monthly Run-rate</span>
+            <span>Estimated MRR</span>
             <DollarSign className="h-4 w-4 text-blue-400" />
           </div>
-          <div className="text-2xl font-black text-white">${paidActive.length * 10} / mo</div>
-          <div className="text-[10px] text-slate-400">Approx. {(paidActive.length * 2800).toLocaleString()} PKR / mo</div>
+          <div className="text-2xl font-black text-white">${paidActive.length * 25} / mo</div>
+          <div className="text-[10px] text-slate-400">Approx. {(paidActive.length * 7000).toLocaleString()} PKR / mo</div>
         </div>
       </div>
 
@@ -196,7 +196,7 @@ export default function AdminPaymentsPage() {
 
                       <td className="py-3 px-3">
                         <span className="text-[10px] font-bold uppercase tracking-wider text-blue-400 bg-blue-500/10 px-2 py-0.5 rounded border border-blue-500/20">
-                          $10/mo Starter
+                          {c.plan || "$25/mo Starter"}
                         </span>
                       </td>
 
@@ -210,7 +210,7 @@ export default function AdminPaymentsPage() {
                             ? "text-emerald-400 bg-emerald-500/10 border-emerald-500/20"
                             : "text-amber-400 bg-amber-500/10 border-amber-500/20 animate-pulse"
                         }`}>
-                          {isActive ? "PAID ($10/mo)" : "PENDING VERIFICATION"}
+                          {isActive ? "PAID (ACTIVE)" : "PENDING VERIFICATION"}
                         </span>
                       </td>
 
