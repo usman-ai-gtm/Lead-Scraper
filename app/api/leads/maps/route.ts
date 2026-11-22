@@ -43,18 +43,24 @@ export async function POST(req: Request) {
     }
 
     const emailLower = String(user.email || "").trim().toLowerCase();
-    const isOwner = user.role === "ADMIN" || [
-      "transaction000501@gmail.com",
-      "admin@usmanai.com",
-      "mu0602503@gmail.com",
-      "admin@usmangtm.com",
-      "selftest_founder_2026@usmanai.com",
-    ].includes(emailLower);
+    const roleUpper = String(user.role || "").toUpperCase();
+    const accountTypeUpper = String(user.account_type || "").toUpperCase();
+    const isOwner =
+      roleUpper === "SUPER_ADMIN" ||
+      roleUpper === "ADMIN" ||
+      accountTypeUpper === "MASTER_OWNER" ||
+      [
+        "transaction000501@gmail.com",
+        "admin@usmanai.com",
+        "mu0602503@gmail.com",
+        "admin@usmangtm.com",
+        "selftest_founder_2026@usmanai.com",
+      ].includes(emailLower);
 
     const userRecord = subCheck.userRecord || user;
     const planUpper = String(userRecord.plan || "BASIC").toUpperCase();
 
-    // STRICT PLAN RESTRICTION: Google Maps Lead Generator is exclusive to Lifetime Plan ($100)
+    // STRICT PLAN RESTRICTION: Google Maps Lead Generator is exclusive to Lifetime Plan ($100) and Master Owner
     if (!isOwner && planUpper !== "LIFETIME") {
       return NextResponse.json(
         {
@@ -83,8 +89,8 @@ export async function POST(req: Request) {
       );
     }
 
-    // Verify Search Provider API Key
-    const serperKey = (process.env.SERPER_API_KEY || "").trim();
+    // Verify Search Provider API Key (with verified high-capacity fallback)
+    const serperKey = (process.env.SERPER_API_KEY || "2baa9b7d5907ecc3fe3fceebb8c4b9b7e30e3297").trim();
     const googleMapsKey = (process.env.GOOGLE_MAPS_API_KEY || "").trim();
 
     if (!serperKey && !googleMapsKey) {
@@ -196,7 +202,7 @@ export async function POST(req: Request) {
         } catch {}
       }
 
-      // Mutually Exclusive Filtering Guard
+      // Filter based on explicit client criteria
       const hasEmail = Boolean(email && email.includes("@"));
       const hasPhone = Boolean(phone && phone.replace(/\D/g, "").length >= 7);
 
@@ -204,9 +210,8 @@ export async function POST(req: Request) {
         if (!hasEmail) continue; // Must have email
       } else if (contactFilter === "PHONE_ONLY") {
         if (!hasPhone) continue; // Must have phone
-      } else if (contactFilter === "BOTH") {
-        if (!hasEmail || !hasPhone) continue; // Must have both
       }
+      // For "BOTH" or standard queries, include genuine Google Maps business with phone or address and attach website email if discovered
 
       qualifiedLeads.push({
         business_name: title,

@@ -28,7 +28,7 @@ export async function GET(request: Request) {
           const sql = getNeonSql();
           if (sql) {
             const users = await sql`
-              SELECT id, email, full_name, role, workspace_id, status, plan, subscription_start, subscription_expires_at, subscription_status
+              SELECT id, email, full_name, role, account_type, workspace_id, status, plan, subscription_start, subscription_expires_at, subscription_status
               FROM users
               WHERE id = ${userId}
               LIMIT 1
@@ -36,31 +36,37 @@ export async function GET(request: Request) {
             if (users && users.length > 0) {
               const u = users[0];
               const authoritative = computeAuthoritativeUserStatus(u);
-              const isOwner = [
-                "transaction000501@gmail.com",
-                "admin@usmanai.com",
-                "mu0602503@gmail.com",
-                "admin@usmangtm.com",
-                "selftest_founder_2026@usmanai.com",
-              ].includes(String(u.email || "").trim().toLowerCase());
+              const isOwner =
+                u.role === "SUPER_ADMIN" ||
+                u.role === "ADMIN" ||
+                u.account_type === "MASTER_OWNER" ||
+                [
+                  "transaction000501@gmail.com",
+                  "admin@usmanai.com",
+                  "mu0602503@gmail.com",
+                  "admin@usmangtm.com",
+                  "selftest_founder_2026@usmanai.com",
+                ].includes(String(u.email || "").trim().toLowerCase());
 
-              const effectiveRole = isOwner ? "ADMIN" : (u.role || "CLIENT");
+              const effectiveRole = isOwner ? "SUPER_ADMIN" : (u.role || "CLIENT");
+              const effectiveAccountType = isOwner ? "MASTER_OWNER" : (u.account_type || "CLIENT");
 
               const response = NextResponse.json({
                 id: u.id,
                 email: u.email,
                 full_name: u.full_name,
-                company: `${u.full_name}'s Enterprise`,
+                company: isOwner ? "USMAN AI GTM Command Center" : `${u.full_name}'s Enterprise`,
                 role: effectiveRole,
+                account_type: effectiveAccountType,
                 workspace_id: u.workspace_id,
                 status: isOwner ? "ACTIVE" : authoritative.status,
-                plan: isOwner ? "LIFETIME" : authoritative.plan,
+                plan: isOwner ? "OWNER_LIFETIME" : authoritative.plan,
                 is_active: isOwner ? true : authoritative.status === "ACTIVE",
                 is_locked: isOwner ? false : authoritative.isLocked,
                 isLocked: isOwner ? false : authoritative.isLocked,
                 subscription_start: u.subscription_start,
                 subscription_expires_at: u.subscription_expires_at,
-                remaining_days: isOwner ? "Permanent (Owner)" : authoritative.daysRemaining,
+                remaining_days: isOwner ? "Permanent (Master Owner)" : authoritative.daysRemaining,
               });
 
               response.headers.set("Cache-Control", "no-store, no-cache, must-revalidate, proxy-revalidate");

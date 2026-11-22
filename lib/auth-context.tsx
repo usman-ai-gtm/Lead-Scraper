@@ -111,18 +111,24 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   }, [user?.id]);
 
   const emailLower = String(user?.email || "").trim().toLowerCase();
-  const isOwner = [
-    "transaction000501@gmail.com",
-    "admin@usmanai.com",
-    "mu0602503@gmail.com",
-    "admin@usmangtm.com",
-    "selftest_founder_2026@usmanai.com",
-  ].includes(emailLower);
+  const isOwner =
+    user?.role === "SUPER_ADMIN" ||
+    user?.role === "ADMIN" ||
+    (user as any)?.account_type === "MASTER_OWNER" ||
+    [
+      "transaction000501@gmail.com",
+      "admin@usmanai.com",
+      "mu0602503@gmail.com",
+      "admin@usmangtm.com",
+      "selftest_founder_2026@usmanai.com",
+    ].includes(emailLower);
 
   const isLocked = Boolean(
     user &&
     !isOwner &&
     user.role !== "ADMIN" &&
+    user.role !== "SUPER_ADMIN" &&
+    (user as any)?.account_type !== "MASTER_OWNER" &&
     (user.status !== "ACTIVE" || user.is_active === false || user.isLocked === true)
   );
 

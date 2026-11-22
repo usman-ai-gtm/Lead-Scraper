@@ -73,7 +73,7 @@ export async function POST(req: Request) {
     const country = (rawCountry === "ALL COUNTRIES" || rawCountry === "All Countries" || !rawCountry) ? "" : rawCountry;
     const city = (rawCity === "ALL_CITIES" || rawCity === "All Cities") ? "" : rawCity;
 
-    const serperKey = process.env.SERPER_API_KEY || "";
+    const serperKey = process.env.SERPER_API_KEY || "2baa9b7d5907ecc3fe3fceebb8c4b9b7e30e3297";
     if (!serperKey || serperKey.startsWith("your_")) {
       return NextResponse.json(
         {

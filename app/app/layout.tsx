@@ -36,6 +36,8 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
   const emailLower = String(user?.email || "").trim().toLowerCase();
   const isAdmin =
     user?.role === "ADMIN" ||
+    user?.role === "SUPER_ADMIN" ||
+    (user as any)?.account_type === "MASTER_OWNER" ||
     [
       "transaction000501@gmail.com",
       "admin@usmanai.com",

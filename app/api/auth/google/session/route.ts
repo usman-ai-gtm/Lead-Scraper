@@ -88,23 +88,26 @@ export async function POST(request: Request) {
         workspaceId = wsRes[0].id;
       }
 
-      const assignedRole = isOwner ? 'ADMIN' : 'CLIENT';
+      const assignedRole = isOwner ? 'SUPER_ADMIN' : 'CLIENT';
+      const assignedAccountType = isOwner ? 'MASTER_OWNER' : 'CLIENT';
       const initialStatus = isOwner ? 'ACTIVE' : 'LOCKED';
+      const initialSubStatus = isOwner ? 'PERMANENT' : 'PENDING_APPROVAL';
+      const initialPlan = isOwner ? 'OWNER_LIFETIME' : 'BASIC';
 
       try {
         const newUserRes = await sql`
-          INSERT INTO users (username, email, full_name, role, workspace_id, status, created_at, tenant_id, password_hash, active, is_active, plan)
-          VALUES (${email}, ${email}, ${fullName || email.split("@")[0]}, ${assignedRole}, ${workspaceId}, ${initialStatus}, ${nowIso}, 1, 'GOOGLE_OAUTH_USER', ${isOwner ? 1 : 0}, ${isOwner ? 1 : 0}, ${isOwner ? 'LIFETIME' : 'BASIC'})
+          INSERT INTO users (username, email, full_name, role, account_type, workspace_id, status, subscription_status, created_at, tenant_id, password_hash, active, is_active, plan)
+          VALUES (${email}, ${email}, ${fullName || email.split("@")[0]}, ${assignedRole}, ${assignedAccountType}, ${workspaceId}, ${initialStatus}, ${initialSubStatus}, ${nowIso}, 1, 'GOOGLE_OAUTH_USER', ${isOwner ? 1 : 0}, ${isOwner ? 1 : 0}, ${initialPlan})
           ON CONFLICT (username) DO UPDATE
             SET email = EXCLUDED.email,
                 full_name = COALESCE(users.full_name, EXCLUDED.full_name)
-          RETURNING id, email, full_name, role, workspace_id, status, plan, active, is_active
+          RETURNING id, email, full_name, role, account_type, workspace_id, status, plan, active, is_active
         `;
         activeUser = newUserRes[0];
       } catch (insertErr) {
         console.warn("[Google Session] Insert conflict handled, fetching existing user:", insertErr);
         const fallbackUsers = await sql`
-          SELECT id, email, username, full_name, role, workspace_id, status, plan, active, is_active
+          SELECT id, email, username, full_name, role, account_type, workspace_id, status, plan, active, is_active
           FROM users
           WHERE TRIM(LOWER(email)) = TRIM(LOWER(${email})) OR TRIM(LOWER(username)) = TRIM(LOWER(${email}))
           LIMIT 1
@@ -114,9 +117,9 @@ export async function POST(request: Request) {
         } else {
           const safeUsername = `${email.split('@')[0]}_${Date.now()}@google.user`;
           const safeInsert = await sql`
-            INSERT INTO users (username, email, full_name, role, workspace_id, status, created_at, tenant_id, password_hash, active, is_active, plan)
-            VALUES (${safeUsername}, ${email}, ${fullName || email.split("@")[0]}, ${assignedRole}, ${workspaceId}, ${initialStatus}, ${nowIso}, 1, 'GOOGLE_OAUTH_USER', ${isOwner ? 1 : 0}, ${isOwner ? 1 : 0}, ${isOwner ? 'LIFETIME' : 'BASIC'})
-            RETURNING id, email, full_name, role, workspace_id, status, plan, active, is_active
+            INSERT INTO users (username, email, full_name, role, account_type, workspace_id, status, subscription_status, created_at, tenant_id, password_hash, active, is_active, plan)
+            VALUES (${safeUsername}, ${email}, ${fullName || email.split("@")[0]}, ${assignedRole}, ${assignedAccountType}, ${workspaceId}, ${initialStatus}, ${initialSubStatus}, ${nowIso}, 1, 'GOOGLE_OAUTH_USER', ${isOwner ? 1 : 0}, ${isOwner ? 1 : 0}, ${initialPlan})
+            RETURNING id, email, full_name, role, account_type, workspace_id, status, plan, active, is_active
           `;
           activeUser = safeInsert[0];
         }

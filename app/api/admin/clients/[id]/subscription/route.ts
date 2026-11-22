@@ -33,12 +33,12 @@ export async function POST(req: Request, { params }: RouteParams) {
     const sql = getNeonSql();
     if (!sql) return NextResponse.json({ detail: "DB connection failed" }, { status: 503 });
 
-    // Fetch current client (strict RBAC: cannot modify admin accounts)
+    // Fetch current client (strict RBAC: cannot modify admin or Master Owner accounts)
     const existing = await sql`
-      SELECT id, email, full_name, role, status, plan, active, is_active,
+      SELECT id, email, full_name, role, account_type, status, plan, active, is_active,
              subscription_start, subscription_expires_at, subscription_status
       FROM users
-      WHERE id = ${clientId} AND role != 'ADMIN'
+      WHERE id = ${clientId} AND role != 'ADMIN' AND role != 'SUPER_ADMIN' AND (account_type IS NULL OR account_type != 'MASTER_OWNER')
       LIMIT 1
     `;
 
@@ -90,7 +90,8 @@ export async function POST(req: Request, { params }: RouteParams) {
         break;
       }
 
-      case "EXTEND_30": {
+      case "EXTEND_30":
+      case "RENEW": {
         // If current expiry is in the future, add 30 days to it. Otherwise add 30 days from now.
         const currentExp = client.subscription_expires_at ? new Date(client.subscription_expires_at) : new Date();
         const baseTime = currentExp.getTime() > Date.now() ? currentExp : new Date();
@@ -134,6 +135,28 @@ export async function POST(req: Request, { params }: RouteParams) {
         break;
       }
 
+      case "CHANGE_SUBSCRIPTION": {
+        const targetPlan = String(body.plan || "BASIC").toUpperCase();
+        const isLifetimeTarget = targetPlan === "LIFETIME";
+        const newExpiry = isLifetimeTarget ? null : new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString();
+        updated = await sql`
+          UPDATE users
+          SET status = 'ACTIVE',
+              active = 1,
+              is_active = 1,
+              plan = ${targetPlan},
+              subscription_status = 'ACTIVE',
+              subscription_start = NOW(),
+              subscription_expires_at = ${newExpiry},
+              subscription_notes = COALESCE(${notes}, subscription_notes),
+              updated_at = NOW()
+          WHERE id = ${clientId}
+          RETURNING id, email, full_name, role, status, plan, active, is_active,
+                    subscription_start, subscription_expires_at, subscription_status
+        `;
+        break;
+      }
+
       case "LOCK": {
         // Lock: instant server-side revocation of active access
         updated = await sql`
@@ -151,8 +174,9 @@ export async function POST(req: Request, { params }: RouteParams) {
         break;
       }
 
-      case "UNLOCK": {
-        // Unlock: restore active access
+      case "UNLOCK":
+      case "RESTORE": {
+        // Unlock / Restore: restore active access
         const isLifetime = (client.plan || "").toUpperCase() === "LIFETIME";
         const isPastOrNull = !client.subscription_expires_at || new Date(client.subscription_expires_at).getTime() <= Date.now();
 

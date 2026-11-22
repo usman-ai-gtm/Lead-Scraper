@@ -814,7 +814,8 @@ export function getServerlessExportHistory(workspaceId: number): ServerlessExpor
   return serverlessExportHistoryStore.filter((e) => e.workspace_id === workspaceId);
 }
 
-export const PRIMARY_OWNER_EMAIL = "transaction000501@gmail.com";
+export const MASTER_OWNER_EMAIL = (process.env.MASTER_OWNER_EMAIL || "transaction000501@gmail.com").trim().toLowerCase();
+export const PRIMARY_OWNER_EMAIL = MASTER_OWNER_EMAIL;
 
 export const AUTHORIZED_OWNER_EMAILS = [
   "transaction000501@gmail.com",
@@ -827,7 +828,15 @@ export const AUTHORIZED_OWNER_EMAILS = [
 export function isAuthorizedOwner(user: any): boolean {
   if (!user) return false;
   const emailLower = String(user.email || user.username || "").trim().toLowerCase();
-  return user.role === "ADMIN" || AUTHORIZED_OWNER_EMAILS.includes(emailLower);
+  const roleUpper = String(user.role || "").toUpperCase();
+  const accountTypeUpper = String(user.account_type || "").toUpperCase();
+  return (
+    roleUpper === "SUPER_ADMIN" ||
+    roleUpper === "ADMIN" ||
+    accountTypeUpper === "MASTER_OWNER" ||
+    emailLower === MASTER_OWNER_EMAIL ||
+    AUTHORIZED_OWNER_EMAILS.includes(emailLower)
+  );
 }
 
 /**

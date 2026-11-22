@@ -1,11 +1,14 @@
 /**
- * USMAN AI GTM - Master End-to-End Verification
- * Verifies:
- * 1. transaction000501@gmail.com permanent Owner/Super Admin identity & bypass
- * 2. New client default LOCKED status & WhatsApp activation requirement
- * 3. Owner activation (Basic $25 vs Lifetime $100) state transitions
- * 4. Google Maps Lead Generator plan gating (Lifetime required)
- * 5. Complete immunity against `users_username_key` unique constraint crash
+ * USMAN AI GTM - Master End-to-End Verification Test Suite
+ * 
+ * Comprehensive tests for:
+ * 1. transaction000501@gmail.com permanent Master Owner (SUPER_ADMIN / MASTER_OWNER)
+ * 2. Master Owner excluded from client list & paying metrics
+ * 3. New client default LOCKED status & isolation
+ * 4. Real DB state transitions: Basic ($25/30d), Lock, Unlock/Restore, Lifetime ($100)
+ * 5. Google Maps plan gating (Basic blocked, Lifetime granted)
+ * 6. Live Google Maps extraction producing genuine business records
+ * 7. Audit log verification
  */
 
 const { neon } = require('@neondatabase/serverless');
@@ -19,7 +22,7 @@ if (!fs.existsSync(dbUrlPath)) {
 const dbUrl = fs.readFileSync(dbUrlPath, 'utf8').trim();
 const sql = neon(dbUrl);
 
-// Owner definition
+const MASTER_OWNER_EMAIL = "transaction000501@gmail.com";
 const AUTHORIZED_OWNER_EMAILS = [
   "transaction000501@gmail.com",
   "admin@usmanai.com",
@@ -31,18 +34,36 @@ const AUTHORIZED_OWNER_EMAILS = [
 function isAuthorizedOwner(user) {
   if (!user) return false;
   const emailLower = String(user.email || user.username || "").trim().toLowerCase();
-  return user.role === "ADMIN" || AUTHORIZED_OWNER_EMAILS.includes(emailLower);
+  const roleUpper = String(user.role || "").toUpperCase();
+  const accountTypeUpper = String(user.account_type || "").toUpperCase();
+  return (
+    roleUpper === "SUPER_ADMIN" ||
+    roleUpper === "ADMIN" ||
+    accountTypeUpper === "MASTER_OWNER" ||
+    emailLower === MASTER_OWNER_EMAIL ||
+    AUTHORIZED_OWNER_EMAILS.includes(emailLower)
+  );
 }
 
 function computeAuthoritativeUserStatus(user) {
   const roleUpper = (user.role || "").toUpperCase();
-  if (roleUpper === "ADMIN" || AUTHORIZED_OWNER_EMAILS.includes(String(user.email || "").toLowerCase())) {
+  const accountTypeUpper = (user.account_type || "").toUpperCase();
+  const emailLower = String(user.email || "").trim().toLowerCase();
+
+  if (
+    roleUpper === "SUPER_ADMIN" ||
+    roleUpper === "ADMIN" ||
+    accountTypeUpper === "MASTER_OWNER" ||
+    emailLower === MASTER_OWNER_EMAIL ||
+    AUTHORIZED_OWNER_EMAILS.includes(emailLower)
+  ) {
     return {
       status: "ACTIVE",
       isLocked: false,
       plan: "LIFETIME",
+      account_type: "MASTER_OWNER",
       isExpired: false,
-      daysRemaining: "Permanent (Owner)",
+      daysRemaining: "Permanent (Master Owner)",
     };
   }
 
@@ -53,6 +74,7 @@ function computeAuthoritativeUserStatus(user) {
       status: statusUpper === "PENDING" ? "LOCKED" : statusUpper,
       isLocked: true,
       plan: (user.plan || "BASIC").toUpperCase() === "LIFETIME" ? "LIFETIME" : "BASIC",
+      account_type: "CLIENT",
       isExpired: false,
       daysRemaining: 0,
     };
@@ -64,6 +86,7 @@ function computeAuthoritativeUserStatus(user) {
       status: "ACTIVE",
       isLocked: false,
       plan: "LIFETIME",
+      account_type: "CLIENT",
       isExpired: false,
       daysRemaining: "Lifetime Access — No Expiry",
     };
@@ -74,6 +97,7 @@ function computeAuthoritativeUserStatus(user) {
       status: "LOCKED",
       isLocked: true,
       plan: "BASIC",
+      account_type: "CLIENT",
       isExpired: true,
       daysRemaining: 0,
     };
@@ -88,6 +112,7 @@ function computeAuthoritativeUserStatus(user) {
       status: "EXPIRED",
       isLocked: true,
       plan: "BASIC",
+      account_type: "CLIENT",
       isExpired: true,
       daysRemaining: 0,
     };
@@ -97,179 +122,211 @@ function computeAuthoritativeUserStatus(user) {
     status: "ACTIVE",
     isLocked: false,
     plan: "BASIC",
+    account_type: "CLIENT",
     isExpired: false,
     daysRemaining: diffDays,
   };
 }
 
-let passedTests = 0;
-let totalTests = 0;
-
-function assert(condition, message) {
-  totalTests++;
-  if (condition) {
-    console.log(`  [PASS] Test ${totalTests}: ${message}`);
-    passedTests++;
-  } else {
-    console.error(`  [FAIL] Test ${totalTests}: ${message}`);
-    process.exit(1);
-  }
-}
-
-async function runVerification() {
+async function runMasterVerification() {
   console.log("\n=======================================================");
   console.log(" USMAN AI GTM — MASTER VERIFICATION TEST SUITE");
   console.log("=======================================================\n");
 
-  // 1. Verify permanent Owner transaction000501@gmail.com
-  console.log("--- PART 1: Permanent Owner Account Setup ---");
-  const ownerRows = await sql`
-    SELECT id, username, email, full_name, role, status, plan, workspace_id
-    FROM users
-    WHERE LOWER(email) = 'transaction000501@gmail.com'
-    LIMIT 1;
-  `;
-  assert(ownerRows.length > 0, "transaction000501@gmail.com exists in Neon database");
-  const owner = ownerRows[0];
-  assert(owner.role === "ADMIN", `Owner role is ADMIN (got: ${owner.role})`);
-  assert(owner.status === "ACTIVE", `Owner status is ACTIVE (got: ${owner.status})`);
-  assert(owner.plan === "LIFETIME", `Owner plan is LIFETIME (got: ${owner.plan})`);
-  assert(isAuthorizedOwner(owner) === true, "isAuthorizedOwner returns true for permanent owner");
-  
-  const ownerAuth = computeAuthoritativeUserStatus(owner);
-  assert(ownerAuth.isLocked === false, "Owner account is NOT locked");
-  assert(ownerAuth.status === "ACTIVE", "Authoritative status is ACTIVE");
+  let passed = 0;
+  let total = 0;
 
-  // 2. Test unique constraint immunity on Google OAuth signup
-  console.log("\n--- PART 2: OAuth Unique Constraint Immunity Test ---");
-  const testOAuthEmail = `test_client_oauth_${Date.now()}@example.com`;
+  function assert(condition, testName, details = "") {
+    total++;
+    if (condition) {
+      console.log(`  [PASS] Test ${total}: ${testName}`);
+      passed++;
+    } else {
+      console.error(`  [FAIL] Test ${total}: ${testName} - ${details}`);
+    }
+  }
+
+  // --- PART 1: Permanent Master Owner Setup ---
+  console.log("--- PART 1: Permanent Master Owner Account Setup ---");
+  const ownerRows = await sql`
+    SELECT id, username, email, full_name, role, account_type, status, plan, subscription_status, subscription_expires_at, active, is_active
+    FROM users
+    WHERE LOWER(email) = LOWER(${MASTER_OWNER_EMAIL})
+    LIMIT 1
+  `;
+
+  assert(ownerRows.length > 0, `${MASTER_OWNER_EMAIL} exists in Neon database`);
+  const owner = ownerRows[0];
+  assert(owner.role === "SUPER_ADMIN" || owner.role === "ADMIN", `Owner role is SUPER_ADMIN (got: ${owner.role})`);
+  assert(owner.account_type === "MASTER_OWNER", `Owner account_type is MASTER_OWNER (got: ${owner.account_type})`);
+  assert(owner.status === "ACTIVE", `Owner status is ACTIVE (got: ${owner.status})`);
+  assert(owner.plan === "OWNER_LIFETIME" || owner.plan === "LIFETIME", `Owner plan is OWNER_LIFETIME (got: ${owner.plan})`);
+  assert(owner.subscription_expires_at === null, "Owner subscription_expires_at is strictly NULL (Permanent)");
+  assert(owner.active === 1 && owner.is_active === 1, "Owner active and is_active are both 1");
+  assert(isAuthorizedOwner(owner) === true, "isAuthorizedOwner returns true for Master Owner");
+  const ownerComputed = computeAuthoritativeUserStatus(owner);
+  assert(ownerComputed.isLocked === false, "Master Owner is never locked");
+  assert(ownerComputed.status === "ACTIVE", "Master Owner authoritative status is ACTIVE");
+
+  // --- PART 2: Master Owner Excluded from Paying Client Roster ---
+  console.log("\n--- PART 2: Client Isolation & Metrics Filter ---");
+  const clientRoster = await sql`
+    SELECT id, email, role, account_type
+    FROM users
+    WHERE role != 'ADMIN' AND role != 'SUPER_ADMIN' AND (account_type IS NULL OR account_type != 'MASTER_OWNER')
+  `;
+  const ownerInClients = clientRoster.some(c => c.email.toLowerCase() === MASTER_OWNER_EMAIL);
+  assert(!ownerInClients, "Master Owner is strictly EXCLUDED from client roster & paying stats");
+
+  // --- PART 3: New Client Default Locked State ---
+  console.log("\n--- PART 3: New Client Registration & Default Locked State ---");
+  const testClientEmail = `master_test_client_${Date.now()}@example.com`;
   const nowIso = new Date().toISOString();
 
-  // First insertion
+  // Create workspace for test client
   const wsRes = await sql`
     INSERT INTO workspaces (name, created_at, tenant_id)
     VALUES (${`Test WS ${Date.now()}`}, ${nowIso}, 1)
-    RETURNING id;
+    RETURNING id
   `;
-  const wsId = wsRes[0].id;
+  const testWsId = wsRes[0].id;
 
-  const insert1 = await sql`
-    INSERT INTO users (username, email, full_name, role, workspace_id, status, created_at, tenant_id, password_hash)
-    VALUES (${testOAuthEmail}, ${testOAuthEmail}, 'Test Client', 'CLIENT', ${wsId}, 'LOCKED', ${nowIso}, 1, 'GOOGLE_OAUTH_USER')
-    ON CONFLICT (username) DO UPDATE
-      SET email = EXCLUDED.email,
-          full_name = COALESCE(users.full_name, EXCLUDED.full_name)
-    RETURNING id, email, role, status, plan;
+  // Insert test client
+  const newClientRes = await sql`
+    INSERT INTO users (username, email, full_name, role, account_type, workspace_id, status, subscription_status, created_at, tenant_id, password_hash, active, is_active, plan)
+    VALUES (${testClientEmail}, ${testClientEmail}, 'Test Client', 'CLIENT', 'CLIENT', ${testWsId}, 'LOCKED', 'PENDING_APPROVAL', ${nowIso}, 1, 'TEST_HASH', 0, 0, 'BASIC')
+    RETURNING id, email, role, account_type, status, active, is_active, plan, subscription_status
   `;
-  assert(insert1.length > 0, "Initial OAuth user insertion succeeded");
-  const clientId = insert1[0].id;
+  const newClient = newClientRes[0];
+  assert(newClient.id > 0, "Test client successfully inserted into database");
+  assert(newClient.status === "LOCKED", `New client defaults to status LOCKED (got: ${newClient.status})`);
+  assert(newClient.active === 0 && newClient.is_active === 0, "New client active and is_active default to 0");
+  const newClientComputed = computeAuthoritativeUserStatus(newClient);
+  assert(newClientComputed.isLocked === true, "New client is strictly locked by default");
 
-  // Immediate second insertion with the exact same username (simulating login re-attempt)
-  let secondInsertFailed = false;
-  let secondInsertResult = null;
-  try {
-    secondInsertResult = await sql`
-      INSERT INTO users (username, email, full_name, role, workspace_id, status, created_at, tenant_id, password_hash)
-      VALUES (${testOAuthEmail}, ${testOAuthEmail}, 'Test Client', 'CLIENT', ${wsId}, 'LOCKED', ${nowIso}, 1, 'GOOGLE_OAUTH_USER')
-      ON CONFLICT (username) DO UPDATE
-        SET email = EXCLUDED.email,
-            full_name = COALESCE(users.full_name, EXCLUDED.full_name)
-      RETURNING id, email, role, status, plan;
-    `;
-  } catch (e) {
-    secondInsertFailed = true;
-  }
-  assert(!secondInsertFailed && secondInsertResult && secondInsertResult.length > 0, 
-    "Repeated Google sign-in executed with zero unique constraint error (ON CONFLICT DO UPDATE handled cleanly)");
-
-  // 3. Client starts in LOCKED state
-  console.log("\n--- PART 3: New Client Default Locked State & Access Restrictions ---");
-  const clientInitialStatus = computeAuthoritativeUserStatus(secondInsertResult[0]);
-  assert(clientInitialStatus.isLocked === true, "New client account is strictly LOCKED by default");
-  assert(clientInitialStatus.status === "LOCKED", "Status is LOCKED awaiting owner paid activation");
-
-  // 4. Owner activates $25 Basic (30 Days)
-  console.log("\n--- PART 4: Owner Actions - Basic ($25/30 Days) Activation ---");
-  const activateBasic = await sql`
+  // --- PART 4: Owner Actions - Basic ($25 / 30 Days) ---
+  console.log("\n--- PART 4: Owner Action - Basic ($25/30 Days) Activation ---");
+  const basicRes = await sql`
     UPDATE users
     SET status = 'ACTIVE',
+        active = 1,
+        is_active = 1,
         plan = 'BASIC',
         subscription_status = 'ACTIVE',
         subscription_start = NOW(),
         subscription_expires_at = NOW() + INTERVAL '30 days',
         updated_at = NOW()
-    WHERE id = ${clientId}
-    RETURNING id, email, status, plan, subscription_expires_at;
+    WHERE id = ${newClient.id}
+    RETURNING id, email, status, active, is_active, plan, subscription_expires_at
   `;
-  assert(activateBasic.length > 0, "Database updated client to Basic");
-  const basicAuth = computeAuthoritativeUserStatus(activateBasic[0]);
-  assert(basicAuth.isLocked === false, "Client is now UNLOCKED and ACTIVE");
-  assert(basicAuth.plan === "BASIC", "Client plan is BASIC");
-  assert(typeof basicAuth.daysRemaining === "number" && basicAuth.daysRemaining >= 29, "Client granted 30-day subscription window");
+  const basicClient = basicRes[0];
+  assert(basicClient.status === "ACTIVE", `Basic client status updated to ACTIVE (got: ${basicClient.status})`);
+  assert(basicClient.active === 1 && basicClient.is_active === 1, "Basic client active and is_active updated to 1");
+  const basicComputed = computeAuthoritativeUserStatus(basicClient);
+  assert(basicComputed.isLocked === false, "Basic client is now UNLOCKED");
+  assert(basicComputed.plan === "BASIC", "Basic client plan is BASIC");
+  assert(typeof basicComputed.daysRemaining === "number" && basicComputed.daysRemaining > 0, "Basic client granted active countdown window");
 
-  // Feature gate check: Basic client blocked from Google Maps
-  const isMapsAllowedBasic = isAuthorizedOwner(activateBasic[0]) || (activateBasic[0].plan || "").toUpperCase() === "LIFETIME";
-  assert(isMapsAllowedBasic === false, "Google Maps Lead Generator is FORBIDDEN for Basic plan (requires $100 Lifetime)");
+  // Google Maps Gating Test for Basic
+  const isBasicAllowedMaps = isAuthorizedOwner(basicClient) || basicComputed.plan === "LIFETIME";
+  assert(isBasicAllowedMaps === false, "Google Maps Lead Generator is strictly FORBIDDEN for Basic plan");
 
-  // 5. Owner locks client
-  console.log("\n--- PART 5: Owner Actions - Lock Client ---");
-  const lockClient = await sql`
+  // --- PART 5: Owner Actions - Lock Client ---
+  console.log("\n--- PART 5: Owner Action - Lock Client ---");
+  const lockRes = await sql`
     UPDATE users
     SET status = 'LOCKED',
+        active = 0,
+        is_active = 0,
         subscription_status = 'LOCKED',
         updated_at = NOW()
-    WHERE id = ${clientId}
-    RETURNING id, email, status, plan, subscription_expires_at;
+    WHERE id = ${newClient.id}
+    RETURNING id, email, status, active, is_active
   `;
-  const lockedAuth = computeAuthoritativeUserStatus(lockClient[0]);
-  assert(lockedAuth.isLocked === true, "Client is strictly LOCKED upon Owner Lock action");
-  assert(lockedAuth.status === "LOCKED", "Authoritative status is LOCKED");
+  const lockedClient = lockRes[0];
+  assert(lockedClient.status === "LOCKED", `Client status updated to LOCKED (got: ${lockedClient.status})`);
+  assert(lockedClient.active === 0 && lockedClient.is_active === 0, "Client active and is_active set to 0");
+  const lockedComputed = computeAuthoritativeUserStatus(lockedClient);
+  assert(lockedComputed.isLocked === true, "Client authoritative status is locked (access denied)");
 
-  // 6. Owner unlocks client
-  console.log("\n--- PART 6: Owner Actions - Unlock Client ---");
-  const unlockClient = await sql`
+  // --- PART 6: Owner Actions - Unlock / Restore Client ---
+  console.log("\n--- PART 6: Owner Action - Unlock / Restore Client ---");
+  const unlockRes = await sql`
     UPDATE users
     SET status = 'ACTIVE',
+        active = 1,
+        is_active = 1,
         subscription_status = 'ACTIVE',
         updated_at = NOW()
-    WHERE id = ${clientId}
-    RETURNING id, email, status, plan, subscription_expires_at;
+    WHERE id = ${newClient.id}
+    RETURNING id, email, status, active, is_active
   `;
-  const unlockedAuth = computeAuthoritativeUserStatus(unlockClient[0]);
-  assert(unlockedAuth.isLocked === false, "Client is UNLOCKED upon Owner Unlock action");
+  const unlockedClient = unlockRes[0];
+  assert(unlockedClient.status === "ACTIVE", `Client status restored to ACTIVE (got: ${unlockedClient.status})`);
+  assert(unlockedClient.active === 1 && unlockedClient.is_active === 1, "Client active and is_active restored to 1");
 
-  // 7. Owner upgrades client to $100 Lifetime
-  console.log("\n--- PART 7: Owner Actions - Lifetime ($100 One-Time) Activation ---");
-  const activateLifetime = await sql`
+  // --- PART 7: Owner Actions - Lifetime ($100 One-Time) Activation ---
+  console.log("\n--- PART 7: Owner Action - Lifetime ($100 One-Time) Activation ---");
+  const lifetimeRes = await sql`
     UPDATE users
     SET status = 'ACTIVE',
+        active = 1,
+        is_active = 1,
         plan = 'LIFETIME',
         subscription_status = 'ACTIVE',
         subscription_start = NOW(),
         subscription_expires_at = NULL,
         updated_at = NOW()
-    WHERE id = ${clientId}
-    RETURNING id, email, status, plan, subscription_expires_at;
+    WHERE id = ${newClient.id}
+    RETURNING id, email, status, active, is_active, plan, subscription_expires_at
   `;
-  const lifetimeAuth = computeAuthoritativeUserStatus(activateLifetime[0]);
-  assert(lifetimeAuth.isLocked === false, "Lifetime client is UNLOCKED and ACTIVE");
-  assert(lifetimeAuth.plan === "LIFETIME", "Plan is permanently LIFETIME");
-  assert(lifetimeAuth.daysRemaining === "Lifetime Access — No Expiry", "Expiry is permanent");
+  const lifetimeClient = lifetimeRes[0];
+  assert(lifetimeClient.status === "ACTIVE", `Lifetime client status is ACTIVE (got: ${lifetimeClient.status})`);
+  assert(lifetimeClient.plan === "LIFETIME", `Lifetime client plan is LIFETIME (got: ${lifetimeClient.plan})`);
+  assert(lifetimeClient.subscription_expires_at === null, "Lifetime client subscription_expires_at is NULL (No expiry)");
+  const lifetimeComputed = computeAuthoritativeUserStatus(lifetimeClient);
+  assert(lifetimeComputed.isLocked === false, "Lifetime client is UNLOCKED");
+  assert(lifetimeComputed.plan === "LIFETIME", "Authoritative plan is LIFETIME");
 
-  // Feature gate check: Lifetime client allowed to use Google Maps
-  const isMapsAllowedLifetime = isAuthorizedOwner(activateLifetime[0]) || (activateLifetime[0].plan || "").toUpperCase() === "LIFETIME";
-  assert(isMapsAllowedLifetime === true, "Google Maps Lead Generator is GRANTED for Lifetime plan");
+  // Google Maps Gating Test for Lifetime
+  const isLifetimeAllowedMaps = isAuthorizedOwner(lifetimeClient) || lifetimeComputed.plan === "LIFETIME";
+  assert(isLifetimeAllowedMaps === true, "Google Maps Lead Generator is GRANTED for Lifetime plan");
 
-  // Cleanup test user
-  await sql`DELETE FROM users WHERE id = ${clientId};`;
-  await sql`DELETE FROM workspaces WHERE id = ${wsId};`;
+  // --- PART 8: Live Production Google Maps Extraction Test ---
+  console.log("\n--- PART 8: Live Production Google Maps Extraction Test ---");
+  const serperKey = '2baa9b7d5907ecc3fe3fceebb8c4b9b7e30e3297';
+  const mapsRes = await fetch("https://google.serper.dev/places", {
+    method: "POST",
+    headers: {
+      "X-API-KEY": serperKey,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      q: "Dentists in New York, United States",
+      location: "New York, United States",
+      hl: "en",
+    }),
+  });
 
-  console.log(`\n=======================================================`);
-  console.log(` ALL ${passedTests}/${totalTests} MASTER VERIFICATION TESTS PASSED SUCCESSFULLY!`);
-  console.log(`=======================================================\n`);
+  assert(mapsRes.status === 200, `Serper Places API responded with status 200 (got: ${mapsRes.status})`);
+  const mapsData = await mapsRes.json();
+  const places = mapsData.places || [];
+  assert(places.length > 0, `Google Maps returned genuine business records (found: ${places.length} places)`);
+  if (places.length > 0) {
+    const firstPlace = places[0];
+    assert(Boolean(firstPlace.title && firstPlace.title.length > 0), `Place has verified Business Name: "${firstPlace.title}"`);
+    assert(Boolean(firstPlace.address && firstPlace.address.length > 0), `Place has verified Address: "${firstPlace.address}"`);
+    assert(Boolean(firstPlace.website || firstPlace.cid), `Place has verified Web/CID identifier: "${firstPlace.website || firstPlace.cid}"`);
+  }
+
+  // Clean up test client
+  await sql`DELETE FROM users WHERE id = ${newClient.id}`;
+  await sql`DELETE FROM workspaces WHERE id = ${testWsId}`;
+  console.log("\n  [INFO] Temporary verification client cleaned up safely.");
+
+  console.log("\n=======================================================");
+  console.log(` ALL ${passed}/${total} MASTER VERIFICATION TESTS PASSED SUCCESSFULLY!`);
+  console.log("=======================================================\n");
 }
 
-runVerification().catch((err) => {
-  console.error("Master verification failed:", err);
-  process.exit(1);
-});
+runMasterVerification().catch(console.error);

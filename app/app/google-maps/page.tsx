@@ -43,7 +43,7 @@ function GoogleMapsLeadComponent() {
   const searchParams = useSearchParams();
   const { user, isLocked, refreshUser } = useAuth();
 
-  const isOwner = user?.role === "ADMIN" || [
+  const isOwner = user?.role === "ADMIN" || user?.role === "SUPER_ADMIN" || (user as any)?.account_type === "MASTER_OWNER" || [
     "transaction000501@gmail.com",
     "admin@usmanai.com",
     "mu0602503@gmail.com",
@@ -52,7 +52,7 @@ function GoogleMapsLeadComponent() {
   ].includes(String(user?.email || "").toLowerCase());
 
   const planUpper = String(user?.plan || "BASIC").toUpperCase();
-  const isLifetime = isOwner || planUpper === "LIFETIME";
+  const isLifetime = isOwner || planUpper === "LIFETIME" || planUpper === "OWNER_LIFETIME";
 
   // Form State
   const [keyword, setKeyword] = useState<string>("");
