@@ -45,14 +45,6 @@ export async function POST(request: Request) {
       LIMIT 1
     `;
 
-    const isOwner = [
-      "transaction000501@gmail.com",
-      "admin@usmanai.com",
-      "mu0602503@gmail.com",
-      "admin@usmangtm.com",
-      "selftest_founder_2026@usmanai.com"
-    ].includes(email);
-
     let activeUser: any = null;
 
     if (users && users.length > 0) {
@@ -66,7 +58,7 @@ export async function POST(request: Request) {
       }
       activeUser = u;
     } else {
-      // First-time client registration via Google: provision clean isolated workspace
+      // First-time visitor registration via Google: provision separate FREE_PREVIEW account
       const nowIso = new Date().toISOString();
       const baseWsName = fullName ? `${fullName}'s Workspace` : `${email.split("@")[0]}'s Workspace`;
       const uniqueWsName = `${baseWsName} #${Date.now().toString().slice(-4)}`;
@@ -75,7 +67,7 @@ export async function POST(request: Request) {
       try {
         const wsRes = await sql`
           INSERT INTO workspaces (name, created_at, tenant_id, description)
-          VALUES (${uniqueWsName}, ${nowIso}, 1, 'Google OAuth Workspace')
+          VALUES (${uniqueWsName}, ${nowIso}, 1, 'Google Free Preview Workspace')
           RETURNING id, name
         `;
         workspaceId = wsRes[0].id;
@@ -88,16 +80,16 @@ export async function POST(request: Request) {
         workspaceId = wsRes[0].id;
       }
 
-      const assignedRole = isOwner ? 'SUPER_ADMIN' : 'CLIENT';
-      const assignedAccountType = isOwner ? 'MASTER_OWNER' : 'CLIENT';
-      const initialStatus = isOwner ? 'ACTIVE' : 'LOCKED';
-      const initialSubStatus = isOwner ? 'PERMANENT' : 'PENDING_APPROVAL';
-      const initialPlan = isOwner ? 'OWNER_LIFETIME' : 'BASIC';
+      const assignedRole = 'CLIENT';
+      const assignedAccountType = 'FREE_PREVIEW';
+      const initialStatus = 'PREVIEW_ONLY';
+      const initialSubStatus = 'FREE_PREVIEW';
+      const initialPlan = 'FREE_PREVIEW';
 
       try {
         const newUserRes = await sql`
           INSERT INTO users (username, email, full_name, role, account_type, workspace_id, status, subscription_status, created_at, tenant_id, password_hash, active, is_active, plan)
-          VALUES (${email}, ${email}, ${fullName || email.split("@")[0]}, ${assignedRole}, ${assignedAccountType}, ${workspaceId}, ${initialStatus}, ${initialSubStatus}, ${nowIso}, 1, 'GOOGLE_OAUTH_USER', ${isOwner ? 1 : 0}, ${isOwner ? 1 : 0}, ${initialPlan})
+          VALUES (${email}, ${email}, ${fullName || email.split("@")[0]}, ${assignedRole}, ${assignedAccountType}, ${workspaceId}, ${initialStatus}, ${initialSubStatus}, ${nowIso}, 1, 'GOOGLE_PREVIEW_USER', 0, 0, ${initialPlan})
           ON CONFLICT (username) DO UPDATE
             SET email = EXCLUDED.email,
                 full_name = COALESCE(users.full_name, EXCLUDED.full_name)
@@ -118,7 +110,7 @@ export async function POST(request: Request) {
           const safeUsername = `${email.split('@')[0]}_${Date.now()}@google.user`;
           const safeInsert = await sql`
             INSERT INTO users (username, email, full_name, role, account_type, workspace_id, status, subscription_status, created_at, tenant_id, password_hash, active, is_active, plan)
-            VALUES (${safeUsername}, ${email}, ${fullName || email.split("@")[0]}, ${assignedRole}, ${assignedAccountType}, ${workspaceId}, ${initialStatus}, ${initialSubStatus}, ${nowIso}, 1, 'GOOGLE_OAUTH_USER', ${isOwner ? 1 : 0}, ${isOwner ? 1 : 0}, ${initialPlan})
+            VALUES (${safeUsername}, ${email}, ${fullName || email.split("@")[0]}, ${assignedRole}, ${assignedAccountType}, ${workspaceId}, ${initialStatus}, ${initialSubStatus}, ${nowIso}, 1, 'GOOGLE_PREVIEW_USER', 0, 0, ${initialPlan})
             RETURNING id, email, full_name, role, account_type, workspace_id, status, plan, active, is_active
           `;
           activeUser = safeInsert[0];

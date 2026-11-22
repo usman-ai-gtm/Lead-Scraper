@@ -121,9 +121,15 @@ function EmailAccountsContent() {
   }, [searchParams]);
 
   const handleConnectGmail = async () => {
+    const isPreview = (user as any)?.account_type === "FREE_PREVIEW" || user?.status === "PREVIEW_ONLY";
+    if (isPreview) {
+      setToastType("error");
+      setToastMsg("FREE PREVIEW ACCOUNT — Explore the software before purchasing. Contact the Owner to get your fully activated account.");
+      return;
+    }
     if (isLocked) {
       setToastType("error");
-      setToastMsg("Your account is currently locked. Please complete payment and contact the Owner for activation. Your premium access will begin after approval.");
+      setToastMsg("Your account is currently locked or expired. Please contact the Owner for activation.");
       return;
     }
     setConnecting(true);
@@ -237,13 +243,12 @@ function EmailAccountsContent() {
       {/* Toast Alert */}
       {toastMsg && (
         <div
-          className={`p-4 rounded-xl border flex items-center justify-between gap-3 text-xs ${
-            toastType === "success"
+          className={`p-4 rounded-xl border flex items-center justify-between gap-3 text-xs ${toastType === "success"
               ? "bg-emerald-500/10 border-emerald-500/20 text-emerald-300"
               : toastType === "error"
-              ? "bg-rose-500/10 border-rose-500/20 text-rose-300"
-              : "bg-blue-500/10 border-blue-500/20 text-blue-300"
-          }`}
+                ? "bg-rose-500/10 border-rose-500/20 text-rose-300"
+                : "bg-blue-500/10 border-blue-500/20 text-blue-300"
+            }`}
         >
           <div className="flex items-center gap-2">
             {toastType === "success" ? (
@@ -529,9 +534,8 @@ function EmailAccountsContent() {
                 MX (Mail Server)
               </div>
               <div
-                className={`text-xs font-bold ${
-                  dnsResults.mx?.status === "PASS" ? "text-emerald-400" : "text-rose-400"
-                }`}
+                className={`text-xs font-bold ${dnsResults.mx?.status === "PASS" ? "text-emerald-400" : "text-rose-400"
+                  }`}
               >
                 {dnsResults.mx?.status || "UNKNOWN"}
               </div>
@@ -545,9 +549,8 @@ function EmailAccountsContent() {
                 SPF (Sender Policy)
               </div>
               <div
-                className={`text-xs font-bold ${
-                  dnsResults.spf?.status === "PASS" ? "text-emerald-400" : "text-amber-400"
-                }`}
+                className={`text-xs font-bold ${dnsResults.spf?.status === "PASS" ? "text-emerald-400" : "text-amber-400"
+                  }`}
               >
                 {dnsResults.spf?.status || "UNKNOWN"}
               </div>
@@ -561,9 +564,8 @@ function EmailAccountsContent() {
                 DMARC (Protection)
               </div>
               <div
-                className={`text-xs font-bold ${
-                  dnsResults.dmarc?.status === "PASS" ? "text-emerald-400" : "text-amber-400"
-                }`}
+                className={`text-xs font-bold ${dnsResults.dmarc?.status === "PASS" ? "text-emerald-400" : "text-amber-400"
+                  }`}
               >
                 {dnsResults.dmarc?.status || "UNKNOWN"}
               </div>
@@ -577,9 +579,8 @@ function EmailAccountsContent() {
                 DKIM (Signature)
               </div>
               <div
-                className={`text-xs font-bold ${
-                  dnsResults.dkim?.status === "PASS" ? "text-emerald-400" : "text-slate-400"
-                }`}
+                className={`text-xs font-bold ${dnsResults.dkim?.status === "PASS" ? "text-emerald-400" : "text-slate-400"
+                  }`}
               >
                 {dnsResults.dkim?.status || "PASS (Default)"}
               </div>

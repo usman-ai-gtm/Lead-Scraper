@@ -991,9 +991,9 @@ export function computeAuthoritativeUserStatus(user: {
   username?: string;
   subscription_expires_at?: string | Date | null;
 }): {
-  status: "ACTIVE" | "LOCKED" | "SUSPENDED" | "REVOKED" | "EXPIRED";
+  status: "ACTIVE" | "LOCKED" | "SUSPENDED" | "REVOKED" | "EXPIRED" | "PREVIEW_ONLY";
   isLocked: boolean;
-  plan: "BASIC" | "LIFETIME";
+  plan: "BASIC" | "LIFETIME" | "FREE_PREVIEW";
   isExpired: boolean;
   daysRemaining: number | string;
 } {
@@ -1028,6 +1028,21 @@ export function computeAuthoritativeUserStatus(user: {
   }
 
   const statusUpper = (user.status || "LOCKED").toUpperCase();
+
+  // FREE_PREVIEW accounts (Google OAuth visitors)
+  if (
+    accountTypeUpper === "FREE_PREVIEW" ||
+    statusUpper === "PREVIEW_ONLY" ||
+    (user.plan || "").toUpperCase() === "FREE_PREVIEW"
+  ) {
+    return {
+      status: "PREVIEW_ONLY",
+      isLocked: true,
+      plan: "FREE_PREVIEW",
+      isExpired: false,
+      daysRemaining: "Free Preview",
+    };
+  }
 
   // Explicit manual lock/suspension/revocation STRICTLY overrides everything
   if (statusUpper === "REVOKED") {
@@ -1115,10 +1130,12 @@ export async function getNeonClients() {
     const clients = await sql.query(`
       SELECT 
         u.id,
+        u.username,
         u.email,
         u.full_name,
         u.company,
         u.role,
+        COALESCE(u.account_type, 'PAID_CLIENT') as account_type,
         u.workspace_id,
         u.status,
         COALESCE(u.plan, 'BASIC') as plan,
@@ -1144,9 +1161,9 @@ export async function getNeonClients() {
       return {
         ...c,
         raw_plan: computed.plan,
-        plan: computed.plan === "LIFETIME" ? "LIFETIME ($100)" : "BASIC ($25/30 Days)",
+        plan: computed.plan === "LIFETIME" ? "LIFETIME ($100)" : computed.plan === "FREE_PREVIEW" ? "FREE PREVIEW" : "BASIC ($25/30 Days)",
         status: computed.status,
-        payment_status: computed.status === "ACTIVE" ? "PAID" : "PENDING",
+        payment_status: computed.status === "ACTIVE" ? "PAID" : computed.status === "PREVIEW_ONLY" ? "PREVIEW" : "PENDING",
         remaining_days: computed.daysRemaining,
         total_leads: parseInt(c.total_leads || "0", 10),
         total_searches: parseInt(c.total_searches || "0", 10),
@@ -1157,6 +1174,98 @@ export async function getNeonClients() {
     console.error("Neon getNeonClients error:", e);
     return [];
   }
+}
+
+export async function createPaidClientAccount(data: {
+  customerName?: string;
+  username: string;
+  passwordHash: string;
+  plan: "BASIC" | "LIFETIME";
+  clientNotes?: string;
+}) {
+  const sql = getNeonSql();
+  if (!sql) throw new Error("Database connection unavailable");
+
+  const cleanUsername = data.username.trim().toLowerCase();
+  if (!cleanUsername || cleanUsername.length < 3) {
+    throw new Error("Username must be at least 3 characters long.");
+  }
+
+  // 1. Check if username or email already exists
+  const existing = await sql.query(
+    "SELECT id FROM users WHERE LOWER(username) = LOWER($1) OR LOWER(email) = LOWER($1) LIMIT 1",
+    [cleanUsername]
+  );
+  if (existing.length > 0) {
+    throw new Error(`Account with username '${cleanUsername}' already exists. Please choose a different username.`);
+  }
+
+  const nowIso = new Date().toISOString();
+  const customerName = (data.customerName || cleanUsername).trim();
+  const baseWsName = `${customerName}'s Workspace`;
+  const uniqueWsName = `${baseWsName} #${Date.now().toString().slice(-4)}`;
+
+  // 2. Create fresh, completely isolated workspace
+  let workspaceId: number;
+  let createdWsName = uniqueWsName;
+  try {
+    const wsRes = await sql.query(
+      `INSERT INTO workspaces (name, created_at, tenant_id, description)
+       VALUES ($1, $2, 1, $3)
+       RETURNING id, name`,
+      [uniqueWsName, nowIso, `Paid Client workspace (${data.plan}) for ${customerName}`]
+    );
+    workspaceId = wsRes[0].id;
+    createdWsName = wsRes[0].name;
+  } catch {
+    const fallbackWs = `${uniqueWsName}-${Date.now()}`;
+    const wsRes = await sql.query(
+      `INSERT INTO workspaces (name, created_at, tenant_id)
+       VALUES ($1, $2, 1)
+       RETURNING id, name`,
+      [fallbackWs, nowIso]
+    );
+    workspaceId = wsRes[0].id;
+    createdWsName = wsRes[0].name;
+  }
+
+  // 3. Subscription & Expiry calculations
+  const isLifetime = data.plan === "LIFETIME";
+  const subscriptionExpiresAt = isLifetime
+    ? null
+    : new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString();
+
+  // 4. Create paid client account in users table
+  const userRes = await sql.query(
+    `INSERT INTO users (
+      username, email, password_hash, full_name, role, account_type,
+      workspace_id, status, plan, subscription_status, subscription_start,
+      subscription_expires_at, subscription_notes, active, 
+      is_active, created_at, tenant_id
+    ) VALUES (
+      $1, $2, $3, $4, 'CLIENT', 'PAID_CLIENT',
+      $5, 'ACTIVE', $6, 'ACTIVE', $7,
+      $8, $9, 1, 1, $7, 1
+    )
+    RETURNING id, username, email, full_name, role, account_type, workspace_id,
+              status, plan, subscription_status, subscription_start, subscription_expires_at, created_at`,
+    [
+      cleanUsername,
+      `${cleanUsername}@app.client`,
+      data.passwordHash,
+      customerName,
+      workspaceId,
+      data.plan,
+      nowIso,
+      subscriptionExpiresAt,
+      data.clientNotes || `Paid ${data.plan} account created by Master Owner`,
+    ]
+  );
+
+  return {
+    client: userRes[0],
+    workspace: { id: workspaceId, name: createdWsName, plan: data.plan },
+  };
 }
 
 export async function provisionNeonClient(data: {

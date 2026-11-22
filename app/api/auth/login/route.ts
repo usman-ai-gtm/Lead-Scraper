@@ -27,9 +27,9 @@ export async function POST(request: Request) {
         const sql = getNeonSql();
         if (sql) {
           const users = await sql`
-            SELECT id, email, full_name, role, workspace_id, status, password_hash, tenant_id
+            SELECT id, username, email, full_name, role, account_type, workspace_id, status, plan, subscription_expires_at, password_hash, tenant_id
             FROM users
-            WHERE LOWER(email) = LOWER(${email})
+            WHERE LOWER(username) = LOWER(${email}) OR LOWER(email) = LOWER(${email})
             LIMIT 1
           `;
 
@@ -47,7 +47,7 @@ export async function POST(request: Request) {
             const isValid = verifyPassword(password, user.password_hash);
             if (!isValid) {
               return NextResponse.json(
-                { detail: "Incorrect email or password" },
+                { detail: "Incorrect username or password" },
                 { status: 401 }
               );
             }
@@ -56,8 +56,10 @@ export async function POST(request: Request) {
             const token = createJwtToken({
               sub: String(user.id),
               email: user.email,
+              username: user.username,
               full_name: user.full_name,
-              role: user.role || "ADMIN",
+              role: user.role || "CLIENT",
+              account_type: user.account_type || "PAID_CLIENT",
               workspace_id: user.workspace_id || 1,
               tenant_id: user.tenant_id || 1,
               status: user.status || "ACTIVE",
@@ -79,27 +81,40 @@ export async function POST(request: Request) {
               }
             } catch {}
 
-            return NextResponse.json({
+            const response = NextResponse.json({
               token: token,
               access_token: token,
               token_type: "bearer",
               user: {
                 id: user.id,
+                username: user.username,
                 email: user.email,
                 full_name: user.full_name,
-                role: user.role || "ADMIN",
+                role: user.role || "CLIENT",
+                account_type: user.account_type || "PAID_CLIENT",
                 workspace_id: user.workspace_id || 1,
                 status: user.status || "ACTIVE",
+                plan: user.plan || "BASIC",
               },
               workspace: {
                 id: user.workspace_id || 1,
                 name: wsName,
-                plan: "ENTERPRISE",
+                plan: user.plan || "BASIC",
                 ai_credits: 50000,
                 search_credits: 25000,
                 created_at: wsCreated,
               },
             });
+
+            response.cookies.set("usman_gtm_token", token, {
+              httpOnly: true,
+              secure: process.env.NODE_ENV === "production",
+              sameSite: "lax",
+              path: "/",
+              maxAge: 7 * 24 * 60 * 60,
+            });
+
+            return response;
           }
         }
       } catch (dbErr: any) {

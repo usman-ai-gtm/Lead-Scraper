@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { getCurrentUserFromRequest } from "@/lib/serverless-auth";
+import { getCurrentUserFromRequest, verifyClientActiveSubscription } from "@/lib/serverless-auth";
 import { getNeonLeads, addNeonLead, isNeonConfigured } from "@/lib/neon-db";
 
 export const dynamic = "force-dynamic";
@@ -49,6 +49,14 @@ export async function POST(req: Request) {
     return NextResponse.json(
       { detail: "Authentication required to save workspace leads." },
       { status: 401 }
+    );
+  }
+
+  const subCheck = await verifyClientActiveSubscription(currentUser);
+  if (!subCheck.allowed) {
+    return NextResponse.json(
+      { detail: subCheck.message, error: subCheck.message },
+      { status: subCheck.statusCode || 403 }
     );
   }
 

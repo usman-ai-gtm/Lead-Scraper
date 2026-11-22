@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { getCurrentUserFromRequest } from "@/lib/serverless-auth";
+import { getCurrentUserFromRequest, verifyClientActiveSubscription } from "@/lib/serverless-auth";
 
 function getExactRedirectUri(request: Request): string {
   if (process.env.GOOGLE_GMAIL_REDIRECT_URI) {
@@ -14,6 +14,13 @@ function getExactRedirectUri(request: Request): string {
 
 export async function GET(request: Request) {
   const currentUser = getCurrentUserFromRequest(request);
+  const subCheck = await verifyClientActiveSubscription(currentUser);
+  if (!subCheck.allowed) {
+    return NextResponse.json(
+      { error: subCheck.message || "Active subscription required to connect Gmail.", status: "error" },
+      { status: subCheck.statusCode || 403 }
+    );
+  }
   const wsHeader = request.headers.get("x-workspace-id") || request.headers.get("X-Workspace-Id");
   const workspaceId = currentUser ? currentUser.workspace_id : (wsHeader ? Number(wsHeader) : 1);
   const userId = currentUser ? currentUser.id : 1;

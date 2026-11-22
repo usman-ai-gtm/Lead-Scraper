@@ -330,11 +330,17 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
             <div className="flex items-center gap-2.5 text-amber-200">
               <span className="text-base">🔒</span>
               <span>
-                <strong>Your account is currently locked.</strong> Please complete payment and contact the Owner for activation. Your premium access will begin after approval. Plans: <strong>$25/month Basic</strong> (30 Days) or <strong>$100 Lifetime Access</strong>.
+                {((user as any)?.account_type === "FREE_PREVIEW" || user?.status === "PREVIEW_ONLY") ? (
+                  <strong>FREE PREVIEW ACCOUNT — Explore the software before purchasing. Contact the Owner to get your fully activated account.</strong>
+                ) : user?.status === "EXPIRED" ? (
+                  <strong>Your Basic subscription has expired. Please contact the Owner for renewal.</strong>
+                ) : (
+                  <strong>Your account is currently locked. Please contact the Owner for activation. Plans: $25/month Basic (30 Days) or $100 Lifetime Access.</strong>
+                )}
               </span>
             </div>
             <a
-              href={`https://wa.me/923174383702?text=Hello%20Usman%2C%20I%20have%20completed%20payment%20and%20want%20to%20activate%20my%20subscription%20(%2425%2Fmo%20Basic%20or%20%24100%20Lifetime)%20for%20my%20registered%20email:%20${encodeURIComponent(user?.email || "")}`}
+              href={`https://wa.me/923174383702?text=Hello%20Usman%2C%20I%20want%20to%20activate%20my%20account%20(%2425%20Basic%20or%20%24100%20Lifetime)%20for%20user:%20${encodeURIComponent((user as any)?.username || user?.email || "")}`}
               target="_blank"
               rel="noopener noreferrer"
               className="inline-flex items-center gap-1.5 px-4 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs shadow-md transition-all shrink-0 cursor-pointer"

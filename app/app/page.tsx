@@ -33,6 +33,65 @@ const STANDARD_INDUSTRIES = [
   "OTHER"
 ];
 
+const DEMO_SAMPLE_LEADS: Lead[] = [
+  {
+    id: -1,
+    lead_score: 98,
+    crm_stage: "NEW",
+    business_name: "Apex Global Cloud Solutions",
+    website: "https://apexcloud.example",
+    email: "contact@apexcloud.example",
+    email_status: "VERIFIED",
+    phone: "+1 (415) 555-0199",
+    phone_status: "VERIFIED",
+    country: "United States",
+    city: "San Francisco",
+    industry: "Technology & SaaS",
+  },
+  {
+    id: -2,
+    lead_score: 94,
+    crm_stage: "NEW",
+    business_name: "Solaria Clean Energy Group",
+    website: "https://solaria-energy.example",
+    email: "info@solaria-energy.example",
+    email_status: "VERIFIED",
+    phone: "+44 20 7946 0912",
+    phone_status: "VERIFIED",
+    country: "United Kingdom",
+    city: "London",
+    industry: "Manufacturing & Industrial",
+  },
+  {
+    id: -3,
+    lead_score: 91,
+    crm_stage: "NEW",
+    business_name: "Nexus Dental Care & Aesthetics",
+    website: "https://nexusdental.example",
+    email: "reception@nexusdental.example",
+    email_status: "VERIFIED",
+    phone: "+1 (416) 555-0143",
+    phone_status: "VERIFIED",
+    country: "Canada",
+    city: "Toronto",
+    industry: "Healthcare & Medical Clinics",
+  },
+  {
+    id: -4,
+    lead_score: 96,
+    crm_stage: "NEW",
+    business_name: "Vanguard Commercial Real Estate",
+    website: "https://vanguardcre.example",
+    email: "leasing@vanguardcre.example",
+    email_status: "VERIFIED",
+    phone: "+61 2 9876 5432",
+    phone_status: "VERIFIED",
+    country: "Australia",
+    city: "Sydney",
+    industry: "Real Estate Agencies",
+  },
+];
+
 export default function DashboardPage() {
   const router = useRouter();
   const { user, isLocked } = useAuth();
@@ -136,11 +195,15 @@ export default function DashboardPage() {
                   <Lock className="h-3.5 w-3.5" />
                 </span>
                 <span className="text-xs font-bold uppercase tracking-wider text-amber-300">
-                  Account in Preview Mode — Activation Required
+                  {((user as any)?.account_type === "FREE_PREVIEW" || user?.status === "PREVIEW_ONLY")
+                    ? "FREE PREVIEW ACCOUNT — EXPLORATION MODE"
+                    : "ACCOUNT INACTIVE OR EXPIRED"}
                 </span>
               </div>
               <p className="text-xs text-slate-300">
-                Your account is currently locked. Please complete payment and contact the Owner for activation. Your premium access will begin after approval.
+                {((user as any)?.account_type === "FREE_PREVIEW" || user?.status === "PREVIEW_ONLY")
+                  ? "FREE PREVIEW ACCOUNT — Explore the software before purchasing. Contact the Owner to get your fully activated account."
+                  : "Your account is currently locked or expired. Please contact the Owner for activation or renewal."}
               </p>
               <div className="flex items-center gap-4 pt-1 text-[11px] text-slate-400">
                 <span>• <strong className="text-white">Basic:</strong> $25 / Month (30 Days)</span>
@@ -150,14 +213,14 @@ export default function DashboardPage() {
 
             <a
               href={`https://wa.me/923174383702?text=${encodeURIComponent(
-                `Hello Usman, I have signed up on USMAN AI GTM and would like to activate my subscription ($25/mo Basic or $100 Lifetime). My registered email is: ${user?.email || ""}`
+                `Hello Usman, I would like to activate my subscription ($25/mo Basic or $100 Lifetime). My account is: ${(user as any)?.username || user?.email || ""}`
               )}`}
               target="_blank"
               rel="noopener noreferrer"
               className="inline-flex shrink-0 items-center gap-2 px-4 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs shadow-lg shadow-emerald-600/20 transition-all cursor-pointer"
             >
               <MessageCircle className="h-4 w-4" />
-              <span>Activate via WhatsApp (+923174383702)</span>
+              <span>Contact Owner on WhatsApp (+923174383702)</span>
             </a>
           </div>
         </div>
@@ -407,105 +470,128 @@ export default function DashboardPage() {
       </div>
 
       {/* RECENT SAVED LEADS */}
-      <div className="rounded-2xl border border-white/[0.08] bg-[#0c1017] p-6 space-y-4">
-        <div className="flex items-center justify-between pb-3 border-b border-white/[0.06]">
-          <div className="flex items-center gap-2">
-            <Building2 className="h-4 w-4 text-emerald-400" />
-            <h2 className="text-sm font-bold text-white uppercase tracking-wider">Recently Saved Workspace Leads</h2>
-          </div>
-          <Link
-            href="/app/saved-leads"
-            className="text-xs font-semibold text-blue-400 hover:text-blue-300 flex items-center gap-1"
-          >
-            <span>View All Leads ({totalLeads})</span>
-            <ArrowRight className="h-3 w-3" />
-          </Link>
-        </div>
+      {(() => {
+        const isPreviewUser = (user as any)?.account_type === "FREE_PREVIEW" || user?.status === "PREVIEW_ONLY";
+        const displayLeads = leads.length > 0 ? leads : (isPreviewUser ? DEMO_SAMPLE_LEADS : []);
 
-        {loading ? (
-          <div className="py-12 text-center text-xs text-slate-500">Loading workspace leads...</div>
-        ) : leads.length === 0 ? (
-          <div className="py-12 text-center space-y-3">
-            <Database className="h-8 w-8 text-slate-600 mx-auto" />
-            <div className="text-sm font-semibold text-white">No Saved Leads Yet</div>
-            <p className="text-xs text-slate-400 max-w-md mx-auto">
-              Your workspace currently has 0 saved leads. Use the Lead Search engine to discover authentic businesses and save them to your private workspace.
-            </p>
-            <Link
-              href="/app/leads"
-              className="inline-flex items-center gap-2 px-4 py-2 text-xs font-bold text-white bg-blue-600 hover:bg-blue-500 rounded-xl shadow-glow-sm transition-all"
-            >
-              <Search className="h-3.5 w-3.5" />
-              <span>Launch Lead Discovery</span>
-            </Link>
+        return (
+          <div className="rounded-2xl border border-white/[0.08] bg-[#0c1017] p-6 space-y-4">
+            <div className="flex items-center justify-between pb-3 border-b border-white/[0.06]">
+              <div className="flex items-center gap-2">
+                <Building2 className="h-4 w-4 text-emerald-400" />
+                <h2 className="text-sm font-bold text-white uppercase tracking-wider">
+                  {isPreviewUser && leads.length === 0 ? "Sample Qualified Leads (Preview)" : "Recently Saved Workspace Leads"}
+                </h2>
+              </div>
+              <Link
+                href="/app/saved-leads"
+                className="text-xs font-semibold text-blue-400 hover:text-blue-300 flex items-center gap-1"
+              >
+                <span>View All Leads ({totalLeads})</span>
+                <ArrowRight className="h-3 w-3" />
+              </Link>
+            </div>
+
+            {loading ? (
+              <div className="py-12 text-center text-xs text-slate-500">Loading workspace leads...</div>
+            ) : displayLeads.length === 0 ? (
+              <div className="py-12 text-center space-y-3">
+                <Database className="h-8 w-8 text-slate-600 mx-auto" />
+                <div className="text-sm font-semibold text-white">No Saved Leads Yet</div>
+                <p className="text-xs text-slate-400 max-w-md mx-auto">
+                  Your workspace currently has 0 saved leads. Use the Lead Search engine to discover authentic businesses and save them to your private workspace.
+                </p>
+                <Link
+                  href="/app/leads"
+                  className="inline-flex items-center gap-2 px-4 py-2 text-xs font-bold text-white bg-blue-600 hover:bg-blue-500 rounded-xl shadow-glow-sm transition-all"
+                >
+                  <Search className="h-3.5 w-3.5" />
+                  <span>Launch Lead Discovery</span>
+                </Link>
+              </div>
+            ) : (
+              <div className="overflow-x-auto">
+                <table className="w-full text-left text-xs">
+                  <thead className="border-b border-white/[0.08] text-slate-400 uppercase tracking-wider font-semibold">
+                    <tr>
+                      <th className="py-3 px-3">Business</th>
+                      <th className="py-3 px-3">Location</th>
+                      <th className="py-3 px-3">Industry</th>
+                      <th className="py-3 px-3">Email</th>
+                      <th className="py-3 px-3">Phone</th>
+                      <th className="py-3 px-3 text-right">Status</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-white/[0.04]">
+                    {displayLeads.map((l) => {
+                      const isDemo = l.id < 0;
+                      return (
+                        <tr key={l.id} className="hover:bg-white/[0.02]">
+                          <td className="py-3 px-3">
+                            <div className="font-bold text-white flex items-center gap-2">
+                              <span>{l.business_name}</span>
+                              {isDemo && (
+                                <span className="text-[9px] font-mono font-bold text-amber-300 bg-amber-500/15 border border-amber-500/30 px-1.5 py-0.5 rounded">
+                                  DEMO SAMPLE
+                                </span>
+                              )}
+                            </div>
+                            {l.website && (
+                              <a
+                                href={l.website.startsWith("http") ? l.website : `https://${l.website}`}
+                                target="_blank"
+                                rel="noreferrer"
+                                className="text-[11px] text-blue-400 hover:underline flex items-center gap-1 font-mono"
+                              >
+                                <span>{l.website.replace(/^https?:\/\//, "").replace(/\/$/, "")}</span>
+                                <ExternalLink className="h-2.5 w-2.5" />
+                              </a>
+                            )}
+                          </td>
+                          <td className="py-3 px-3 text-slate-300">
+                            {[l.city, l.country].filter(Boolean).join(", ") || "—"}
+                          </td>
+                          <td className="py-3 px-3 text-slate-300">
+                            <span className="px-2 py-0.5 rounded bg-white/[0.04] text-[11px]">
+                              {l.industry || l.category || "General"}
+                            </span>
+                          </td>
+                          <td className="py-3 px-3">
+                            {l.email ? (
+                              <span className="text-emerald-400 font-mono text-[11px]">{l.email}</span>
+                            ) : (
+                              <span className="text-slate-500 text-[11px]">—</span>
+                            )}
+                          </td>
+                          <td className="py-3 px-3">
+                            {l.phone ? (
+                              <span className="text-slate-200 font-mono text-[11px]">{l.phone}</span>
+                            ) : (
+                              <span className="text-slate-500 text-[11px]">—</span>
+                            )}
+                          </td>
+                          <td className="py-3 px-3 text-right">
+                            {isDemo ? (
+                              <span className="text-[10px] text-amber-400 font-mono">Sample Preview</span>
+                            ) : (
+                              <Link
+                                href="/app/saved-leads"
+                                className="text-xs text-slate-400 hover:text-white px-2 py-1 rounded bg-white/[0.03] hover:bg-white/[0.08]"
+                              >
+                                Manage
+                              </Link>
+                            )}
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            )}
           </div>
-        ) : (
-          <div className="overflow-x-auto">
-            <table className="w-full text-left text-xs">
-              <thead className="border-b border-white/[0.08] text-slate-400 uppercase tracking-wider font-semibold">
-                <tr>
-                  <th className="py-3 px-3">Business</th>
-                  <th className="py-3 px-3">Location</th>
-                  <th className="py-3 px-3">Industry</th>
-                  <th className="py-3 px-3">Email</th>
-                  <th className="py-3 px-3">Phone</th>
-                  <th className="py-3 px-3 text-right">Actions</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-white/[0.04]">
-                {leads.map((l) => (
-                  <tr key={l.id} className="hover:bg-white/[0.02]">
-                    <td className="py-3 px-3">
-                      <div className="font-bold text-white">{l.business_name}</div>
-                      {l.website && (
-                        <a
-                          href={l.website.startsWith("http") ? l.website : `https://${l.website}`}
-                          target="_blank"
-                          rel="noreferrer"
-                          className="text-[11px] text-blue-400 hover:underline flex items-center gap-1 font-mono"
-                        >
-                          <span>{l.website.replace(/^https?:\/\//, "").replace(/\/$/, "")}</span>
-                          <ExternalLink className="h-2.5 w-2.5" />
-                        </a>
-                      )}
-                    </td>
-                    <td className="py-3 px-3 text-slate-300">
-                      {[l.city, l.country].filter(Boolean).join(", ") || "—"}
-                    </td>
-                    <td className="py-3 px-3 text-slate-300">
-                      <span className="px-2 py-0.5 rounded bg-white/[0.04] text-[11px]">
-                        {l.industry || l.category || "General"}
-                      </span>
-                    </td>
-                    <td className="py-3 px-3">
-                      {l.email ? (
-                        <span className="text-emerald-400 font-mono text-[11px]">{l.email}</span>
-                      ) : (
-                        <span className="text-slate-500 text-[11px]">—</span>
-                      )}
-                    </td>
-                    <td className="py-3 px-3">
-                      {l.phone ? (
-                        <span className="text-slate-200 font-mono text-[11px]">{l.phone}</span>
-                      ) : (
-                        <span className="text-slate-500 text-[11px]">—</span>
-                      )}
-                    </td>
-                    <td className="py-3 px-3 text-right">
-                      <Link
-                        href="/app/saved-leads"
-                        className="text-xs text-slate-400 hover:text-white px-2 py-1 rounded bg-white/[0.03] hover:bg-white/[0.08]"
-                      >
-                        Manage
-                      </Link>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        )}
-      </div>
+        );
+      })()}
     </div>
   );
 }

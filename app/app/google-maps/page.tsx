@@ -81,8 +81,14 @@ function GoogleMapsLeadComponent() {
 
   // Handle Maps Extraction
   const handleStartExtraction = async () => {
+    const isPreview = (user as any)?.account_type === "FREE_PREVIEW" || user?.status === "PREVIEW_ONLY";
+    if (isPreview) {
+      setToastMsg("FREE PREVIEW ACCOUNT — Explore the software before purchasing. Contact the Owner to get your fully activated account.");
+      return;
+    }
+
     if (isLocked) {
-      setToastMsg("Your account is currently locked. Please complete payment and contact the Owner for activation. Your premium access will begin after approval.");
+      setToastMsg("Your account is currently locked or expired. Please contact the Owner for activation (+923174383702).");
       return;
     }
 

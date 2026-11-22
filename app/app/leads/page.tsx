@@ -137,6 +137,11 @@ function LeadsSearchComponent() {
 
   // Execute One Search Action — Full Consolidated Dataset via Internal Pagination
   const handleStartExtraction = async () => {
+    const isPreview = (user as any)?.account_type === "FREE_PREVIEW" || user?.status === "PREVIEW_ONLY";
+    if (isPreview) {
+      setToastMsg("FREE PREVIEW ACCOUNT — Explore the software before purchasing. Contact the Owner to get your fully activated account.");
+      return;
+    }
     let currentLocked = isLocked;
     if (currentLocked) {
       // Re-verify with authoritative server in real time
@@ -144,7 +149,7 @@ function LeadsSearchComponent() {
       currentLocked = Boolean(freshUser && freshUser.role !== "ADMIN" && (freshUser.status !== "ACTIVE" || freshUser.is_active === false || freshUser.isLocked === true));
     }
     if (currentLocked) {
-      setToastMsg("Your account is currently locked. Please complete payment and contact the Owner for activation. Your premium access will begin after approval.");
+      setToastMsg("Your account is currently locked or expired. Please complete payment and contact the Owner for activation.");
       return;
     }
     if (!keyword.trim()) {

@@ -900,6 +900,18 @@ export async function verifyClientActiveSubscription(user: any): Promise<{
         const authoritative = computeAuthoritativeUserStatus(u);
 
         if (authoritative.isLocked) {
+          if (
+            authoritative.status === "PREVIEW_ONLY" ||
+            authoritative.plan === "FREE_PREVIEW" ||
+            (u.account_type || "").toUpperCase() === "FREE_PREVIEW"
+          ) {
+            return {
+              allowed: false,
+              statusCode: 403,
+              message: "FREE PREVIEW ACCOUNT — Explore the software before purchasing. Contact the Owner to get your fully activated account.",
+              userRecord: { ...u, status: "PREVIEW_ONLY", plan: "FREE_PREVIEW" },
+            };
+          }
           if (authoritative.status === "REVOKED" || authoritative.status === "SUSPENDED") {
             return {
               allowed: false,
@@ -912,14 +924,14 @@ export async function verifyClientActiveSubscription(user: any): Promise<{
             return {
               allowed: false,
               statusCode: 403,
-              message: "Your account is currently locked. Please complete payment and contact the Owner for activation. Your premium access will begin after approval.",
+              message: "Your Basic subscription has expired. Please contact the Owner for renewal (+923174383702).",
               userRecord: { ...u, status: authoritative.status },
             };
           }
           return {
             allowed: false,
             statusCode: 403,
-            message: "Your account is currently locked. Please complete payment and contact the Owner for activation. Your premium access will begin after approval.",
+            message: "Your account is currently locked. Please contact the Owner for activation (+923174383702).",
             userRecord: { ...u, status: authoritative.status },
           };
         }
@@ -933,6 +945,14 @@ export async function verifyClientActiveSubscription(user: any): Promise<{
 
   // Fallback in-memory status check
   const statusUpper = (user.status || "LOCKED").toUpperCase();
+  const accountTypeUpper = (user.account_type || "").toUpperCase();
+  if (statusUpper === "PREVIEW_ONLY" || accountTypeUpper === "FREE_PREVIEW" || user.plan === "FREE_PREVIEW") {
+    return {
+      allowed: false,
+      statusCode: 403,
+      message: "FREE PREVIEW ACCOUNT — Explore the software before purchasing. Contact the Owner to get your fully activated account.",
+    };
+  }
   if (statusUpper === "LOCKED" || statusUpper === "PENDING" || statusUpper === "EXPIRED") {
     return {
       allowed: false,

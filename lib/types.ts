@@ -1,15 +1,18 @@
 export interface User {
   id: number;
+  username?: string;
   email: string;
   full_name: string;
   company?: string;
   role: "ADMIN" | "MANAGER" | "USER" | "VIEWER" | "CLIENT" | string;
+  account_type?: "MASTER_OWNER" | "FREE_PREVIEW" | "PAID_CLIENT" | string;
   workspace_id: number;
   tenant_id?: number;
   status?: string;
   plan?: string;
   is_active?: boolean;
   isLocked?: boolean;
+  isPreview?: boolean;
   remaining_days?: number | string;
   subscription_expires_at?: string | null;
   must_change_password?: boolean;
@@ -17,13 +20,15 @@ export interface User {
 
 export interface ClientAccount {
   id: number;
+  username?: string;
   email: string;
   full_name: string;
   company?: string;
   workspace_id: number;
   workspace_name: string;
   role: string;
-  status: "ACTIVE" | "SUSPENDED" | "REVOKED" | "LOCKED" | "PENDING" | "EXPIRED";
+  account_type?: "MASTER_OWNER" | "FREE_PREVIEW" | "PAID_CLIENT" | string;
+  status: "ACTIVE" | "SUSPENDED" | "REVOKED" | "LOCKED" | "PENDING" | "EXPIRED" | "PREVIEW_ONLY";
   must_change_password: boolean;
   max_leads_quota: number;
   client_notes?: string;
