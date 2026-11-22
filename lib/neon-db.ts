@@ -996,6 +996,8 @@ export function computeAuthoritativeUserStatus(user: {
   plan: "BASIC" | "LIFETIME" | "FREE_PREVIEW";
   isExpired: boolean;
   daysRemaining: number | string;
+  remainingDetailed: string;
+  remainingMs: number;
 } {
   const roleUpper = (user.role || "").toUpperCase();
   const accountTypeUpper = (user.account_type || "").toUpperCase();
@@ -1024,6 +1026,8 @@ export function computeAuthoritativeUserStatus(user: {
       plan: "LIFETIME",
       isExpired: false,
       daysRemaining: "Permanent (Master Owner)",
+      remainingDetailed: "Permanent Access — No Expiry",
+      remainingMs: Infinity,
     };
   }
 
@@ -1041,6 +1045,8 @@ export function computeAuthoritativeUserStatus(user: {
       plan: "FREE_PREVIEW",
       isExpired: false,
       daysRemaining: "Free Preview",
+      remainingDetailed: "Free Preview Mode",
+      remainingMs: 0,
     };
   }
 
@@ -1052,6 +1058,8 @@ export function computeAuthoritativeUserStatus(user: {
       plan: (user.plan || "BASIC").toUpperCase() === "LIFETIME" ? "LIFETIME" : "BASIC",
       isExpired: false,
       daysRemaining: 0,
+      remainingDetailed: "Revoked by Administrator",
+      remainingMs: 0,
     };
   }
   if (statusUpper === "SUSPENDED") {
@@ -1061,6 +1069,8 @@ export function computeAuthoritativeUserStatus(user: {
       plan: (user.plan || "BASIC").toUpperCase() === "LIFETIME" ? "LIFETIME" : "BASIC",
       isExpired: false,
       daysRemaining: 0,
+      remainingDetailed: "Suspended by Administrator",
+      remainingMs: 0,
     };
   }
   if (statusUpper === "LOCKED" || statusUpper === "PENDING") {
@@ -1070,6 +1080,8 @@ export function computeAuthoritativeUserStatus(user: {
       plan: (user.plan || "BASIC").toUpperCase() === "LIFETIME" ? "LIFETIME" : "BASIC",
       isExpired: false,
       daysRemaining: 0,
+      remainingDetailed: "Locked by Administrator",
+      remainingMs: 0,
     };
   }
 
@@ -1083,6 +1095,8 @@ export function computeAuthoritativeUserStatus(user: {
       plan: "LIFETIME",
       isExpired: false,
       daysRemaining: "Lifetime Access — No Expiry",
+      remainingDetailed: "Lifetime Access — No Expiry",
+      remainingMs: Infinity,
     };
   }
 
@@ -1094,29 +1108,40 @@ export function computeAuthoritativeUserStatus(user: {
       plan: "BASIC",
       isExpired: true,
       daysRemaining: 0,
+      remainingDetailed: "Expired",
+      remainingMs: 0,
     };
   }
 
   const expTime = new Date(user.subscription_expires_at).getTime();
   const now = Date.now();
-  const diffDays = Math.ceil((expTime - now) / (1000 * 60 * 60 * 24));
+  const diffMs = expTime - now;
 
-  if (diffDays <= 0) {
+  if (diffMs <= 0) {
     return {
       status: "EXPIRED",
       isLocked: true,
       plan: "BASIC",
       isExpired: true,
       daysRemaining: 0,
+      remainingDetailed: "Expired",
+      remainingMs: 0,
     };
   }
+
+  const days = Math.floor(diffMs / (1000 * 60 * 60 * 24));
+  const hours = Math.floor((diffMs % (1000 * 60 * 60 * 24)) / (1000 * 60 * 60));
+  const minutes = Math.floor((diffMs % (1000 * 60 * 60)) / (1000 * 60));
+  const remainingDetailed = `${days}d ${hours}h ${minutes}m left`;
 
   return {
     status: "ACTIVE",
     isLocked: false,
     plan: "BASIC",
     isExpired: false,
-    daysRemaining: diffDays,
+    daysRemaining: days,
+    remainingDetailed,
+    remainingMs: diffMs,
   };
 }
 
@@ -1165,6 +1190,11 @@ export async function getNeonClients() {
         status: computed.status,
         payment_status: computed.status === "ACTIVE" ? "PAID" : computed.status === "PREVIEW_ONLY" ? "PREVIEW" : "PENDING",
         remaining_days: computed.daysRemaining,
+        remaining_detailed: computed.remainingDetailed,
+        remaining_ms: computed.remainingMs,
+        subscription_start: c.subscription_start,
+        subscription_expires_at: c.subscription_expires_at,
+        created_at: c.created_at,
         total_leads: parseInt(c.total_leads || "0", 10),
         total_searches: parseInt(c.total_searches || "0", 10),
         connected_accounts: parseInt(c.connected_accounts || "0", 10),
@@ -1235,7 +1265,7 @@ export async function createPaidClientAccount(data: {
     ? null
     : new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString();
 
-  // 4. Create paid client account in users table
+  // 4. Create paid client account in users table with explicit typed parameter bindings
   const userRes = await sql.query(
     `INSERT INTO users (
       username, email, password_hash, full_name, role, account_type,
@@ -1243,9 +1273,9 @@ export async function createPaidClientAccount(data: {
       subscription_expires_at, subscription_notes, active, 
       is_active, created_at, tenant_id
     ) VALUES (
-      $1, $2, $3, $4, 'CLIENT', 'PAID_CLIENT',
-      $5, 'ACTIVE', $6, 'ACTIVE', $7,
-      $8, $9, 1, 1, $7, 1
+      $1::text, $2::text, $3::text, $4::text, 'CLIENT', 'PAID_CLIENT',
+      $5::int4, 'ACTIVE', $6::varchar, 'ACTIVE', $7::timestamptz,
+      $8::timestamptz, $9::text, 1, 1, $10::text, 1
     )
     RETURNING id, username, email, full_name, role, account_type, workspace_id,
               status, plan, subscription_status, subscription_start, subscription_expires_at, created_at`,
@@ -1259,6 +1289,7 @@ export async function createPaidClientAccount(data: {
       nowIso,
       subscriptionExpiresAt,
       data.clientNotes || `Paid ${data.plan} account created by Master Owner`,
+      nowIso,
     ]
   );
 

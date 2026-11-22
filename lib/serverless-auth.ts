@@ -924,7 +924,7 @@ export async function verifyClientActiveSubscription(user: any): Promise<{
             return {
               allowed: false,
               statusCode: 403,
-              message: "Your Basic subscription has expired. Please contact the Owner for renewal (+923174383702).",
+              message: "Your subscription has expired. Please renew to continue.",
               userRecord: { ...u, status: authoritative.status },
             };
           }

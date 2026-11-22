@@ -6,7 +6,8 @@ import { ClientAccount } from "@/lib/types";
 import {
   Users, UserPlus, KeyRound, ShieldAlert, CheckCircle2,
   AlertTriangle, Copy, Check, RefreshCw, Lock, Unlock, Trash2, Power, Search,
-  Sparkles, Key, ExternalLink, ShieldCheck, Clock, Eye, EyeOff, UserCheck, Globe
+  Sparkles, Key, ExternalLink, ShieldCheck, Clock, Eye, EyeOff, UserCheck, Globe,
+  Crown, AlertCircle
 } from "lucide-react";
 
 interface OneTimeCreds {
@@ -52,7 +53,90 @@ function generateStrongPassword(): string {
   return pwd;
 }
 
+function getLiveExpiryInfo(client: any, now: number) {
+  const isLifetime = (client.raw_plan || client.plan || "").toUpperCase().includes("LIFETIME");
+  const creationDateFormatted = client.created_at ? new Date(client.created_at).toLocaleString(undefined, {
+    year: "numeric", month: "short", day: "numeric", hour: "2-digit", minute: "2-digit"
+  }) : "N/A";
+  const activationDateFormatted = client.subscription_start ? new Date(client.subscription_start).toLocaleString(undefined, {
+    year: "numeric", month: "short", day: "numeric", hour: "2-digit", minute: "2-digit"
+  }) : creationDateFormatted;
+
+  if (isLifetime) {
+    return {
+      isLifetime: true,
+      isExpired: false,
+      countdownText: "Permanent — No Expiry",
+      expiryDateFormatted: "Never / Permanent",
+      activationDateFormatted,
+      creationDateFormatted,
+    };
+  }
+
+  if (!client.subscription_expires_at) {
+    return {
+      isLifetime: false,
+      isExpired: true,
+      countdownText: "EXPIRED",
+      expiryDateFormatted: "Not Set",
+      activationDateFormatted,
+      creationDateFormatted,
+    };
+  }
+
+  const expTime = new Date(client.subscription_expires_at).getTime();
+  const diffMs = expTime - now;
+
+  const expiryDateFormatted = new Date(client.subscription_expires_at).toLocaleString(undefined, {
+    year: "numeric",
+    month: "short",
+    day: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+    timeZoneName: "short"
+  });
+
+  if (diffMs <= 0) {
+    return {
+      isLifetime: false,
+      isExpired: true,
+      countdownText: "EXPIRED (0m left)",
+      expiryDateFormatted,
+      activationDateFormatted,
+      creationDateFormatted,
+    };
+  }
+
+  const days = Math.floor(diffMs / (1000 * 60 * 60 * 24));
+  const hours = Math.floor((diffMs % (1000 * 60 * 60 * 24)) / (1000 * 60 * 60));
+  const minutes = Math.floor((diffMs % (1000 * 60 * 60)) / (1000 * 60));
+  const seconds = Math.floor((diffMs % (1000 * 60)) / 1000);
+
+  const countdownText = `${days}d ${hours}h ${minutes}m ${seconds}s left`;
+
+  return {
+    isLifetime: false,
+    isExpired: false,
+    countdownText,
+    days,
+    hours,
+    minutes,
+    seconds,
+    expiryDateFormatted,
+    activationDateFormatted,
+    creationDateFormatted,
+  };
+}
+
 export function ClientProvisioningSection() {
+  const [nowTick, setNowTick] = useState<number>(Date.now());
+
+  useEffect(() => {
+    const timer = setInterval(() => setNowTick(Date.now()), 1000);
+    return () => clearInterval(timer);
+  }, []);
+
   const [clients, setClients] = useState<ClientAccount[]>([]);
   const [previewClients, setPreviewClients] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
@@ -719,9 +803,10 @@ export function ClientProvisioningSection() {
                 <thead className="border-b border-white/[0.08] text-slate-400 uppercase tracking-wider font-semibold">
                   <tr>
                     <th className="py-3 px-3">Username & Customer Name</th>
-                    <th className="py-3 px-3">Internal ID</th>
+                    <th className="py-3 px-3">ID (#ID)</th>
                     <th className="py-3 px-3">Plan</th>
-                    <th className="py-3 px-3">Activation & Expiry</th>
+                    <th className="py-3 px-3">Creation & Activation</th>
+                    <th className="py-3 px-3">Expiry & Live Remaining Timer</th>
                     <th className="py-3 px-3">Status</th>
                     <th className="py-3 px-3">Usage</th>
                     <th className="py-3 px-3 text-right">Master Owner Controls</th>
@@ -730,17 +815,18 @@ export function ClientProvisioningSection() {
                 <tbody className="divide-y divide-white/[0.04]">
                   {filteredPaidClients.length === 0 ? (
                     <tr>
-                      <td colSpan={7} className="py-8 text-center text-xs text-slate-500">
+                      <td colSpan={8} className="py-8 text-center text-xs text-slate-500">
                         No paid clients match your query &quot;{searchQuery}&quot;.
                       </td>
                     </tr>
                   ) : (
                     filteredPaidClients.map((c) => {
-                      const isExpired = c.status === "EXPIRED";
+                      const expiryInfo = getLiveExpiryInfo(c, nowTick);
+                      const isExpired = expiryInfo.isLifetime ? false : (expiryInfo.isExpired || c.status === "EXPIRED");
                       const isLocked = c.status === "LOCKED";
                       const isSuspended = c.status === "SUSPENDED";
                       const isRevoked = c.status === "REVOKED";
-                      const isActive = c.status === "ACTIVE";
+                      const isActive = !isExpired && !isLocked && !isSuspended && !isRevoked && c.status === "ACTIVE";
                       const isLifetime = (c.raw_plan || c.plan || "").toUpperCase().includes("LIFETIME");
 
                       return (
@@ -754,13 +840,13 @@ export function ClientProvisioningSection() {
                               )}
                             </div>
                             <div className="text-[10px] text-slate-500 font-mono">
-                              Created: {c.created_at ? new Date(c.created_at).toLocaleDateString() : "N/A"}
+                              Email: {c.email || `${c.username}@app.client`}
                             </div>
                           </td>
 
                           {/* Internal ID & Workspace ID */}
                           <td className="py-3 px-3 font-mono text-[11px]">
-                            <div className="text-slate-300 font-bold">ID: #{c.id}</div>
+                            <div className="text-slate-300 font-bold">#{c.id}</div>
                             <div className="text-slate-500 text-[10px]">WS: #{c.workspace_id}</div>
                           </td>
 
@@ -777,21 +863,40 @@ export function ClientProvisioningSection() {
                             </span>
                           </td>
 
-                          {/* Activation & Expiry */}
+                          {/* Creation & Activation Date */}
+                          <td className="py-3 px-3 text-[11px]">
+                            <div className="text-slate-300 font-medium">Created: {expiryInfo.creationDateFormatted}</div>
+                            <div className="text-[10px] text-slate-400 mt-0.5">Activated: {expiryInfo.activationDateFormatted}</div>
+                          </td>
+
+                          {/* Expiry & Live Remaining Timer */}
                           <td className="py-3 px-3 text-[11px]">
                             {isLifetime ? (
-                              <span className="text-amber-400 font-bold">Permanent — No Expiry</span>
+                              <div>
+                                <span className="text-amber-400 font-bold flex items-center gap-1">
+                                  <Crown className="h-3.5 w-3.5 text-amber-400" />
+                                  Lifetime Access — No Expiry
+                                </span>
+                                <div className="text-[10px] text-slate-400 mt-0.5">Expiry: Permanent / Never</div>
+                              </div>
+                            ) : isExpired ? (
+                              <div>
+                                <div className="text-rose-400 font-bold flex items-center gap-1">
+                                  <AlertCircle className="h-3.5 w-3.5" />
+                                  <span>EXPIRED (0m left)</span>
+                                </div>
+                                <div className="text-[10px] text-slate-400 font-mono mt-0.5">
+                                  Expired: {expiryInfo.expiryDateFormatted}
+                                </div>
+                              </div>
                             ) : (
                               <div>
-                                <div className={typeof c.remaining_days === "number" && c.remaining_days <= 3 ? "text-rose-400 font-bold" : "text-slate-300 font-semibold"}>
-                                  {typeof c.remaining_days === "number"
-                                    ? `${c.remaining_days} days left`
-                                    : c.remaining_days || "30 Days"}
+                                <div className="text-emerald-400 font-bold font-mono flex items-center gap-1.5">
+                                  <Clock className="h-3.5 w-3.5 text-emerald-400 animate-pulse" />
+                                  <span>{expiryInfo.countdownText}</span>
                                 </div>
-                                <div className="text-[10px] text-slate-500">
-                                  {c.subscription_expires_at
-                                    ? `Exp: ${new Date(c.subscription_expires_at).toLocaleDateString()}`
-                                    : "Active 30 Days"}
+                                <div className="text-[10px] text-slate-300 font-mono mt-0.5">
+                                  Exact Expiry: {expiryInfo.expiryDateFormatted}
                                 </div>
                               </div>
                             )}
@@ -799,22 +904,31 @@ export function ClientProvisioningSection() {
 
                           {/* Status */}
                           <td className="py-3 px-3">
-                            <span
-                              className={`text-[10px] font-bold px-2 py-0.5 rounded border inline-flex items-center gap-1 ${
-                                isActive
-                                  ? "text-emerald-400 bg-emerald-500/10 border-emerald-500/20"
-                                  : isLocked
-                                  ? "text-amber-400 bg-amber-500/10 border-amber-500/20"
-                                  : isExpired
-                                  ? "text-rose-400 bg-rose-500/10 border-rose-500/20"
-                                  : isSuspended
-                                  ? "text-purple-400 bg-purple-500/10 border-purple-500/20"
-                                  : "text-slate-400 bg-slate-500/10 border-slate-500/20"
-                              }`}
-                            >
-                              {(isLocked || isExpired) && <Lock className="h-3 w-3 inline" />}
-                              {c.status}
-                            </span>
+                            {isExpired ? (
+                              <span className="text-rose-400 bg-rose-500/15 border border-rose-500/40 px-2.5 py-1 rounded text-[10px] font-bold inline-flex items-center gap-1 shadow-sm">
+                                <AlertCircle className="h-3 w-3 text-rose-400" />
+                                EXPIRED
+                              </span>
+                            ) : isActive ? (
+                              <span className="text-emerald-400 bg-emerald-500/10 border border-emerald-500/20 px-2.5 py-1 rounded text-[10px] font-bold inline-flex items-center gap-1">
+                                <CheckCircle2 className="h-3 w-3 inline text-emerald-400" />
+                                ACTIVE
+                              </span>
+                            ) : isLocked ? (
+                              <span className="text-amber-400 bg-amber-500/10 border border-amber-500/20 px-2.5 py-1 rounded text-[10px] font-bold inline-flex items-center gap-1">
+                                <Lock className="h-3 w-3 inline text-amber-400" />
+                                LOCKED
+                              </span>
+                            ) : isSuspended ? (
+                              <span className="text-purple-400 bg-purple-500/10 border border-purple-500/20 px-2.5 py-1 rounded text-[10px] font-bold inline-flex items-center gap-1">
+                                <AlertTriangle className="h-3 w-3 inline text-purple-400" />
+                                SUSPENDED
+                              </span>
+                            ) : (
+                              <span className="text-slate-400 bg-slate-500/10 border border-slate-500/20 px-2.5 py-1 rounded text-[10px] font-bold inline-flex items-center gap-1">
+                                {c.status}
+                              </span>
+                            )}
                           </td>
 
                           {/* Usage */}

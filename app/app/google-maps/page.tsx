@@ -339,16 +339,14 @@ function GoogleMapsLeadComponent() {
             {/* Both Email & Phone */}
             <div
               onClick={() => setContactFilter("BOTH")}
-              className={`p-3.5 rounded-xl border cursor-pointer transition-all flex items-start gap-3 ${
-                contactFilter === "BOTH"
+              className={`p-3.5 rounded-xl border cursor-pointer transition-all flex items-start gap-3 ${contactFilter === "BOTH"
                   ? "bg-amber-500/10 border-amber-500/50 shadow-glow-sm"
                   : "bg-white/[0.02] border-white/10 hover:border-white/20"
-              }`}
+                }`}
             >
               <div
-                className={`h-4 w-4 rounded-full border mt-0.5 flex items-center justify-center shrink-0 ${
-                  contactFilter === "BOTH" ? "border-amber-400 bg-amber-400 text-black" : "border-slate-500"
-                }`}
+                className={`h-4 w-4 rounded-full border mt-0.5 flex items-center justify-center shrink-0 ${contactFilter === "BOTH" ? "border-amber-400 bg-amber-400 text-black" : "border-slate-500"
+                  }`}
               >
                 {contactFilter === "BOTH" && <Check className="h-3 w-3 stroke-[3]" />}
               </div>
@@ -368,16 +366,14 @@ function GoogleMapsLeadComponent() {
             {/* Email Only */}
             <div
               onClick={() => setContactFilter("EMAIL_ONLY")}
-              className={`p-3.5 rounded-xl border cursor-pointer transition-all flex items-start gap-3 ${
-                contactFilter === "EMAIL_ONLY"
+              className={`p-3.5 rounded-xl border cursor-pointer transition-all flex items-start gap-3 ${contactFilter === "EMAIL_ONLY"
                   ? "bg-blue-500/10 border-blue-500/50 shadow-glow-sm"
                   : "bg-white/[0.02] border-white/10 hover:border-white/20"
-              }`}
+                }`}
             >
               <div
-                className={`h-4 w-4 rounded-full border mt-0.5 flex items-center justify-center shrink-0 ${
-                  contactFilter === "EMAIL_ONLY" ? "border-blue-400 bg-blue-400 text-black" : "border-slate-500"
-                }`}
+                className={`h-4 w-4 rounded-full border mt-0.5 flex items-center justify-center shrink-0 ${contactFilter === "EMAIL_ONLY" ? "border-blue-400 bg-blue-400 text-black" : "border-slate-500"
+                  }`}
               >
                 {contactFilter === "EMAIL_ONLY" && <Check className="h-3 w-3 stroke-[3]" />}
               </div>
@@ -395,16 +391,14 @@ function GoogleMapsLeadComponent() {
             {/* Phone Only */}
             <div
               onClick={() => setContactFilter("PHONE_ONLY")}
-              className={`p-3.5 rounded-xl border cursor-pointer transition-all flex items-start gap-3 ${
-                contactFilter === "PHONE_ONLY"
+              className={`p-3.5 rounded-xl border cursor-pointer transition-all flex items-start gap-3 ${contactFilter === "PHONE_ONLY"
                   ? "bg-emerald-500/10 border-emerald-500/50 shadow-glow-sm"
                   : "bg-white/[0.02] border-white/10 hover:border-white/20"
-              }`}
+                }`}
             >
               <div
-                className={`h-4 w-4 rounded-full border mt-0.5 flex items-center justify-center shrink-0 ${
-                  contactFilter === "PHONE_ONLY" ? "border-emerald-400 bg-emerald-400 text-black" : "border-slate-500"
-                }`}
+                className={`h-4 w-4 rounded-full border mt-0.5 flex items-center justify-center shrink-0 ${contactFilter === "PHONE_ONLY" ? "border-emerald-400 bg-emerald-400 text-black" : "border-slate-500"
+                  }`}
               >
                 {contactFilter === "PHONE_ONLY" && <Check className="h-3 w-3 stroke-[3]" />}
               </div>
@@ -430,11 +424,10 @@ function GoogleMapsLeadComponent() {
                 key={qty}
                 type="button"
                 onClick={() => setRequestedQuantity(qty)}
-                className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all ${
-                  requestedQuantity === qty
+                className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all ${requestedQuantity === qty
                     ? "bg-amber-400 text-black shadow-sm"
                     : "bg-white/[0.04] text-slate-300 hover:bg-white/[0.08]"
-                }`}
+                  }`}
               >
                 {qty}
               </button>

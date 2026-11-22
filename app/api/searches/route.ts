@@ -3,7 +3,8 @@ import { proxyToBackend } from "@/lib/backend-proxy";
 import {
   getCurrentUserFromRequest,
   getServerlessSearchRecords,
-  saveServerlessSearchRecordAndLeads
+  saveServerlessSearchRecordAndLeads,
+  verifyClientActiveSubscription,
 } from "@/lib/serverless-auth";
 import {
   getNeonSearchRecords,
@@ -12,12 +13,15 @@ import {
 } from "@/lib/neon-db";
 
 export async function GET(req: Request) {
+  const currentUser = getCurrentUserFromRequest(req);
+  if (!currentUser) {
+    return NextResponse.json({ detail: "Authentication required to view search records." }, { status: 401 });
+  }
+
   const url = new URL(req.url);
   const date = url.searchParams.get("date") || undefined;
   const keyword = url.searchParams.get("keyword") || undefined;
-
-  const currentUser = getCurrentUserFromRequest(req);
-  const workspaceId = currentUser ? currentUser.workspace_id : 1;
+  const workspaceId = currentUser.workspace_id || 1;
 
   const fallbackHandler = async () => {
     if (isNeonConfigured()) {
@@ -50,7 +54,19 @@ export async function GET(req: Request) {
 
 export async function POST(req: Request) {
   const currentUser = getCurrentUserFromRequest(req);
-  const workspaceId = currentUser ? currentUser.workspace_id : 1;
+  if (!currentUser) {
+    return NextResponse.json({ detail: "Authentication required to save search records." }, { status: 401 });
+  }
+
+  const authCheck = await verifyClientActiveSubscription(currentUser);
+  if (!authCheck.allowed) {
+    return NextResponse.json(
+      { status: "error", message: authCheck.message },
+      { status: authCheck.statusCode || 403 }
+    );
+  }
+
+  const workspaceId = currentUser.workspace_id || 1;
 
   let body: any = {};
   try {

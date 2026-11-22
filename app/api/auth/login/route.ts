@@ -1,9 +1,10 @@
 import { NextResponse } from "next/server";
-import { getNeonSql, isNeonConfigured } from "@/lib/neon-db";
+import { getNeonSql, isNeonConfigured, computeAuthoritativeUserStatus } from "@/lib/neon-db";
 import {
   verifyPassword,
   createJwtToken,
   authenticateServerlessUser,
+  isAuthorizedOwner,
 } from "@/lib/serverless-auth";
 
 export const dynamic = "force-dynamic";
@@ -52,7 +53,30 @@ export async function POST(request: Request) {
               );
             }
 
-            // Password verified successfully!
+            // Check authoritative account status & subscription timer
+            if (!isAuthorizedOwner(user)) {
+              const authoritative = computeAuthoritativeUserStatus(user);
+              if (authoritative.isLocked) {
+                if (authoritative.status === "EXPIRED") {
+                  return NextResponse.json(
+                    { detail: "Your subscription has expired. Please renew to continue." },
+                    { status: 403 }
+                  );
+                }
+                if (authoritative.status === "SUSPENDED" || authoritative.status === "REVOKED") {
+                  return NextResponse.json(
+                    { detail: "Account has been suspended or revoked. Please contact administrator on WhatsApp (+923174383702)." },
+                    { status: 403 }
+                  );
+                }
+                return NextResponse.json(
+                  { detail: "Your account is currently locked. Please contact the Owner for activation (+923174383702)." },
+                  { status: 403 }
+                );
+              }
+            }
+
+            // Password verified and account active!
             const token = createJwtToken({
               sub: String(user.id),
               email: user.email,
