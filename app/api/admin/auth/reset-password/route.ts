@@ -3,6 +3,16 @@ import { getNeonSql, isNeonConfigured, logAccountAudit } from "@/lib/neon-db";
 import { hashPassword, verifyPassword } from "@/lib/serverless-auth";
 
 export const dynamic = "force-dynamic";
+export const revalidate = 0;
+export const fetchCache = "force-no-store";
+
+export async function GET() {
+  return NextResponse.json({
+    status: "active",
+    auth: "master_recovery_v2",
+    updated_at: new Date().toISOString(),
+  });
+}
 
 export async function POST(request: Request) {
   try {
