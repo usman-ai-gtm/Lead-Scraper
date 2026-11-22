@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { getCurrentUserFromRequest, hashPassword } from "@/lib/serverless-auth";
+import { getCurrentUserFromRequest, hashPassword, isAuthorizedOwner } from "@/lib/serverless-auth";
 import {
   getNeonClients,
   provisionNeonClient,
@@ -22,7 +22,7 @@ export async function GET(req: Request) {
   try {
     const user = getCurrentUserFromRequest(req);
     // Strict RBAC: Only administrators may view the 50-client seat roster
-    if (user && user.role !== "ADMIN") {
+    if (!user || !isAuthorizedOwner(user)) {
       return NextResponse.json(
         { detail: "Forbidden: Administrator role required to manage client seats." },
         { status: 403 }
@@ -61,7 +61,7 @@ export async function POST(req: Request) {
   try {
     const user = getCurrentUserFromRequest(req);
     // Strict RBAC: Only administrators may provision new client seats
-    if (user && user.role !== "ADMIN") {
+    if (!user || !isAuthorizedOwner(user)) {
       return NextResponse.json(
         { detail: "Forbidden: Administrator role required to provision client seats." },
         { status: 403 }

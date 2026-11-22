@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { getCurrentUserFromRequest } from "@/lib/serverless-auth";
+import { getCurrentUserFromRequest, isAuthorizedOwner } from "@/lib/serverless-auth";
 import { updateNeonClientStatus, logAccountAudit, getNeonSql, isNeonConfigured } from "@/lib/neon-db";
 
 export const dynamic = "force-dynamic";
@@ -12,7 +12,7 @@ interface RouteParams {
 export async function GET(req: Request, { params }: RouteParams) {
   try {
     const user = getCurrentUserFromRequest(req);
-    if (!user || user.role !== "ADMIN") {
+    if (!user || !isAuthorizedOwner(user)) {
       return NextResponse.json({ detail: "Forbidden: Administrator role required." }, { status: 403 });
     }
 
@@ -51,7 +51,7 @@ export async function GET(req: Request, { params }: RouteParams) {
 export async function DELETE(req: Request, { params }: RouteParams) {
   try {
     const user = getCurrentUserFromRequest(req);
-    if (!user || user.role !== "ADMIN") {
+    if (!user || !isAuthorizedOwner(user)) {
       return NextResponse.json({ detail: "Forbidden: Administrator role required." }, { status: 403 });
     }
 
@@ -112,7 +112,7 @@ export async function DELETE(req: Request, { params }: RouteParams) {
 export async function PATCH(req: Request, { params }: RouteParams) {
   try {
     const user = getCurrentUserFromRequest(req);
-    if (!user || user.role !== "ADMIN") {
+    if (!user || !isAuthorizedOwner(user)) {
       return NextResponse.json({ detail: "Forbidden: Administrator role required." }, { status: 403 });
     }
 

@@ -230,10 +230,38 @@ export function ClientProvisioningSection() {
     setActionLoadingId(clientId);
     setError(null);
     try {
-      await api.post(`/admin/clients/${clientId}/subscription`, { action, notes });
-      setSuccessMsg(`Action ${action} executed successfully for Client #${clientId}.`);
+      const res = await api.post<{
+        status: string;
+        client?: any;
+        message?: string;
+        detail?: string;
+      }>(`/admin/clients/${clientId}/subscription`, { action, notes });
+
+      if (res && res.status === "success" && res.client) {
+        // Instant optimistic update in React table state
+        setClients((prev) =>
+          prev.map((c) => {
+            if (c.id === clientId) {
+              const updatedPlan = res.client.plan || c.plan;
+              const updatedStatus = res.client.status || c.status;
+              return {
+                ...c,
+                ...res.client,
+                raw_plan: updatedPlan,
+                plan: updatedPlan === "LIFETIME" ? "LIFETIME ($100)" : "BASIC ($25/30 Days)",
+                status: updatedStatus,
+                payment_status: updatedStatus === "ACTIVE" ? "PAID" : "PENDING",
+              };
+            }
+            return c;
+          })
+        );
+        setSuccessMsg(res.message || `Client #${clientId} updated via ${action}.`);
+      } else {
+        throw new Error(res?.detail || res?.message || "Failed to update client subscription in database.");
+      }
       setTimeout(() => setSuccessMsg(null), 3500);
-      fetchClients();
+      await fetchClients();
     } catch (err: any) {
       setError(err?.message || `Failed to execute ${action}`);
     } finally {

@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { getCurrentUserFromRequest } from "@/lib/serverless-auth";
+import { getCurrentUserFromRequest, isAuthorizedOwner } from "@/lib/serverless-auth";
 import { getNeonSql, isNeonConfigured } from "@/lib/neon-db";
 
 export const dynamic = "force-dynamic";
@@ -7,7 +7,7 @@ export const dynamic = "force-dynamic";
 export async function GET(req: Request) {
   try {
     const user = getCurrentUserFromRequest(req);
-    if (user && user.role !== "ADMIN") {
+    if (!user || !isAuthorizedOwner(user)) {
       return NextResponse.json(
         { detail: "Forbidden: Administrator role required." },
         { status: 403 }

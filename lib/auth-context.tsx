@@ -97,7 +97,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       if (typeof document !== "undefined" && !document.hidden) {
         refreshUser();
       }
-    }, 8000);
+    }, 5000);
 
     const onFocus = () => {
       refreshUser();
@@ -110,8 +110,18 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     };
   }, [user?.id]);
 
+  const emailLower = String(user?.email || "").trim().toLowerCase();
+  const isOwner = [
+    "transaction000001@gmail.com",
+    "admin@usmanai.com",
+    "mu0602503@gmail.com",
+    "admin@usmangtm.com",
+    "selftest_founder_2026@usmanai.com",
+  ].includes(emailLower);
+
   const isLocked = Boolean(
     user &&
+    !isOwner &&
     user.role !== "ADMIN" &&
     (user.status !== "ACTIVE" || user.is_active === false || user.isLocked === true)
   );

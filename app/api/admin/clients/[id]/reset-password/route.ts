@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { getCurrentUserFromRequest, hashPassword } from "@/lib/serverless-auth";
+import { getCurrentUserFromRequest, hashPassword, isAuthorizedOwner } from "@/lib/serverless-auth";
 import { resetNeonClientPassword, isNeonConfigured } from "@/lib/neon-db";
 
 export const dynamic = "force-dynamic";
@@ -20,7 +20,7 @@ function generateSecureTempPassword(): string {
 export async function POST(req: Request, { params }: RouteParams) {
   try {
     const user = getCurrentUserFromRequest(req);
-    if (user && user.role !== "ADMIN") {
+    if (!user || !isAuthorizedOwner(user)) {
       return NextResponse.json(
         { detail: "Forbidden: Administrator role required." },
         { status: 403 }

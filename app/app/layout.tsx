@@ -33,7 +33,16 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
     { id: 3, title: "Export Ready", message: "Native XLSX and Executive PDF export modules ready.", time: "2h ago" }
   ]);
 
-  const isAdmin = user?.role === "ADMIN";
+  const emailLower = String(user?.email || "").trim().toLowerCase();
+  const isAdmin =
+    user?.role === "ADMIN" ||
+    [
+      "transaction000001@gmail.com",
+      "admin@usmanai.com",
+      "mu0602503@gmail.com",
+      "admin@usmangtm.com",
+      "selftest_founder_2026@usmanai.com",
+    ].includes(emailLower);
 
   // Strict Protected Route Guard: Non-authenticated visitors CANNOT access the dashboard
   useEffect(() => {

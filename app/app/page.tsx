@@ -11,7 +11,7 @@ import { getSuggestedCitiesForCountry } from "@/lib/cities";
 import {
   Search, Database, Download, RefreshCw,
   Building2, Globe, Mail, Phone, CheckCircle2,
-  ExternalLink, ArrowRight, ShieldCheck, Layers, Sparkles
+  ExternalLink, ArrowRight, ShieldCheck, Layers, Sparkles, Lock, MessageCircle
 } from "lucide-react";
 
 const STANDARD_INDUSTRIES = [
@@ -35,7 +35,7 @@ const STANDARD_INDUSTRIES = [
 
 export default function DashboardPage() {
   const router = useRouter();
-  const { user } = useAuth();
+  const { user, isLocked } = useAuth();
 
   const [leads, setLeads] = useState<Lead[]>([]);
   const [totalLeads, setTotalLeads] = useState(0);
@@ -126,6 +126,43 @@ export default function DashboardPage() {
 
   return (
     <div className="space-y-8 max-w-7xl mx-auto pb-16">
+      {/* Locked Client Banner (Preview Mode) */}
+      {isLocked && (
+        <div className="rounded-2xl border border-amber-500/30 bg-amber-500/10 p-5 backdrop-blur-md">
+          <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+            <div className="space-y-1.5">
+              <div className="flex items-center gap-2">
+                <span className="flex h-6 w-6 items-center justify-center rounded-lg bg-amber-500/20 text-amber-400">
+                  <Lock className="h-3.5 w-3.5" />
+                </span>
+                <span className="text-xs font-bold uppercase tracking-wider text-amber-300">
+                  Account in Preview Mode — Activation Required
+                </span>
+              </div>
+              <p className="text-xs text-slate-300">
+                You can browse and explore the platform! To start extracting leads, scraping Google Maps, or connecting your Gmail, please activate your plan via WhatsApp.
+              </p>
+              <div className="flex items-center gap-4 pt-1 text-[11px] text-slate-400">
+                <span>• <strong className="text-white">Basic:</strong> $25 / Month (30 Days)</span>
+                <span>• <strong className="text-amber-400">Lifetime:</strong> $100 One-Time (Permanent Access + Google Maps)</span>
+              </div>
+            </div>
+
+            <a
+              href={`https://wa.me/923174383702?text=${encodeURIComponent(
+                `Hello Usman, I have signed up on USMAN AI GTM and would like to activate my subscription ($25/mo Basic or $100 Lifetime). My registered email is: ${user?.email || ""}`
+              )}`}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-flex shrink-0 items-center gap-2 px-4 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs shadow-lg shadow-emerald-600/20 transition-all cursor-pointer"
+            >
+              <MessageCircle className="h-4 w-4" />
+              <span>Activate via WhatsApp (+923174383702)</span>
+            </a>
+          </div>
+        </div>
+      )}
+
       {/* Header & Quick Action Row */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>

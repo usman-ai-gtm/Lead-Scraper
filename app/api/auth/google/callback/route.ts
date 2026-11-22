@@ -96,7 +96,7 @@ export async function GET(request: Request) {
     if (users && users.length > 0) {
       const u = users[0];
       const statusUpper = (u.status || "ACTIVE").toUpperCase();
-      if (statusUpper === "SUSPENDED" || statusUpper === "REVOKED") {
+      if (!isOwner && (statusUpper === "SUSPENDED" || statusUpper === "REVOKED")) {
         return NextResponse.redirect(
           `${origin}/login?error=Your+account+has+been+suspended+or+revoked.+Please+contact+administrator+on+WhatsApp+(%2B923174383702).`
         );
@@ -143,14 +143,37 @@ export async function GET(request: Request) {
         const fallbackUsers = await sql`
           SELECT id, email, username, full_name, role, workspace_id, status
           FROM users
-          WHERE LOWER(email) = LOWER(${email}) OR LOWER(username) = LOWER(${email})
+          WHERE TRIM(LOWER(email)) = TRIM(LOWER(${email})) OR TRIM(LOWER(username)) = TRIM(LOWER(${email}))
           LIMIT 1
         `;
         if (fallbackUsers && fallbackUsers.length > 0) {
           activeUser = fallbackUsers[0];
         } else {
-          throw insertErr;
+          // If username conflict with legacy row, generate collision-free unique username
+          const safeUsername = `${email.split('@')[0]}_${Date.now()}@google.user`;
+          const safeInsert = await sql`
+            INSERT INTO users (username, email, full_name, role, workspace_id, status, created_at, tenant_id, password_hash)
+            VALUES (${safeUsername}, ${email}, ${fullName}, ${assignedRole}, ${workspaceId}, ${initialStatus}, ${nowIso}, 1, 'GOOGLE_OAUTH_USER')
+            RETURNING id, email, full_name, role, workspace_id, status
+          `;
+          activeUser = safeInsert[0];
         }
+      }
+    }
+
+    // Permanent Owner Sync Guarantee
+    if (isOwner && activeUser) {
+      activeUser.role = "ADMIN";
+      activeUser.status = "ACTIVE";
+      activeUser.plan = "LIFETIME";
+      try {
+        await sql`
+          UPDATE users
+          SET role = 'ADMIN', status = 'ACTIVE', plan = 'LIFETIME'
+          WHERE id = ${activeUser.id}
+        `;
+      } catch (e) {
+        console.warn("Owner DB sync warning:", e);
       }
     }
 
@@ -161,6 +184,8 @@ export async function GET(request: Request) {
       full_name: activeUser.full_name,
       role: activeUser.role,
       workspace_id: activeUser.workspace_id,
+      status: activeUser.status,
+      plan: activeUser.plan,
     });
 
     const sessionPayload = encodeURIComponent(

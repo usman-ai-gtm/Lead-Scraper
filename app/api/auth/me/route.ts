@@ -27,22 +27,31 @@ export async function GET(request: Request) {
             if (users && users.length > 0) {
               const u = users[0];
               const authoritative = computeAuthoritativeUserStatus(u);
+              const isOwner = [
+                "transaction000001@gmail.com",
+                "admin@usmanai.com",
+                "mu0602503@gmail.com",
+                "admin@usmangtm.com",
+                "selftest_founder_2026@usmanai.com",
+              ].includes(String(u.email || "").trim().toLowerCase());
+
+              const effectiveRole = isOwner ? "ADMIN" : (u.role || "CLIENT");
 
               const response = NextResponse.json({
                 id: u.id,
                 email: u.email,
                 full_name: u.full_name,
                 company: `${u.full_name}'s Enterprise`,
-                role: u.role || "CLIENT",
+                role: effectiveRole,
                 workspace_id: u.workspace_id,
-                status: authoritative.status,
-                plan: authoritative.plan,
-                is_active: authoritative.status === "ACTIVE",
-                is_locked: authoritative.isLocked,
-                isLocked: authoritative.isLocked,
+                status: isOwner ? "ACTIVE" : authoritative.status,
+                plan: isOwner ? "LIFETIME" : authoritative.plan,
+                is_active: isOwner ? true : authoritative.status === "ACTIVE",
+                is_locked: isOwner ? false : authoritative.isLocked,
+                isLocked: isOwner ? false : authoritative.isLocked,
                 subscription_start: u.subscription_start,
                 subscription_expires_at: u.subscription_expires_at,
-                remaining_days: authoritative.daysRemaining,
+                remaining_days: isOwner ? "Permanent (Owner)" : authoritative.daysRemaining,
               });
 
               response.headers.set("Cache-Control", "no-store, no-cache, must-revalidate, proxy-revalidate");

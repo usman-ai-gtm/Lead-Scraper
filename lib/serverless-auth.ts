@@ -88,6 +88,7 @@ export function createJwtToken(payload: {
   tenant_id?: number;
   must_change_password?: boolean;
   status?: string;
+  plan?: string;
 }): string {
   const header = Buffer.from(JSON.stringify({ alg: "HS256", typ: "JWT" })).toString("base64url");
   const now = Math.floor(Date.now() / 1000);
@@ -813,6 +814,20 @@ export function getServerlessExportHistory(workspaceId: number): ServerlessExpor
   return serverlessExportHistoryStore.filter((e) => e.workspace_id === workspaceId);
 }
 
+export const AUTHORIZED_OWNER_EMAILS = [
+  "transaction000001@gmail.com",
+  "admin@usmanai.com",
+  "mu0602503@gmail.com",
+  "admin@usmangtm.com",
+  "selftest_founder_2026@usmanai.com",
+];
+
+export function isAuthorizedOwner(user: any): boolean {
+  if (!user) return false;
+  const emailLower = String(user.email || user.username || "").trim().toLowerCase();
+  return user.role === "ADMIN" || AUTHORIZED_OWNER_EMAILS.includes(emailLower);
+}
+
 /**
  * Strict Authoritative Subscription and Access Verification.
  * - Administrators & System Owners have permanent full access.
@@ -835,18 +850,11 @@ export async function verifyClientActiveSubscription(user: any): Promise<{
   }
 
   // Super-admin / owner bypass
-  const emailLower = String(user.email || "").trim().toLowerCase();
-  const isOwner = [
-    "admin@usmanai.com",
-    "mu0602503@gmail.com",
-    "admin@usmangtm.com",
-    "selftest_founder_2026@usmanai.com",
-    "transaction000001@gmail.com",
-  ].includes(emailLower);
-
-  if (user.role === "ADMIN" || isOwner) {
+  if (isAuthorizedOwner(user)) {
     return { allowed: true };
   }
+
+  const emailLower = String(user.email || user.username || "").trim().toLowerCase();
 
   // For CLIENT users, query the authoritative Neon cloud database
   if (isNeonConfigured()) {

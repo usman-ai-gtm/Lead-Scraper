@@ -69,7 +69,13 @@ class ApiClient {
 
       if (!res.ok) {
         const errData = await res.json().catch(() => ({}));
-        throw new Error(errData.detail || `Request failed with status ${res.status}`);
+        const errorMsg =
+          errData.detail ||
+          errData.message ||
+          errData.error ||
+          (typeof errData === "string" ? errData : null) ||
+          `Request failed with status ${res.status}`;
+        throw new Error(errorMsg);
       }
 
       return await res.json();
