@@ -18,6 +18,7 @@ export async function POST(request: Request) {
       );
     }
 
+    console.log(`[Admin Password Reset] Attempt initiated for user: ${username}`);
     if (newPassword.length < 8) {
       return NextResponse.json(
         { detail: "New password must be at least 8 characters long." },
