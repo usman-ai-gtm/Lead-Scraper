@@ -93,12 +93,12 @@ function GoogleMapsLeadComponent() {
     }
 
     if (!isLifetime) {
-      setToastMsg("⭐ Google Maps Lead Generator is exclusive to the $100 Lifetime Plan. Please upgrade via WhatsApp (+923174383702).");
+      setToastMsg("⭐ Google Maps Lead Generator is an exclusive feature of the $100 Lifetime Plan. Please upgrade to unlock.");
       return;
     }
 
     if (!keyword.trim()) {
-      setToastMsg("Please enter a target business niche (e.g. Dentists, Real Estate Agencies, Luxury Car Dealerships).");
+      setToastMsg("Please enter a target business niche or category (e.g. Dentists, Real Estate, Hotels) to extract Google Maps leads.");
       return;
     }
 
@@ -109,6 +109,7 @@ function GoogleMapsLeadComponent() {
       const token = typeof window !== "undefined" ? localStorage.getItem("usman_gtm_token") : null;
       const res = await fetch("/api/leads/maps", {
         method: "POST",
+        credentials: "include",
         headers: {
           "Content-Type": "application/json",
           ...(token ? { Authorization: `Bearer ${token}` } : {}),
@@ -436,8 +437,9 @@ function GoogleMapsLeadComponent() {
 
           <button
             onClick={handleStartExtraction}
-            disabled={isExtracting || !keyword.trim() || !isLifetime}
+            disabled={isExtracting}
             className="px-6 py-2.5 rounded-xl bg-gradient-to-r from-amber-400 via-yellow-400 to-amber-500 hover:from-amber-300 hover:to-yellow-300 text-black font-bold text-xs shadow-glow-sm transition-all flex items-center justify-center gap-2 cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
+            title={!isLifetime ? "Upgrade to $100 Lifetime Plan to unlock Google Maps" : "Start Google Maps Lead Extension"}
           >
             {isExtracting ? (
               <>
@@ -447,7 +449,7 @@ function GoogleMapsLeadComponent() {
             ) : (
               <>
                 <Sparkles className="h-4 w-4 text-black" />
-                <span>Start Google Maps Extraction</span>
+                <span>Start Google Maps Extension</span>
               </>
             )}
           </button>

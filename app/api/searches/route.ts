@@ -18,6 +18,14 @@ export async function GET(req: Request) {
     return NextResponse.json({ detail: "Authentication required to view search records." }, { status: 401 });
   }
 
+  const subCheck = await verifyClientActiveSubscription(currentUser);
+  if (!subCheck.allowed) {
+    return NextResponse.json(
+      { detail: subCheck.message, error: subCheck.message },
+      { status: subCheck.statusCode || 403 }
+    );
+  }
+
   const url = new URL(req.url);
   const date = url.searchParams.get("date") || undefined;
   const keyword = url.searchParams.get("keyword") || undefined;

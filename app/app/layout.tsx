@@ -333,7 +333,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
                 {((user as any)?.account_type === "FREE_PREVIEW" || user?.status === "PREVIEW_ONLY") ? (
                   <strong>FREE PREVIEW ACCOUNT — Explore the software before purchasing. Contact the Owner to get your fully activated account.</strong>
                 ) : user?.status === "EXPIRED" ? (
-                  <strong>Your Basic subscription has expired. Please contact the Owner for renewal.</strong>
+                  <strong>Your subscription has expired. Please renew to continue.</strong>
                 ) : (
                   <strong>Your account is currently locked. Please contact the Owner for activation. Plans: $25/month Basic (30 Days) or $100 Lifetime Access.</strong>
                 )}

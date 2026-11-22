@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { getCurrentUserFromRequest, verifyClientActiveSubscription } from "@/lib/serverless-auth";
-import { getNeonSql, isNeonConfigured } from "@/lib/neon-db";
+import { getNeonSql, isNeonConfigured, saveNeonSearchRecordAndLeads } from "@/lib/neon-db";
 import { cleanDomain, crawlWebsiteForContacts, querySerperForDomainContact } from "@/lib/search-intelligence";
 import { normalizePhoneNumber } from "@/lib/phone-utils";
 
@@ -241,44 +241,18 @@ export async function POST(req: Request) {
     const workspaceId = Number(user.workspace_id) || 1;
     if (isNeonConfigured() && qualifiedLeads.length > 0) {
       try {
-        const sql = getNeonSql();
-        if (sql) {
-          const nowIso = new Date().toISOString();
-
-          // 1. Insert Search Record
-          const searchRecordRes = await sql`
-            INSERT INTO search_records (
-              workspace_id, keyword, country, city, leads_count, source, status, created_at
-            ) VALUES (
-              ${workspaceId}, ${keyword}, ${country}, ${city !== "ALL_CITIES" ? city : ""},
-              ${qualifiedLeads.length}, 'Google Maps Platform', 'COMPLETED', ${nowIso}
-            ) RETURNING id
-          `;
-          const recordId = searchRecordRes?.[0]?.id;
-
-          // 2. Insert Qualified Leads
-          for (const lead of qualifiedLeads) {
-            try {
-              const inserted = await sql`
-                INSERT INTO leads (
-                  workspace_id, business_name, website, domain, email, email_source_url,
-                  phone, phone_source_url, country, city, address, industry, category,
-                  source, source_platform, source_url, search_record_id, created_at
-                ) VALUES (
-                  ${workspaceId}, ${lead.business_name}, ${lead.website}, ${lead.domain},
-                  ${lead.email}, ${lead.email_source_url}, ${lead.phone}, ${lead.phone_source_url},
-                  ${lead.country}, ${lead.city}, ${lead.address}, ${lead.industry}, ${lead.category},
-                  ${lead.source}, ${lead.source_platform}, ${lead.source_url}, ${recordId || null}, ${nowIso}
-                ) RETURNING id
-              `;
-              if (inserted?.[0]?.id) {
-                lead.id = inserted[0].id;
-              }
-            } catch (leadInsertErr) {
-              console.warn("[Google Maps Save Lead] Non-fatal insert error:", leadInsertErr);
-            }
-          }
-        }
+        await saveNeonSearchRecordAndLeads(
+          workspaceId,
+          {
+            keyword,
+            country,
+            city: city !== "ALL_CITIES" ? city : "",
+            sources: ["Google Maps Platform", "Google Places API"],
+            requested_quantity: requestedQuantity,
+            search_record_id: `SR-MAPS-${Date.now()}`,
+          },
+          qualifiedLeads
+        );
       } catch (dbErr) {
         console.error("[Google Maps Lead DB Persistence] Error:", dbErr);
       }

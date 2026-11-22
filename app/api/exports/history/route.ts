@@ -3,7 +3,8 @@ import { proxyToBackend } from "@/lib/backend-proxy";
 import {
   getCurrentUserFromRequest,
   getServerlessExportHistory,
-  addServerlessExportHistory
+  addServerlessExportHistory,
+  verifyClientActiveSubscription,
 } from "@/lib/serverless-auth";
 import {
   getNeonExportHistory,
@@ -13,7 +14,19 @@ import {
 
 export async function GET(req: Request) {
   const currentUser = getCurrentUserFromRequest(req);
-  const workspaceId = currentUser ? currentUser.workspace_id : 1;
+  if (!currentUser) {
+    return NextResponse.json({ detail: "Authentication required to view export history." }, { status: 401 });
+  }
+
+  const subCheck = await verifyClientActiveSubscription(currentUser);
+  if (!subCheck.allowed) {
+    return NextResponse.json(
+      { detail: subCheck.message, error: subCheck.message },
+      { status: subCheck.statusCode || 403 }
+    );
+  }
+
+  const workspaceId = currentUser.workspace_id || 1;
 
   const fallbackHandler = async () => {
     if (isNeonConfigured()) {
@@ -42,8 +55,20 @@ export async function GET(req: Request) {
 
 export async function POST(req: Request) {
   const currentUser = getCurrentUserFromRequest(req);
-  const workspaceId = currentUser ? currentUser.workspace_id : 1;
-  const userId = currentUser ? currentUser.id : 1;
+  if (!currentUser) {
+    return NextResponse.json({ detail: "Authentication required to record exports." }, { status: 401 });
+  }
+
+  const subCheck = await verifyClientActiveSubscription(currentUser);
+  if (!subCheck.allowed) {
+    return NextResponse.json(
+      { detail: subCheck.message, error: subCheck.message },
+      { status: subCheck.statusCode || 403 }
+    );
+  }
+
+  const workspaceId = currentUser.workspace_id || 1;
+  const userId = currentUser.id || 1;
 
   let body: any = {};
   try {

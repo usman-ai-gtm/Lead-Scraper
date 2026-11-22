@@ -1,11 +1,22 @@
 import { NextResponse } from "next/server";
-import { getCurrentUserFromRequest } from "@/lib/serverless-auth";
+import { getCurrentUserFromRequest, verifyClientActiveSubscription } from "@/lib/serverless-auth";
 import { getNeonGmailAccount, getNeonSql, isNeonConfigured } from "@/lib/neon-db";
 
 export async function GET(request: Request) {
   const currentUser = getCurrentUserFromRequest(request);
-  const wsHeader = request.headers.get("x-workspace-id") || request.headers.get("X-Workspace-Id");
-  const workspaceId = currentUser ? currentUser.workspace_id : (wsHeader ? Number(wsHeader) : 1);
+  if (!currentUser) {
+    return NextResponse.json({ error: "Authentication required." }, { status: 401 });
+  }
+
+  const subCheck = await verifyClientActiveSubscription(currentUser);
+  if (!subCheck.allowed) {
+    return NextResponse.json(
+      { error: subCheck.message },
+      { status: subCheck.statusCode || 403 }
+    );
+  }
+
+  const workspaceId = currentUser.workspace_id || 1;
 
   const clientId = (process.env.GOOGLE_CLIENT_ID || process.env.NEXT_PUBLIC_GOOGLE_CLIENT_ID || "").trim();
   const clientSecret = (process.env.GOOGLE_CLIENT_SECRET || "").trim();

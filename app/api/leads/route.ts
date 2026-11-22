@@ -13,6 +13,14 @@ export async function GET(req: Request) {
     );
   }
 
+  const subCheck = await verifyClientActiveSubscription(currentUser);
+  if (!subCheck.allowed) {
+    return NextResponse.json(
+      { detail: subCheck.message, error: subCheck.message },
+      { status: subCheck.statusCode || 403 }
+    );
+  }
+
   const workspaceId = currentUser.workspace_id;
   const url = new URL(req.url);
   const keyword = url.searchParams.get("keyword") || "";

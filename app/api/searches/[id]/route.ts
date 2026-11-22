@@ -1,12 +1,28 @@
 import { NextResponse } from "next/server";
 import { proxyToBackend } from "@/lib/backend-proxy";
-import { getCurrentUserFromRequest, getServerlessSearchRecordById } from "@/lib/serverless-auth";
+import {
+  getCurrentUserFromRequest,
+  getServerlessSearchRecordById,
+  verifyClientActiveSubscription,
+} from "@/lib/serverless-auth";
 import { getNeonSearchRecordById, isNeonConfigured } from "@/lib/neon-db";
 
 export async function GET(req: Request, { params }: { params: { id: string } }) {
-  const searchId = params.id;
   const currentUser = getCurrentUserFromRequest(req);
-  const workspaceId = currentUser ? currentUser.workspace_id : 1;
+  if (!currentUser) {
+    return NextResponse.json({ detail: "Authentication required to view search record." }, { status: 401 });
+  }
+
+  const subCheck = await verifyClientActiveSubscription(currentUser);
+  if (!subCheck.allowed) {
+    return NextResponse.json(
+      { detail: subCheck.message, error: subCheck.message },
+      { status: subCheck.statusCode || 403 }
+    );
+  }
+
+  const searchId = params.id;
+  const workspaceId = currentUser.workspace_id || 1;
 
   const fallbackHandler = async () => {
     if (isNeonConfigured()) {
