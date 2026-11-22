@@ -263,7 +263,7 @@ export default function SavedLeadsPage() {
 
   const handleOpenEmailModal = (lead: Lead) => {
     if (isLocked) {
-      setToastMsg("🔒 Cold Email Outreach Locked: Please activate your account via WhatsApp (+923174383702) for $25/month or $100 Lifetime.");
+      setToastMsg("Your account is currently locked. Please complete payment and contact the Owner for activation. Your premium access will begin after approval.");
       return;
     }
     setActiveEmailLead(lead);
@@ -461,7 +461,7 @@ export default function SavedLeadsPage() {
     payload?: { specificLeads?: any[]; searchRecord?: SearchRecord; dateStr?: string }
   ) => {
     if (isLocked) {
-      setToastMsg("🔒 Exports Locked: Please activate your account via WhatsApp (+923174383702) for $25/month or $100 Lifetime.");
+      setToastMsg("Your account is currently locked. Please complete payment and contact the Owner for activation. Your premium access will begin after approval.");
       return;
     }
     let leadsToExport: any[] = [];

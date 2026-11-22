@@ -328,6 +328,15 @@ function buildPdfResponse(leads: ExportLeadItem[], filenameBase: string, meta?: 
 }
 
 export async function GET(req: Request) {
+  const currentUser = getCurrentUserFromRequest(req);
+  const authCheck = await verifyClientActiveSubscription(currentUser);
+  if (!authCheck.allowed) {
+    return NextResponse.json(
+      { error: authCheck.message },
+      { status: authCheck.statusCode || 403 }
+    );
+  }
+
   const url = new URL(req.url);
   const format = (url.searchParams.get("format") || "xlsx").toLowerCase();
 
@@ -338,7 +347,6 @@ export async function GET(req: Request) {
     );
   }
 
-  const currentUser = getCurrentUserFromRequest(req);
   const workspaceId = currentUser ? currentUser.workspace_id : 1;
 
   const fallbackData: any[] = [];

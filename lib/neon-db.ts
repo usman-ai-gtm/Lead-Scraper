@@ -1189,9 +1189,6 @@ export async function provisionNeonClient(data: {
     "SELECT COUNT(*) as cnt FROM users WHERE role != 'ADMIN' AND status != 'REVOKED'"
   );
   const activeCount = parseInt(activeCountRes[0]?.cnt || "0", 10);
-  if (activeCount >= 50) {
-    throw new Error("Maximum 50-client seat quota reached. Please upgrade seat license.");
-  }
 
   const nowIso = new Date().toISOString();
   let baseWsName = data.company ? `${data.company.trim()} Workspace` : `${data.fullName.trim()}'s Workspace`;
@@ -1264,11 +1261,6 @@ export async function updateNeonClientStatus(clientId: number, newStatus: string
              active = 1,
              is_active = 1,
              subscription_status = 'ACTIVE',
-             subscription_expires_at = CASE
-               WHEN plan = 'LIFETIME' THEN NULL
-               WHEN subscription_expires_at IS NULL OR subscription_expires_at <= NOW() THEN NOW() + INTERVAL '30 days'
-               ELSE subscription_expires_at
-             END,
              updated_at = $1
          WHERE id = $2 AND role != 'ADMIN'
          RETURNING id`,

@@ -330,17 +330,17 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
             <div className="flex items-center gap-2.5 text-amber-200">
               <span className="text-base">🔒</span>
               <span>
-                <strong>Account in Preview Mode (Tala / Locked):</strong> All paid features (lead search, email dispatch, exports) are locked with view-only access. Full access requires paid activation (<strong>$25/month</strong> or <strong>$100 Lifetime Deal</strong>).
+                <strong>Your account is currently locked.</strong> Please complete payment and contact the Owner for activation. Your premium access will begin after approval. Plans: <strong>$25/month Basic</strong> (30 Days) or <strong>$100 Lifetime Access</strong>.
               </span>
             </div>
             <a
-              href={`https://wa.me/923174383702?text=Hello%20Usman%2C%20I%20want%20to%20activate%20my%20subscription%20(%2425%2Fmo%20or%20%24100%20Lifetime)%20for%20my%20registered%20email:%20${encodeURIComponent(user?.email || "")}`}
+              href={`https://wa.me/923174383702?text=Hello%20Usman%2C%20I%20have%20completed%20payment%20and%20want%20to%20activate%20my%20subscription%20(%2425%2Fmo%20Basic%20or%20%24100%20Lifetime)%20for%20my%20registered%20email:%20${encodeURIComponent(user?.email || "")}`}
               target="_blank"
               rel="noopener noreferrer"
               className="inline-flex items-center gap-1.5 px-4 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs shadow-md transition-all shrink-0 cursor-pointer"
             >
               <MessageCircle className="h-3.5 w-3.5" />
-              <span>Unlock via WhatsApp (+923174383702)</span>
+              <span>Contact Owner on WhatsApp (+923174383702)</span>
             </a>
           </div>
         )}

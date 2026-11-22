@@ -123,7 +123,7 @@ function EmailAccountsContent() {
   const handleConnectGmail = async () => {
     if (isLocked) {
       setToastType("error");
-      setToastMsg("🔒 Feature Locked: Connecting outreach mailboxes requires an active paid subscription ($25/mo or $100 Lifetime). Contact Owner via WhatsApp (+923174383702).");
+      setToastMsg("Your account is currently locked. Please complete payment and contact the Owner for activation. Your premium access will begin after approval.");
       return;
     }
     setConnecting(true);

@@ -912,14 +912,14 @@ export async function verifyClientActiveSubscription(user: any): Promise<{
             return {
               allowed: false,
               statusCode: 403,
-              message: "Your Basic subscription has expired. Please renew for $25/month or upgrade to $100 Lifetime via WhatsApp (+923174383702).",
+              message: "Your account is currently locked. Please complete payment and contact the Owner for activation. Your premium access will begin after approval.",
               userRecord: { ...u, status: authoritative.status },
             };
           }
           return {
             allowed: false,
             statusCode: 403,
-            message: "Account Locked — Subscription Activation Required ($25/month or $100 Lifetime). Contact Owner via WhatsApp (+923174383702) for Instant Activation.",
+            message: "Your account is currently locked. Please complete payment and contact the Owner for activation. Your premium access will begin after approval.",
             userRecord: { ...u, status: authoritative.status },
           };
         }
@@ -933,11 +933,11 @@ export async function verifyClientActiveSubscription(user: any): Promise<{
 
   // Fallback in-memory status check
   const statusUpper = (user.status || "LOCKED").toUpperCase();
-  if (statusUpper === "LOCKED" || statusUpper === "PENDING") {
+  if (statusUpper === "LOCKED" || statusUpper === "PENDING" || statusUpper === "EXPIRED") {
     return {
       allowed: false,
       statusCode: 403,
-      message: "Account Locked — Subscription Activation Required ($25/month or $100 Lifetime). Contact Owner via WhatsApp (+923174383702) for Instant Activation.",
+      message: "Your account is currently locked. Please complete payment and contact the Owner for activation. Your premium access will begin after approval.",
     };
   }
   if (statusUpper === "SUSPENDED" || statusUpper === "REVOKED") {

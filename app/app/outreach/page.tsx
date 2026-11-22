@@ -200,7 +200,7 @@ function ColdEmailContent() {
   // Generate personalized email draft using Gemini AI
   const handleGeminiDraft = async () => {
     if (isLocked) {
-      alert("🔒 AI Email Generator Locked: Please activate your account via WhatsApp (+923174383702) for $25/month or $100 Lifetime.");
+      alert("Your account is currently locked. Please complete payment and contact the Owner for activation. Your premium access will begin after approval.");
       return;
     }
     const firstSelected = leads.find((l) => selectedLeadIds.includes(l.id)) || leads[0];
@@ -245,7 +245,7 @@ function ColdEmailContent() {
   // Send test email to user
   const handleSendTest = async () => {
     if (isLocked) {
-      alert("🔒 Outreach Sending Locked: Please activate your account via WhatsApp (+923174383702) for $25/month or $100 Lifetime.");
+      alert("Your account is currently locked. Please complete payment and contact the Owner for activation. Your premium access will begin after approval.");
       return;
     }
     if (!isGmailConnected) {
@@ -291,7 +291,7 @@ function ColdEmailContent() {
   // Start sending to selected recipients
   const handleStartSending = async () => {
     if (isLocked) {
-      alert("🔒 Outreach Sending Locked: Please activate your account via WhatsApp (+923174383702) for $25/month or $100 Lifetime.");
+      alert("Your account is currently locked. Please complete payment and contact the Owner for activation. Your premium access will begin after approval.");
       return;
     }
     if (selectedLeadIds.length === 0) {

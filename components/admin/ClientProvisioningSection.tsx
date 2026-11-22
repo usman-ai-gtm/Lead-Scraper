@@ -5,7 +5,7 @@ import { api } from "@/lib/api";
 import { ClientAccount } from "@/lib/types";
 import {
   Users, UserPlus, KeyRound, ShieldAlert, CheckCircle2,
-  AlertTriangle, Copy, Check, RefreshCw, Lock, Trash2, Power
+  AlertTriangle, Copy, Check, RefreshCw, Lock, Trash2, Power, Search
 } from "lucide-react";
 
 interface OneTimeCreds {
@@ -38,6 +38,7 @@ export function ClientProvisioningSection() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [successMsg, setSuccessMsg] = useState<string | null>(null);
+  const [searchQuery, setSearchQuery] = useState("");
 
   // Modal states
   const [provisionModalOpen, setProvisionModalOpen] = useState(false);
@@ -102,6 +103,21 @@ export function ClientProvisioningSection() {
   const suspendedCount = clients.filter((c) => c.status === "SUSPENDED" || c.status === "REVOKED").length;
   const lifetimeCount = clients.filter((c) => (c.raw_plan || c.plan || "").toUpperCase().includes("LIFETIME")).length;
   const basicCount = clients.filter((c) => (c.raw_plan || c.plan || "").toUpperCase().includes("BASIC")).length;
+
+  // Filter clients by search query (Google email, name, workspace ID, company, plan, or status)
+  const filteredClients = clients.filter((c) => {
+    if (!searchQuery.trim()) return true;
+    const q = searchQuery.toLowerCase().trim();
+    return (
+      (c.email || "").toLowerCase().includes(q) ||
+      (c.full_name || "").toLowerCase().includes(q) ||
+      String(c.id).includes(q) ||
+      String(c.workspace_id || "").includes(q) ||
+      (c.company || "").toLowerCase().includes(q) ||
+      (c.status || "").toLowerCase().includes(q) ||
+      (c.plan || "").toLowerCase().includes(q)
+    );
+  });
 
   const handleOpenProvisionModal = () => {
     setFormData({
@@ -438,14 +454,36 @@ export function ClientProvisioningSection() {
       {activeTab === "clients" ? (
         /* CLIENTS TABLE */
         <div className="rounded-2xl border border-white/[0.08] bg-[#0c1017] p-6 space-y-4">
-          <div className="flex items-center justify-between">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
             <h3 className="text-sm font-bold text-white flex items-center gap-2">
               <span>Client Accounts & Subscriptions</span>
-              <span className="text-xs font-mono font-semibold text-slate-500">({clients.length} registered)</span>
+              <span className="text-xs font-mono font-semibold text-slate-500">
+                ({filteredClients.length}{filteredClients.length !== clients.length ? ` of ${clients.length}` : ""} registered)
+              </span>
             </h3>
             <span className="text-[11px] text-slate-400 font-mono">
               Basic: $25 / 30 Days • Lifetime: $100
             </span>
+          </div>
+
+          {/* Quick Search / Filter Bar by Google Email, Name, or Status */}
+          <div className="flex items-center gap-2.5 px-3 py-2 rounded-xl bg-white/[0.03] border border-white/10 text-xs">
+            <Search className="h-4 w-4 text-blue-400 shrink-0" />
+            <input
+              type="text"
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              placeholder="Search customers by Google email, name, workspace ID, status, or plan..."
+              className="w-full bg-transparent text-white placeholder-slate-500 focus:outline-none text-xs"
+            />
+            {searchQuery && (
+              <button
+                onClick={() => setSearchQuery("")}
+                className="text-[10px] text-slate-400 hover:text-white px-2 py-0.5 rounded bg-white/5 font-mono"
+              >
+                Clear
+              </button>
+            )}
           </div>
 
           {/* Real-time Indicator for Locked / Pending Accounts */}
@@ -516,7 +554,14 @@ export function ClientProvisioningSection() {
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-white/[0.04]">
-                  {clients.map((c) => {
+                  {filteredClients.length === 0 ? (
+                    <tr>
+                      <td colSpan={9} className="py-8 text-center text-xs text-slate-500">
+                        No customer accounts match your search query &quot;{searchQuery}&quot;.
+                      </td>
+                    </tr>
+                  ) : (
+                    filteredClients.map((c) => {
                     const isPending = c.status === "LOCKED" || c.status === "PENDING";
                     const isExpired = c.status === "EXPIRED";
                     const isSuspended = c.status === "SUSPENDED";
@@ -709,7 +754,7 @@ export function ClientProvisioningSection() {
                         </td>
                       </tr>
                     );
-                  })}
+                  }))}
                 </tbody>
               </table>
             </div>

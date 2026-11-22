@@ -176,40 +176,21 @@ export async function POST(req: Request, { params }: RouteParams) {
 
       case "UNLOCK":
       case "RESTORE": {
-        // Unlock / Restore: restore active access
-        const isLifetime = (client.plan || "").toUpperCase() === "LIFETIME";
-        const isPastOrNull = !client.subscription_expires_at || new Date(client.subscription_expires_at).getTime() <= Date.now();
-
-        if (!isLifetime && isPastOrNull) {
-          updated = await sql`
-            UPDATE users
-            SET status = 'ACTIVE',
-                active = 1,
-                is_active = 1,
-                plan = 'BASIC',
-                subscription_status = 'ACTIVE',
-                subscription_start = NOW(),
-                subscription_expires_at = NOW() + INTERVAL '30 days',
-                subscription_notes = COALESCE(${notes}, subscription_notes),
-                updated_at = NOW()
-            WHERE id = ${clientId}
-            RETURNING id, email, full_name, role, status, plan, active, is_active,
-                      subscription_start, subscription_expires_at, subscription_status
-          `;
-        } else {
-          updated = await sql`
-            UPDATE users
-            SET status = 'ACTIVE',
-                active = 1,
-                is_active = 1,
-                subscription_status = 'ACTIVE',
-                subscription_notes = COALESCE(${notes}, subscription_notes),
-                updated_at = NOW()
-            WHERE id = ${clientId}
-            RETURNING id, email, full_name, role, status, plan, active, is_active,
-                      subscription_start, subscription_expires_at, subscription_status
-          `;
-        }
+        // Unlock: restore status to ACTIVE, but DO NOT grant free 30 days if expired.
+        // If the subscription is expired or has no expiry, computeAuthoritativeUserStatus
+        // will keep them strictly EXPIRED / LOCKED until the Owner explicitly chooses ACTIVATE_BASIC or RENEW.
+        updated = await sql`
+          UPDATE users
+          SET status = 'ACTIVE',
+              active = 1,
+              is_active = 1,
+              subscription_status = 'ACTIVE',
+              subscription_notes = COALESCE(${notes}, subscription_notes),
+              updated_at = NOW()
+          WHERE id = ${clientId}
+          RETURNING id, email, full_name, role, status, plan, active, is_active,
+                    subscription_start, subscription_expires_at, subscription_status
+        `;
         break;
       }
 

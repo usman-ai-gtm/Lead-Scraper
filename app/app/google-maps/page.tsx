@@ -82,7 +82,7 @@ function GoogleMapsLeadComponent() {
   // Handle Maps Extraction
   const handleStartExtraction = async () => {
     if (isLocked) {
-      setToastMsg("🔒 Account Locked: Please activate your account via WhatsApp (+923174383702).");
+      setToastMsg("Your account is currently locked. Please complete payment and contact the Owner for activation. Your premium access will begin after approval.");
       return;
     }
 

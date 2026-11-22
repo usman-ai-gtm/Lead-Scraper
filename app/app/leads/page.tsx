@@ -144,7 +144,7 @@ function LeadsSearchComponent() {
       currentLocked = Boolean(freshUser && freshUser.role !== "ADMIN" && (freshUser.status !== "ACTIVE" || freshUser.is_active === false || freshUser.isLocked === true));
     }
     if (currentLocked) {
-      setToastMsg("🔒 Feature Locked: Please activate your account via WhatsApp (+923174383702) for $25/month or $100 Lifetime.");
+      setToastMsg("Your account is currently locked. Please complete payment and contact the Owner for activation. Your premium access will begin after approval.");
       return;
     }
     if (!keyword.trim()) {

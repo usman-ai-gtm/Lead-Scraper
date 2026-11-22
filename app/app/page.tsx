@@ -140,7 +140,7 @@ export default function DashboardPage() {
                 </span>
               </div>
               <p className="text-xs text-slate-300">
-                You can browse and explore the platform! To start extracting leads, scraping Google Maps, or connecting your Gmail, please activate your plan via WhatsApp.
+                Your account is currently locked. Please complete payment and contact the Owner for activation. Your premium access will begin after approval.
               </p>
               <div className="flex items-center gap-4 pt-1 text-[11px] text-slate-400">
                 <span>• <strong className="text-white">Basic:</strong> $25 / Month (30 Days)</span>
