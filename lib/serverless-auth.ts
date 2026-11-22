@@ -82,6 +82,8 @@ export function verifyPassword(plainPassword: string, storedHash?: string): bool
 export function createJwtToken(payload: {
   sub: string;
   email: string;
+  username?: string;
+  account_type?: string;
   full_name?: string;
   role: string;
   workspace_id: number;
