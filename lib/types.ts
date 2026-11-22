@@ -3,10 +3,15 @@ export interface User {
   email: string;
   full_name: string;
   company?: string;
-  role: "ADMIN" | "MANAGER" | "USER" | "VIEWER";
+  role: "ADMIN" | "MANAGER" | "USER" | "VIEWER" | "CLIENT" | string;
   workspace_id: number;
-  tenant_id: number;
+  tenant_id?: number;
   status?: string;
+  plan?: string;
+  is_active?: boolean;
+  isLocked?: boolean;
+  remaining_days?: number | string;
+  subscription_expires_at?: string | null;
   must_change_password?: boolean;
 }
 

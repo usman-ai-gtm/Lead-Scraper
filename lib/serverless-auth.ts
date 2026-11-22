@@ -1,5 +1,5 @@
 import crypto from "crypto";
-import { getNeonSql, isNeonConfigured } from "@/lib/neon-db";
+import { getNeonSql, isNeonConfigured, computeAuthoritativeUserStatus } from "@/lib/neon-db";
 
 const JWT_SECRET = process.env.SECRET_KEY || process.env.JWT_SECRET || "usman_ai_gtm_ultra_pro_max_secret_key_change_in_production_jwt_99";
 
@@ -871,63 +871,34 @@ export async function verifyClientActiveSubscription(user: any): Promise<{
         }
 
         const u = rows[0];
-        const statusUpper = (u.status || "LOCKED").toUpperCase();
+        const authoritative = computeAuthoritativeUserStatus(u);
 
-        if (statusUpper === "SUSPENDED" || statusUpper === "REVOKED") {
-          return {
-            allowed: false,
-            statusCode: 403,
-            message: "Account Suspended or Revoked. Contact Administrator via WhatsApp (+923174383702).",
-            userRecord: u,
-          };
-        }
-
-        if (statusUpper === "LOCKED" || statusUpper === "PENDING") {
+        if (authoritative.isLocked) {
+          if (authoritative.status === "REVOKED" || authoritative.status === "SUSPENDED") {
+            return {
+              allowed: false,
+              statusCode: 403,
+              message: "Account Suspended or Revoked. Contact Administrator via WhatsApp (+923174383702).",
+              userRecord: { ...u, status: authoritative.status },
+            };
+          }
+          if (authoritative.status === "EXPIRED") {
+            return {
+              allowed: false,
+              statusCode: 403,
+              message: "Your Basic subscription has expired. Please renew for $25/month or upgrade to $100 Lifetime via WhatsApp (+923174383702).",
+              userRecord: { ...u, status: authoritative.status },
+            };
+          }
           return {
             allowed: false,
             statusCode: 403,
             message: "Account Locked — Subscription Activation Required ($25/month or $100 Lifetime). Contact Owner via WhatsApp (+923174383702) for Instant Activation.",
-            userRecord: u,
+            userRecord: { ...u, status: authoritative.status },
           };
         }
 
-        const planUpper = (u.plan || "BASIC").toUpperCase();
-        if (planUpper === "BASIC") {
-          if (u.subscription_expires_at) {
-            const expTime = new Date(u.subscription_expires_at).getTime();
-            if (expTime < Date.now()) {
-              // Expired: update status in database
-              await sql.query(
-                "UPDATE users SET status = 'EXPIRED', subscription_status = 'EXPIRED', updated_at = NOW() WHERE id = $1",
-                [u.id]
-              );
-              return {
-                allowed: false,
-                statusCode: 403,
-                message: "Your Basic subscription has expired. Please renew for $25/month or upgrade to $100 Lifetime via WhatsApp (+923174383702).",
-                userRecord: { ...u, status: "EXPIRED" },
-              };
-            }
-          } else {
-            return {
-              allowed: false,
-              statusCode: 403,
-              message: "Account Locked — Subscription Activation Required ($25/month or $100 Lifetime). Contact Owner via WhatsApp (+923174383702) for Instant Activation.",
-              userRecord: u,
-            };
-          }
-        }
-
-        if (statusUpper === "EXPIRED") {
-          return {
-            allowed: false,
-            statusCode: 403,
-            message: "Your Basic subscription has expired. Please renew for $25/month or upgrade to $100 Lifetime via WhatsApp (+923174383702).",
-            userRecord: u,
-          };
-        }
-
-        return { allowed: true, userRecord: u };
+        return { allowed: true, userRecord: { ...u, status: authoritative.status, plan: authoritative.plan } };
       } catch (e) {
         console.error("verifyClientActiveSubscription Neon error:", e);
       }

@@ -32,8 +32,7 @@ interface OutreachRecord {
 }
 
 function ColdEmailContent() {
-  const { user } = useAuth();
-  const isLocked = user?.status === "LOCKED" || user?.status === "PENDING";
+  const { user, isLocked, refreshUser } = useAuth();
 
   // State
   const [leads, setLeads] = useState<LeadItem[]>([]);

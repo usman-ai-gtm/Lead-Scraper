@@ -167,15 +167,30 @@ export async function GET(request: Request) {
         const assignedRole = isOwner ? 'ADMIN' : 'CLIENT';
         const initialStatus = isOwner ? 'ACTIVE' : 'LOCKED';
 
-        const newUserRes = await sql`
-          INSERT INTO users (username, email, full_name, role, workspace_id, status, created_at, tenant_id, password_hash)
-          VALUES (${profileEmail}, ${profileEmail}, ${profileName}, ${assignedRole}, ${newWsId}, ${initialStatus}, ${nowIso}, 1, 'GOOGLE_OAUTH_USER')
-          ON CONFLICT (username) DO UPDATE
-            SET email = EXCLUDED.email,
-                full_name = COALESCE(users.full_name, EXCLUDED.full_name)
-          RETURNING id, email, full_name, role, workspace_id, status
-        `;
-        activeUser = newUserRes[0];
+        try {
+          const newUserRes = await sql`
+            INSERT INTO users (username, email, full_name, role, workspace_id, status, created_at, tenant_id, password_hash)
+            VALUES (${profileEmail}, ${profileEmail}, ${profileName}, ${assignedRole}, ${newWsId}, ${initialStatus}, ${nowIso}, 1, 'GOOGLE_OAUTH_USER')
+            ON CONFLICT (username) DO UPDATE
+              SET email = EXCLUDED.email,
+                  full_name = COALESCE(users.full_name, EXCLUDED.full_name)
+            RETURNING id, email, full_name, role, workspace_id, status
+          `;
+          activeUser = newUserRes[0];
+        } catch (insertErr) {
+          console.warn("[Google Sign-in] Insert conflict handled, fetching existing user:", insertErr);
+          const fallbackUsers = await sql`
+            SELECT id, email, username, full_name, role, workspace_id, status
+            FROM users
+            WHERE LOWER(email) = LOWER(${profileEmail}) OR LOWER(username) = LOWER(${profileEmail})
+            LIMIT 1
+          `;
+          if (fallbackUsers && fallbackUsers.length > 0) {
+            activeUser = fallbackUsers[0];
+          } else {
+            throw insertErr;
+          }
+        }
       }
 
       const sessionToken = createJwtToken({

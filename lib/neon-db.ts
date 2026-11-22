@@ -975,6 +975,115 @@ export async function updateNeonLeadOutreachStatus(
 }
 
 /**
+ * Authoritative Single Source of Truth for User Status & Subscription Evaluation.
+ * Evaluates real-time DB fields and enforces:
+ * - ADMIN: Always active Lifetime.
+ * - Explicit manual lock/suspension/revocation strictly overrides everything.
+ * - LIFETIME: Permanent active access (zero expiry).
+ * - BASIC ($25/30d): Active only if subscription_expires_at > NOW(), auto-locked/expired otherwise.
+ */
+export function computeAuthoritativeUserStatus(user: {
+  role?: string;
+  status?: string;
+  plan?: string;
+  subscription_expires_at?: string | Date | null;
+}): {
+  status: "ACTIVE" | "LOCKED" | "SUSPENDED" | "REVOKED" | "EXPIRED";
+  isLocked: boolean;
+  plan: "BASIC" | "LIFETIME";
+  isExpired: boolean;
+  daysRemaining: number | string;
+} {
+  const roleUpper = (user.role || "").toUpperCase();
+  if (roleUpper === "ADMIN") {
+    return {
+      status: "ACTIVE",
+      isLocked: false,
+      plan: "LIFETIME",
+      isExpired: false,
+      daysRemaining: "Permanent (Owner)",
+    };
+  }
+
+  const statusUpper = (user.status || "LOCKED").toUpperCase();
+
+  // Explicit manual lock/suspension/revocation STRICTLY overrides everything
+  if (statusUpper === "REVOKED") {
+    return {
+      status: "REVOKED",
+      isLocked: true,
+      plan: (user.plan || "BASIC").toUpperCase() === "LIFETIME" ? "LIFETIME" : "BASIC",
+      isExpired: false,
+      daysRemaining: 0,
+    };
+  }
+  if (statusUpper === "SUSPENDED") {
+    return {
+      status: "SUSPENDED",
+      isLocked: true,
+      plan: (user.plan || "BASIC").toUpperCase() === "LIFETIME" ? "LIFETIME" : "BASIC",
+      isExpired: false,
+      daysRemaining: 0,
+    };
+  }
+  if (statusUpper === "LOCKED" || statusUpper === "PENDING") {
+    return {
+      status: "LOCKED",
+      isLocked: true,
+      plan: (user.plan || "BASIC").toUpperCase() === "LIFETIME" ? "LIFETIME" : "BASIC",
+      isExpired: false,
+      daysRemaining: 0,
+    };
+  }
+
+  // Active status: check plan & expiration
+  const planUpper = (user.plan || "BASIC").toUpperCase() === "LIFETIME" ? "LIFETIME" : "BASIC";
+
+  if (planUpper === "LIFETIME") {
+    return {
+      status: "ACTIVE",
+      isLocked: false,
+      plan: "LIFETIME",
+      isExpired: false,
+      daysRemaining: "Lifetime Access — No Expiry",
+    };
+  }
+
+  // Basic Plan ($25 / 30 Days)
+  if (!user.subscription_expires_at) {
+    return {
+      status: "LOCKED",
+      isLocked: true,
+      plan: "BASIC",
+      isExpired: true,
+      daysRemaining: 0,
+    };
+  }
+
+  const expTime = new Date(user.subscription_expires_at).getTime();
+  const now = Date.now();
+  const diffDays = Math.ceil((expTime - now) / (1000 * 60 * 60 * 24));
+
+  if (diffDays <= 0) {
+    return {
+      status: "EXPIRED",
+      isLocked: true,
+      plan: "BASIC",
+      isExpired: true,
+      daysRemaining: 0,
+    };
+  }
+
+  return {
+    status: "ACTIVE",
+    isLocked: false,
+    plan: "BASIC",
+    isExpired: false,
+    daysRemaining: diffDays,
+  };
+}
+
+/**
  * USMAN AI GTM - 50-Seat Multi-Tenant Client Management
  */
 export async function getNeonClients() {
@@ -1007,35 +1116,16 @@ export async function getNeonClients() {
       ORDER BY u.id DESC
     `);
 
-    const now = Date.now();
     return clients.map((c: any) => {
-      const planUpper = String(c.plan || 'BASIC').toUpperCase();
-      let remainingDays: number | string = 'Lifetime Access — No Expiry';
-      let isExpired = false;
-
-      if (planUpper === 'BASIC') {
-        if (c.subscription_expires_at) {
-          const expTime = new Date(c.subscription_expires_at).getTime();
-          const diffDays = Math.ceil((expTime - now) / (1000 * 60 * 60 * 24));
-          remainingDays = Math.max(0, diffDays);
-          if (diffDays <= 0) {
-            isExpired = true;
-          }
-        } else {
-          remainingDays = 0;
-          isExpired = true;
-        }
-      }
-
-      const displayStatus = isExpired && c.status === 'ACTIVE' ? 'EXPIRED' : (c.status || 'LOCKED');
+      const computed = computeAuthoritativeUserStatus(c);
 
       return {
         ...c,
-        raw_plan: planUpper,
-        plan: planUpper === 'LIFETIME' ? 'LIFETIME ($100)' : 'BASIC ($25/30 Days)',
-        status: displayStatus,
-        payment_status: displayStatus === 'ACTIVE' ? 'PAID' : 'PENDING',
-        remaining_days: remainingDays,
+        raw_plan: computed.plan,
+        plan: computed.plan === "LIFETIME" ? "LIFETIME ($100)" : "BASIC ($25/30 Days)",
+        status: computed.status,
+        payment_status: computed.status === "ACTIVE" ? "PAID" : "PENDING",
+        remaining_days: computed.daysRemaining,
         total_leads: parseInt(c.total_leads || "0", 10),
         total_searches: parseInt(c.total_searches || "0", 10),
         connected_accounts: parseInt(c.connected_accounts || "0", 10),
@@ -1144,10 +1234,28 @@ export async function updateNeonClientStatus(clientId: number, newStatus: string
     const validStatus = ["ACTIVE", "LOCKED", "SUSPENDED", "REVOKED"].includes(newStatus.toUpperCase())
       ? newStatus.toUpperCase()
       : "ACTIVE";
-    const res = await sql.query(
-      "UPDATE users SET status = $1, updated_at = $2 WHERE id = $3 AND role != 'ADMIN' RETURNING id",
-      [validStatus, new Date().toISOString(), clientId]
-    );
+    let res: any;
+    if (validStatus === "ACTIVE") {
+      res = await sql.query(
+        `UPDATE users
+         SET status = 'ACTIVE',
+             subscription_status = 'ACTIVE',
+             subscription_expires_at = CASE
+               WHEN plan = 'LIFETIME' THEN NULL
+               WHEN subscription_expires_at IS NULL OR subscription_expires_at <= NOW() THEN NOW() + INTERVAL '30 days'
+               ELSE subscription_expires_at
+             END,
+             updated_at = $1
+         WHERE id = $2 AND role != 'ADMIN'
+         RETURNING id`,
+        [new Date().toISOString(), clientId]
+      );
+    } else {
+      res = await sql.query(
+        "UPDATE users SET status = $1, subscription_status = $1, updated_at = $2 WHERE id = $3 AND role != 'ADMIN' RETURNING id",
+        [validStatus, new Date().toISOString(), clientId]
+      );
+    }
     return res.length > 0;
   } catch (e) {
     console.error("Neon updateNeonClientStatus error:", e);

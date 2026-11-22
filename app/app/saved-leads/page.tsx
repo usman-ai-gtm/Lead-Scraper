@@ -64,8 +64,7 @@ function getSavedLeadsAuthHeaders() {
 }
 
 export default function SavedLeadsPage() {
-  const { user } = useAuth();
-  const isLocked = user?.status === "LOCKED" || user?.status === "PENDING";
+  const { user, isLocked, refreshUser } = useAuth();
 
   // Tab State: "leads" | "history" | "export_history"
   const [activeTab, setActiveTab] = useState<"leads" | "history" | "export_history">("leads");

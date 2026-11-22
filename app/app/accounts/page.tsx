@@ -42,8 +42,7 @@ interface GmailStatusResponse {
 }
 
 function EmailAccountsContent() {
-  const { user } = useAuth();
-  const isLocked = user?.status === "LOCKED" || user?.status === "PENDING";
+  const { user, isLocked, refreshUser } = useAuth();
   const searchParams = useSearchParams();
 
   const [statusData, setStatusData] = useState<GmailStatusResponse | null>(null);

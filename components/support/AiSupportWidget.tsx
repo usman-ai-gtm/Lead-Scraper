@@ -51,6 +51,21 @@ export function AiSupportWidget() {
     }
   }, [messages, isOpen]);
 
+  const handleResetChat = () => {
+    setMessages([
+      {
+        id: "welcome",
+        sender: "assistant",
+        text: "👋 Hi! I am the **USMAN AI Growth Assistant**.\n\nAsk me anything about discovering B2B leads, Google Maps scraping, connecting Gmail, or activating your subscription ($25 Basic or $100 Lifetime)!",
+        time: "Just now",
+        actions: [
+          { label: "Pricing ($25 vs $100)", url: "/pricing" },
+          { label: "WhatsApp Activation", url: "https://wa.me/923174383702?text=Hi%20Usman%2C%20I%20want%20to%20activate%20my%20subscription" },
+        ],
+      },
+    ]);
+  };
+
   const handleSendMessage = async (textToSend?: string) => {
     const text = (textToSend || inputText).trim();
     if (!text || loading) return;
@@ -62,6 +77,11 @@ export function AiSupportWidget() {
       time: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
     };
 
+    const currentHistory = messages.map((m) => ({
+      role: m.sender === "user" ? ("user" as const) : ("assistant" as const),
+      content: m.text,
+    }));
+
     setMessages((prev) => [...prev, userMsg]);
     setInputText("");
     setLoading(true);
@@ -70,7 +90,7 @@ export function AiSupportWidget() {
       const res = await fetch("/api/support/chat", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ message: text }),
+        body: JSON.stringify({ message: text, history: currentHistory }),
       });
 
       const data = await res.json();
@@ -142,6 +162,13 @@ export function AiSupportWidget() {
             </div>
 
             <div className="flex items-center gap-1">
+              <button
+                onClick={handleResetChat}
+                className="p-1.5 text-slate-400 hover:text-white rounded-lg hover:bg-white/[0.05] transition-colors"
+                title="New Conversation"
+              >
+                <RefreshCw className="h-3.5 w-3.5" />
+              </button>
               <button
                 onClick={() => setIsOpen(false)}
                 className="p-1.5 text-slate-400 hover:text-white rounded-lg hover:bg-white/[0.05] transition-colors"

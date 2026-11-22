@@ -51,8 +51,7 @@ interface SourceStatus {
 
 function LeadsSearchComponent() {
   const searchParams = useSearchParams();
-  const { user } = useAuth();
-  const isLocked = user?.status === "LOCKED" || user?.status === "PENDING";
+  const { user, isLocked, refreshUser } = useAuth();
 
   // Search input state (pre-populated from Quick Search Launcher if parameters exist)
   const [keyword, setKeyword] = useState<string>("");
@@ -138,7 +137,13 @@ function LeadsSearchComponent() {
 
   // Execute One Search Action — Full Consolidated Dataset via Internal Pagination
   const handleStartExtraction = async () => {
-    if (isLocked) {
+    let currentLocked = isLocked;
+    if (currentLocked) {
+      // Re-verify with authoritative server in real time
+      const freshUser = await refreshUser();
+      currentLocked = Boolean(freshUser && freshUser.role !== "ADMIN" && (freshUser.status !== "ACTIVE" || freshUser.is_active === false || freshUser.isLocked === true));
+    }
+    if (currentLocked) {
       setToastMsg("🔒 Feature Locked: Please activate your account via WhatsApp (+923174383702) for $25/month or $100 Lifetime.");
       return;
     }

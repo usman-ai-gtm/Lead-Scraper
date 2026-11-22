@@ -9,7 +9,7 @@ import {
   LayoutDashboard, Search, Database, Download, Settings,
   Shield, Users2, SlidersHorizontal, Activity, LogOut,
   Menu, X, Sparkles, Bell, CheckCircle2, Mail, Send,
-  Briefcase, History, CreditCard, Receipt, MessageCircle, AlertCircle
+  Briefcase, History, CreditCard, Receipt, MessageCircle, AlertCircle, MapPin
 } from "lucide-react";
 
 interface NavItem {
@@ -57,11 +57,12 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
     return () => window.removeEventListener("keydown", handleKeyDown);
   }, []);
 
-  // Exactly 8 Client Navigation Items (Section 13)
+  // Exactly 9 Client Navigation Items (Including Lifetime Google Maps)
   const clientNav: NavItem[] = [
     { name: "Dashboard", href: "/app", icon: LayoutDashboard },
     { name: "Business Profile", href: "/app/business-profile", icon: Briefcase },
     { name: "Find Leads", href: "/app/leads", icon: Search },
+    { name: "Google Maps Leads", href: "/app/google-maps", icon: MapPin },
     { name: "Saved Leads", href: "/app/saved-leads", icon: Database },
     { name: "Search History", href: "/app/history", icon: History },
     { name: "Email Accounts", href: "/app/accounts", icon: Mail },
@@ -81,6 +82,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
     { title: "Dashboard Overview", subtitle: "Command center and real workspace metrics", url: "/app", badge: "DASHBOARD" },
     { title: "Business Profile", subtitle: "Gemini-assisted ICP and target keyword setup wizard", url: "/app/business-profile", badge: "PROFILE" },
     { title: "Find Leads", subtitle: "Extract public commercial contacts across 193 countries", url: "/app/leads", badge: "SEARCH" },
+    { title: "Google Maps Leads", subtitle: "Scrape local businesses with website email discovery", url: "/app/google-maps", badge: "LIFETIME" },
     { title: "Saved Leads", subtitle: "Manage saved leads and private company data", url: "/app/saved-leads", badge: "SAVED" },
     { title: "Search History", subtitle: "Reopen past search snapshots organized by PKT date & time", url: "/app/history", badge: "HISTORY" },
     { title: "Email Accounts", subtitle: "Connect your official Gmail account for $0 cold outreach", url: "/app/accounts", badge: "GMAIL" },
@@ -149,7 +151,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
               const Icon = item.icon;
               const isActive = pathname === item.href;
               const isLockedUser = user?.status === "LOCKED" || user?.status === "PENDING";
-              const isLockedFeature = isLockedUser && ["/app/leads", "/app/saved-leads", "/app/history", "/app/accounts", "/app/outreach"].includes(item.href);
+              const isLockedFeature = isLockedUser && ["/app/leads", "/app/google-maps", "/app/saved-leads", "/app/history", "/app/accounts", "/app/outreach"].includes(item.href);
               return (
                 <Link
                   key={item.href}
@@ -164,6 +166,11 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
                     <Icon className={`h-4 w-4 ${isActive ? "text-white" : "text-slate-400"}`} />
                     <span>{item.name}</span>
                   </div>
+                  {item.href === "/app/google-maps" && !isLockedFeature && (
+                    <span className="text-[9px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded bg-amber-500/15 text-amber-300 border border-amber-500/30">
+                      Lifetime
+                    </span>
+                  )}
                   {isLockedFeature && (
                     <span className="text-[10px] px-1.5 py-0.5 rounded bg-amber-500/20 text-amber-300 border border-amber-500/40 flex items-center gap-1">
                       🔒 <span className="text-[9px] font-bold">LOCKED</span>

@@ -9,6 +9,8 @@ interface AuthContextType {
   workspaces: Workspace[];
   activeWorkspace: Workspace | null;
   loading: boolean;
+  isLocked: boolean;
+  refreshUser: () => Promise<User | null>;
   login: (email: string, pass: string) => Promise<void>;
   signup: (data: { email: string; pass: string; fullName: string; company?: string; workspaceName?: string }) => Promise<void>;
   changePassword: (oldPass: string, newPass: string) => Promise<void>;
@@ -21,6 +23,8 @@ const AuthContext = createContext<AuthContextType>({
   workspaces: [],
   activeWorkspace: null,
   loading: true,
+  isLocked: false,
+  refreshUser: async () => null,
   login: async () => {},
   signup: async () => {},
   changePassword: async () => {},
@@ -34,6 +38,22 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [activeWorkspace, setActiveWorkspace] = useState<Workspace | null>(null);
   const [loading, setLoading] = useState(true);
 
+  const refreshUser = async (): Promise<User | null> => {
+    const token = typeof window !== "undefined" ? localStorage.getItem("usman_gtm_token") : null;
+    if (!token) return null;
+    try {
+      const profile = await api.get<User>("/auth/me");
+      if (profile) {
+        setUser(profile);
+        localStorage.setItem("usman_gtm_user", JSON.stringify(profile));
+        return profile;
+      }
+    } catch {
+      // transient failure, do not wipe session
+    }
+    return null;
+  };
+
   useEffect(() => {
     const initAuth = async () => {
       const token = localStorage.getItem("usman_gtm_token");
@@ -41,6 +61,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         try {
           const profile = await api.get<User>("/auth/me");
           setUser(profile);
+          localStorage.setItem("usman_gtm_user", JSON.stringify(profile));
 
           const wsList = await api.get<Workspace[]>("/auth/workspaces");
           setWorkspaces(wsList);
@@ -67,6 +88,33 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
     initAuth();
   }, []);
+
+  // Real-time synchronization: Poll every 8s and auto-sync on window focus
+  useEffect(() => {
+    if (!user) return;
+
+    const interval = setInterval(() => {
+      if (typeof document !== "undefined" && !document.hidden) {
+        refreshUser();
+      }
+    }, 8000);
+
+    const onFocus = () => {
+      refreshUser();
+    };
+
+    window.addEventListener("focus", onFocus);
+    return () => {
+      clearInterval(interval);
+      window.removeEventListener("focus", onFocus);
+    };
+  }, [user?.id]);
+
+  const isLocked = Boolean(
+    user &&
+    user.role !== "ADMIN" &&
+    (user.status !== "ACTIVE" || user.is_active === false || user.isLocked === true)
+  );
 
   const login = async (email: string, pass: string) => {
     const res = await api.post<{ access_token: string; user: User }>("/auth/login", {
@@ -170,6 +218,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         workspaces,
         activeWorkspace,
         loading,
+        isLocked,
+        refreshUser,
         login,
         signup,
         changePassword,

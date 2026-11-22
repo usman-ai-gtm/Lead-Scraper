@@ -20,7 +20,12 @@ function LoginForm() {
     // 1. Handle error param
     const errParam = searchParams.get("error");
     if (errParam) {
-      setError(decodeURIComponent(errParam));
+      const decoded = decodeURIComponent(errParam);
+      if (decoded.includes("users_username_key") || decoded.includes("unique constraint")) {
+        setError("Your account is already registered. Please sign in below or contact WhatsApp (+923174383702) for account activation.");
+      } else {
+        setError(decoded);
+      }
     }
 
     // 2. Handle Google OAuth redirect session
