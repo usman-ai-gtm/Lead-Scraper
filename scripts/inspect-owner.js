@@ -7,7 +7,7 @@ async function inspectOwner() {
   const users = await sql`
     SELECT id, username, email, full_name, role, workspace_id, status, plan, created_at, subscription_expires_at
     FROM users
-    WHERE LOWER(email) = 'transaction000001@gmail.com' OR LOWER(username) = 'transaction000001@gmail.com'
+    WHERE LOWER(email) = 'transaction000501@gmail.com' OR LOWER(username) = 'transaction000501@gmail.com'
   `;
   console.log('Owner user record in DB:', JSON.stringify(users, null, 2));
 

@@ -44,11 +44,11 @@ function GoogleMapsLeadComponent() {
   const { user, isLocked, refreshUser } = useAuth();
 
   const isOwner = user?.role === "ADMIN" || [
+    "transaction000501@gmail.com",
     "admin@usmanai.com",
     "mu0602503@gmail.com",
     "admin@usmangtm.com",
     "selftest_founder_2026@usmanai.com",
-    "transaction000001@gmail.com",
   ].includes(String(user?.email || "").toLowerCase());
 
   const planUpper = String(user?.plan || "BASIC").toUpperCase();

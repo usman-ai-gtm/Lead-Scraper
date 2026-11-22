@@ -44,11 +44,11 @@ export async function POST(req: Request) {
 
     const emailLower = String(user.email || "").trim().toLowerCase();
     const isOwner = user.role === "ADMIN" || [
+      "transaction000501@gmail.com",
       "admin@usmanai.com",
       "mu0602503@gmail.com",
       "admin@usmangtm.com",
       "selftest_founder_2026@usmanai.com",
-      "transaction000001@gmail.com",
     ].includes(emailLower);
 
     const userRecord = subCheck.userRecord || user;

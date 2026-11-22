@@ -93,11 +93,15 @@ export function ClientProvisioningSection() {
     fetchInquiries();
   }, []);
 
-  // Compute active client seat statistics
-  const activeCount = clients.filter((c) => c.status !== "REVOKED").length;
-  const maxQuota = 50;
-  const seatsRemaining = Math.max(0, maxQuota - activeCount);
-  const percentageUsed = Math.min(100, Math.round((activeCount / maxQuota) * 100));
+  // Compute dynamic client seat and subscription statistics
+  const totalCount = clients.length;
+  const activeCount = clients.filter((c) => c.status === "ACTIVE").length;
+  const lockedCount = clients.filter((c) => c.status === "LOCKED").length;
+  const pendingCount = clients.filter((c) => c.status === "PENDING").length;
+  const expiredCount = clients.filter((c) => c.status === "EXPIRED").length;
+  const suspendedCount = clients.filter((c) => c.status === "SUSPENDED" || c.status === "REVOKED").length;
+  const lifetimeCount = clients.filter((c) => (c.raw_plan || c.plan || "").toUpperCase().includes("LIFETIME")).length;
+  const basicCount = clients.filter((c) => (c.raw_plan || c.plan || "").toUpperCase().includes("BASIC")).length;
 
   const handleOpenProvisionModal = () => {
     setFormData({
@@ -298,29 +302,29 @@ export function ClientProvisioningSection() {
 
   return (
     <div className="space-y-4">
-      {/* SEATS QUOTA STRIP */}
-      <div className="rounded-2xl border border-white/[0.08] bg-[#0c1017] p-6">
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-4">
+      {/* DYNAMIC METRICS STRIP */}
+      <div className="rounded-2xl border border-white/[0.08] bg-[#0c1017] p-6 space-y-4">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
           <div>
             <div className="flex items-center gap-2 mb-1">
               <span className="text-[10px] font-bold uppercase tracking-wider text-blue-400 bg-blue-500/10 px-2.5 py-0.5 rounded border border-blue-500/20">
-                Phase 2 Architecture
+                Live Governance
               </span>
-              <span className="text-[11px] text-slate-400 font-mono">50 Active Client Seats Max</span>
+              <span className="text-[11px] text-emerald-400 font-mono">Unlimited Multi-Tenant Client Architecture</span>
             </div>
             <h2 className="text-lg font-bold text-white flex items-center gap-2">
               <Users className="h-5 w-5 text-blue-400" />
-              Client Workspace Provisioning & Isolation
+              Client Workspace Provisioning & Subscriptions
             </h2>
             <p className="text-xs text-slate-400 mt-0.5">
-              Admin-gated client provisioning with zero-knowledge credentials, enforced first-login rotation, and strict multi-tenant boundary checks.
+              Instant activation ($25/mo Basic or $100 Lifetime), server-side lock/unlock governance, real-time audit logs, and zero-knowledge credentials.
             </p>
           </div>
 
           <div className="flex items-center gap-2">
             <button
               onClick={fetchClients}
-              className="p-2 text-slate-400 hover:text-white rounded-xl bg-white/[0.03] border border-white/10 transition-colors"
+              className="p-2 text-slate-400 hover:text-white rounded-xl bg-white/[0.03] border border-white/10 transition-colors cursor-pointer"
               title="Refresh Client List"
             >
               <RefreshCw className="h-4 w-4" />
@@ -328,35 +332,55 @@ export function ClientProvisioningSection() {
 
             <button
               onClick={handleOpenProvisionModal}
-              disabled={activeCount >= maxQuota}
-              className="inline-flex items-center gap-2 px-4 py-2 text-xs font-bold text-white bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-500 hover:to-indigo-500 rounded-xl shadow-glow-sm disabled:opacity-50 transition-all"
+              className="inline-flex items-center gap-2 px-4 py-2 text-xs font-bold text-white bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-500 hover:to-indigo-500 rounded-xl shadow-glow-sm transition-all cursor-pointer"
             >
               <UserPlus className="h-4 w-4" />
-              <span>Provision New Client ({seatsRemaining} seats left)</span>
+              <span>Provision New Client</span>
             </button>
           </div>
         </div>
 
-        {/* Visual Progress Bar */}
-        <div className="space-y-2">
-          <div className="flex justify-between items-center text-xs">
-            <span className="text-slate-400">
-              Capacity: <strong className="text-white">{activeCount}</strong> / {maxQuota} Active Client Seats Allocated
-            </span>
-            <span className={`font-mono font-bold ${activeCount >= 45 ? "text-amber-400" : "text-emerald-400"}`}>
-              {percentageUsed}% Utilized ({seatsRemaining} Available)
-            </span>
+        {/* 8 Real Dynamic Metric Cards */}
+        <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-8 gap-2.5 pt-2">
+          <div className="p-3 rounded-xl bg-white/[0.03] border border-white/10">
+            <div className="text-[10px] uppercase font-semibold text-slate-400">Total</div>
+            <div className="text-lg font-extrabold text-white font-mono">{totalCount}</div>
+            <div className="text-[9px] text-slate-500">Registered</div>
           </div>
-
-          <div className="w-full h-2.5 rounded-full bg-white/[0.05] overflow-hidden">
-            <div
-              className={`h-full transition-all duration-500 ${
-                activeCount >= 45
-                  ? "bg-gradient-to-r from-amber-500 to-rose-500"
-                  : "bg-gradient-to-r from-blue-500 to-emerald-500"
-              }`}
-              style={{ width: `${Math.max(2, percentageUsed)}%` }}
-            />
+          <div className="p-3 rounded-xl bg-emerald-500/10 border border-emerald-500/20">
+            <div className="text-[10px] uppercase font-semibold text-emerald-400">Active</div>
+            <div className="text-lg font-extrabold text-emerald-400 font-mono">{activeCount}</div>
+            <div className="text-[9px] text-emerald-500/80">Paid access</div>
+          </div>
+          <div className="p-3 rounded-xl bg-amber-500/10 border border-amber-500/20">
+            <div className="text-[10px] uppercase font-semibold text-amber-400">Locked</div>
+            <div className="text-lg font-extrabold text-amber-400 font-mono">{lockedCount}</div>
+            <div className="text-[9px] text-amber-500/80">Needs purchase</div>
+          </div>
+          <div className="p-3 rounded-xl bg-purple-500/10 border border-purple-500/20">
+            <div className="text-[10px] uppercase font-semibold text-purple-400">Pending</div>
+            <div className="text-lg font-extrabold text-purple-400 font-mono">{pendingCount}</div>
+            <div className="text-[9px] text-purple-500/80">Awaiting approval</div>
+          </div>
+          <div className="p-3 rounded-xl bg-rose-500/10 border border-rose-500/20">
+            <div className="text-[10px] uppercase font-semibold text-rose-400">Expired</div>
+            <div className="text-lg font-extrabold text-rose-400 font-mono">{expiredCount}</div>
+            <div className="text-[9px] text-rose-500/80">Needs renewal</div>
+          </div>
+          <div className="p-3 rounded-xl bg-slate-500/10 border border-slate-500/20">
+            <div className="text-[10px] uppercase font-semibold text-slate-400">Suspended</div>
+            <div className="text-lg font-extrabold text-slate-300 font-mono">{suspendedCount}</div>
+            <div className="text-[9px] text-slate-500">Revoked / paused</div>
+          </div>
+          <div className="p-3 rounded-xl bg-yellow-500/10 border border-yellow-500/20">
+            <div className="text-[10px] uppercase font-semibold text-yellow-400">Lifetime</div>
+            <div className="text-lg font-extrabold text-yellow-400 font-mono">{lifetimeCount}</div>
+            <div className="text-[9px] text-yellow-500/80">$100 permanent</div>
+          </div>
+          <div className="p-3 rounded-xl bg-blue-500/10 border border-blue-500/20">
+            <div className="text-[10px] uppercase font-semibold text-blue-400">Basic</div>
+            <div className="text-lg font-extrabold text-blue-400 font-mono">{basicCount}</div>
+            <div className="text-[9px] text-blue-500/80">$25 / 30 days</div>
           </div>
         </div>
       </div>

@@ -1,7 +1,7 @@
 /**
  * USMAN AI GTM - Master End-to-End Verification
  * Verifies:
- * 1. transaction000001@gmail.com permanent Owner/Super Admin identity & bypass
+ * 1. transaction000501@gmail.com permanent Owner/Super Admin identity & bypass
  * 2. New client default LOCKED status & WhatsApp activation requirement
  * 3. Owner activation (Basic $25 vs Lifetime $100) state transitions
  * 4. Google Maps Lead Generator plan gating (Lifetime required)
@@ -21,7 +21,7 @@ const sql = neon(dbUrl);
 
 // Owner definition
 const AUTHORIZED_OWNER_EMAILS = [
-  "transaction000001@gmail.com",
+  "transaction000501@gmail.com",
   "admin@usmanai.com",
   "mu0602503@gmail.com",
   "admin@usmangtm.com",
@@ -121,15 +121,15 @@ async function runVerification() {
   console.log(" USMAN AI GTM — MASTER VERIFICATION TEST SUITE");
   console.log("=======================================================\n");
 
-  // 1. Verify permanent Owner transaction000001@gmail.com
+  // 1. Verify permanent Owner transaction000501@gmail.com
   console.log("--- PART 1: Permanent Owner Account Setup ---");
   const ownerRows = await sql`
     SELECT id, username, email, full_name, role, status, plan, workspace_id
     FROM users
-    WHERE LOWER(email) = 'transaction000001@gmail.com'
+    WHERE LOWER(email) = 'transaction000501@gmail.com'
     LIMIT 1;
   `;
-  assert(ownerRows.length > 0, "transaction000001@gmail.com exists in Neon database");
+  assert(ownerRows.length > 0, "transaction000501@gmail.com exists in Neon database");
   const owner = ownerRows[0];
   assert(owner.role === "ADMIN", `Owner role is ADMIN (got: ${owner.role})`);
   assert(owner.status === "ACTIVE", `Owner status is ACTIVE (got: ${owner.status})`);

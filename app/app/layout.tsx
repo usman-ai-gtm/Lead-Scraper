@@ -21,7 +21,7 @@ interface NavItem {
 export default function AppLayout({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
   const router = useRouter();
-  const { user, loading, activeWorkspace, workspaces, switchWorkspace, logout } = useAuth();
+  const { user, loading, activeWorkspace, workspaces, switchWorkspace, logout, isLocked } = useAuth();
 
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
   const [commandPaletteOpen, setCommandPaletteOpen] = useState(false);
@@ -37,7 +37,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
   const isAdmin =
     user?.role === "ADMIN" ||
     [
-      "transaction000001@gmail.com",
+      "transaction000501@gmail.com",
       "admin@usmanai.com",
       "mu0602503@gmail.com",
       "admin@usmangtm.com",
@@ -159,8 +159,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
             {clientNav.map((item) => {
               const Icon = item.icon;
               const isActive = pathname === item.href;
-              const isLockedUser = user?.status === "LOCKED" || user?.status === "PENDING";
-              const isLockedFeature = isLockedUser && ["/app/leads", "/app/google-maps", "/app/saved-leads", "/app/history", "/app/accounts", "/app/outreach"].includes(item.href);
+              const isLockedFeature = isLocked && ["/app/leads", "/app/google-maps", "/app/saved-leads", "/app/history", "/app/accounts", "/app/outreach"].includes(item.href);
               return (
                 <Link
                   key={item.href}
@@ -324,7 +323,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
         </header>
 
         {/* LOCKED ACCOUNT / PREVIEW MODE BANNER */}
-        {(user?.status === "LOCKED" || user?.status === "PENDING") && (
+        {isLocked && (
           <div className="bg-gradient-to-r from-amber-500/20 via-orange-500/20 to-amber-500/20 border-b border-amber-500/40 px-4 py-3 sm:px-6 flex flex-col sm:flex-row items-center justify-between gap-3 text-xs">
             <div className="flex items-center gap-2.5 text-amber-200">
               <span className="text-base">🔒</span>

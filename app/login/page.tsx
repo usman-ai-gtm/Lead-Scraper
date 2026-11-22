@@ -22,7 +22,7 @@ function LoginForm() {
     if (errParam) {
       const decoded = decodeURIComponent(errParam);
       if (decoded.includes("users_username_key") || decoded.includes("unique constraint")) {
-        setError("Your account is already registered. Please sign in below or contact WhatsApp (+923174383702) for account activation.");
+        setError("Your account is registered. Click 'Continue with Google' to access your command center, or contact WhatsApp (+923174383702) to activate your subscription ($25/mo Basic or $100 Lifetime).");
       } else {
         setError(decoded);
       }

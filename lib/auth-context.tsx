@@ -97,7 +97,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       if (typeof document !== "undefined" && !document.hidden) {
         refreshUser();
       }
-    }, 5000);
+    }, 3000);
 
     const onFocus = () => {
       refreshUser();
@@ -112,7 +112,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   const emailLower = String(user?.email || "").trim().toLowerCase();
   const isOwner = [
-    "transaction000001@gmail.com",
+    "transaction000501@gmail.com",
     "admin@usmanai.com",
     "mu0602503@gmail.com",
     "admin@usmangtm.com",

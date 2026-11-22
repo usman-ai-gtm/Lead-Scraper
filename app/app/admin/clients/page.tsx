@@ -24,14 +24,14 @@ export default function AdminClientsPage() {
               Client Accounts
             </span>
           </div>
-          <h1 className="text-2xl font-extrabold text-white">50-Client Seat Management</h1>
+          <h1 className="text-2xl font-extrabold text-white">Client Accounts & Subscription Governance</h1>
           <p className="text-xs text-slate-400">
-            Provision dedicated client seats with isolated workspaces (0 initial leads) and single-use temporary credentials.
+            Real-time multi-tenant management: provision client seats, activate $25/mo or $100 Lifetime plans, monitor live countdowns, and manage instant account locks.
           </p>
         </div>
       </div>
 
-      {/* Main 50-Client Provisioning & Management Component */}
+      {/* Main Client Provisioning & Management Component */}
       <ClientProvisioningSection />
     </div>
   );

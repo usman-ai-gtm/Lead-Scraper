@@ -55,7 +55,7 @@ seedAdminUser("admin@usmanai.com", "UsmanGTM@2026!", "Administrator");
 seedAdminUser("admin@usmangtm.com", "UsmanGTM@2026!", "Administrator");
 seedAdminUser("selftest_founder_2026@usmanai.com", "SecurePassword@2026!", "Muhammad Usman (Founder)");
 seedAdminUser("mu0602503@gmail.com", "UsmanGTM@2026!", "Muhammad Usman");
-seedAdminUser("transaction000001@gmail.com", "UsmanGTM@2026!", "Administrator");
+seedAdminUser("transaction000501@gmail.com", "UsmanGTM@2026!", "Muhammad Usman (Owner)");
 
 export function verifyPassword(plainPassword: string, storedHash?: string): boolean {
   if (!plainPassword || !storedHash) return false;
@@ -814,8 +814,10 @@ export function getServerlessExportHistory(workspaceId: number): ServerlessExpor
   return serverlessExportHistoryStore.filter((e) => e.workspace_id === workspaceId);
 }
 
+export const PRIMARY_OWNER_EMAIL = "transaction000501@gmail.com";
+
 export const AUTHORIZED_OWNER_EMAILS = [
-  "transaction000001@gmail.com",
+  "transaction000501@gmail.com",
   "admin@usmanai.com",
   "mu0602503@gmail.com",
   "admin@usmangtm.com",

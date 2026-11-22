@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { getCurrentUserFromRequest, isAuthorizedOwner } from "@/lib/serverless-auth";
-import { getNeonSql, isNeonConfigured, logAccountAudit } from "@/lib/neon-db";
+import { getNeonSql, isNeonConfigured, logAccountAudit, computeAuthoritativeUserStatus } from "@/lib/neon-db";
 
 export const dynamic = "force-dynamic";
 
@@ -33,9 +33,10 @@ export async function POST(req: Request, { params }: RouteParams) {
     const sql = getNeonSql();
     if (!sql) return NextResponse.json({ detail: "DB connection failed" }, { status: 503 });
 
-    // Fetch current client
+    // Fetch current client (strict RBAC: cannot modify admin accounts)
     const existing = await sql`
-      SELECT id, email, full_name, role, status, plan, subscription_start, subscription_expires_at, subscription_status
+      SELECT id, email, full_name, role, status, plan, active, is_active,
+             subscription_start, subscription_expires_at, subscription_status
       FROM users
       WHERE id = ${clientId} AND role != 'ADMIN'
       LIMIT 1
@@ -50,10 +51,12 @@ export async function POST(req: Request, { params }: RouteParams) {
 
     switch (action) {
       case "ACTIVATE_BASIC": {
-        // 30 days from now
+        // Basic: $25 / 30 Days (auto-locks after 30 days)
         updated = await sql`
           UPDATE users
           SET status = 'ACTIVE',
+              active = 1,
+              is_active = 1,
               plan = 'BASIC',
               subscription_status = 'ACTIVE',
               subscription_start = NOW(),
@@ -61,16 +64,19 @@ export async function POST(req: Request, { params }: RouteParams) {
               subscription_notes = COALESCE(${notes}, subscription_notes),
               updated_at = NOW()
           WHERE id = ${clientId}
-          RETURNING id, email, full_name, status, plan, subscription_start, subscription_expires_at, subscription_status
+          RETURNING id, email, full_name, role, status, plan, active, is_active,
+                    subscription_start, subscription_expires_at, subscription_status
         `;
         break;
       }
 
       case "ACTIVATE_LIFETIME": {
-        // Lifetime: permanent, no expiry
+        // Lifetime: $100 One-Time (permanent access, no expiry)
         updated = await sql`
           UPDATE users
           SET status = 'ACTIVE',
+              active = 1,
+              is_active = 1,
               plan = 'LIFETIME',
               subscription_status = 'ACTIVE',
               subscription_start = NOW(),
@@ -78,7 +84,8 @@ export async function POST(req: Request, { params }: RouteParams) {
               subscription_notes = COALESCE(${notes}, subscription_notes),
               updated_at = NOW()
           WHERE id = ${clientId}
-          RETURNING id, email, full_name, status, plan, subscription_start, subscription_expires_at, subscription_status
+          RETURNING id, email, full_name, role, status, plan, active, is_active,
+                    subscription_start, subscription_expires_at, subscription_status
         `;
         break;
       }
@@ -92,13 +99,16 @@ export async function POST(req: Request, { params }: RouteParams) {
         updated = await sql`
           UPDATE users
           SET status = 'ACTIVE',
+              active = 1,
+              is_active = 1,
               plan = COALESCE(plan, 'BASIC'),
               subscription_status = 'ACTIVE',
               subscription_expires_at = ${newExpiry},
               subscription_notes = COALESCE(${notes}, subscription_notes),
               updated_at = NOW()
           WHERE id = ${clientId}
-          RETURNING id, email, full_name, status, plan, subscription_start, subscription_expires_at, subscription_status
+          RETURNING id, email, full_name, role, status, plan, active, is_active,
+                    subscription_start, subscription_expires_at, subscription_status
         `;
         break;
       }
@@ -111,31 +121,38 @@ export async function POST(req: Request, { params }: RouteParams) {
         updated = await sql`
           UPDATE users
           SET status = 'ACTIVE',
+              active = 1,
+              is_active = 1,
               subscription_status = 'ACTIVE',
               subscription_expires_at = ${customExpiry},
               subscription_notes = COALESCE(${notes}, subscription_notes),
               updated_at = NOW()
           WHERE id = ${clientId}
-          RETURNING id, email, full_name, status, plan, subscription_start, subscription_expires_at, subscription_status
+          RETURNING id, email, full_name, role, status, plan, active, is_active,
+                    subscription_start, subscription_expires_at, subscription_status
         `;
         break;
       }
 
       case "LOCK": {
+        // Lock: instant server-side revocation of active access
         updated = await sql`
           UPDATE users
           SET status = 'LOCKED',
+              active = 0,
+              is_active = 0,
               subscription_status = 'LOCKED',
               subscription_notes = COALESCE(${notes}, subscription_notes),
               updated_at = NOW()
           WHERE id = ${clientId}
-          RETURNING id, email, full_name, status, plan, subscription_start, subscription_expires_at, subscription_status
+          RETURNING id, email, full_name, role, status, plan, active, is_active,
+                    subscription_start, subscription_expires_at, subscription_status
         `;
         break;
       }
 
       case "UNLOCK": {
-        // If plan is BASIC and expiry is in the past or missing, grant a fresh 30-day active period
+        // Unlock: restore active access
         const isLifetime = (client.plan || "").toUpperCase() === "LIFETIME";
         const isPastOrNull = !client.subscription_expires_at || new Date(client.subscription_expires_at).getTime() <= Date.now();
 
@@ -143,6 +160,8 @@ export async function POST(req: Request, { params }: RouteParams) {
           updated = await sql`
             UPDATE users
             SET status = 'ACTIVE',
+                active = 1,
+                is_active = 1,
                 plan = 'BASIC',
                 subscription_status = 'ACTIVE',
                 subscription_start = NOW(),
@@ -150,17 +169,21 @@ export async function POST(req: Request, { params }: RouteParams) {
                 subscription_notes = COALESCE(${notes}, subscription_notes),
                 updated_at = NOW()
             WHERE id = ${clientId}
-            RETURNING id, email, full_name, status, plan, subscription_start, subscription_expires_at, subscription_status
+            RETURNING id, email, full_name, role, status, plan, active, is_active,
+                      subscription_start, subscription_expires_at, subscription_status
           `;
         } else {
           updated = await sql`
             UPDATE users
             SET status = 'ACTIVE',
+                active = 1,
+                is_active = 1,
                 subscription_status = 'ACTIVE',
                 subscription_notes = COALESCE(${notes}, subscription_notes),
                 updated_at = NOW()
             WHERE id = ${clientId}
-            RETURNING id, email, full_name, status, plan, subscription_start, subscription_expires_at, subscription_status
+            RETURNING id, email, full_name, role, status, plan, active, is_active,
+                      subscription_start, subscription_expires_at, subscription_status
           `;
         }
         break;
@@ -170,11 +193,14 @@ export async function POST(req: Request, { params }: RouteParams) {
         updated = await sql`
           UPDATE users
           SET status = 'SUSPENDED',
+              active = 0,
+              is_active = 0,
               subscription_status = 'SUSPENDED',
               subscription_notes = COALESCE(${notes}, subscription_notes),
               updated_at = NOW()
           WHERE id = ${clientId}
-          RETURNING id, email, full_name, status, plan, subscription_start, subscription_expires_at, subscription_status
+          RETURNING id, email, full_name, role, status, plan, active, is_active,
+                    subscription_start, subscription_expires_at, subscription_status
         `;
         break;
       }
@@ -184,11 +210,14 @@ export async function POST(req: Request, { params }: RouteParams) {
         updated = await sql`
           UPDATE users
           SET status = 'REVOKED',
+              active = 0,
+              is_active = 0,
               subscription_status = 'REVOKED',
               subscription_notes = COALESCE(${notes}, subscription_notes),
               updated_at = NOW()
           WHERE id = ${clientId}
-          RETURNING id, email, full_name, status, plan, subscription_start, subscription_expires_at, subscription_status
+          RETURNING id, email, full_name, role, status, plan, active, is_active,
+                    subscription_start, subscription_expires_at, subscription_status
         `;
         break;
       }
@@ -200,6 +229,9 @@ export async function POST(req: Request, { params }: RouteParams) {
         );
     }
 
+    const updatedUser = updated?.[0];
+    const authoritative = updatedUser ? computeAuthoritativeUserStatus(updatedUser) : null;
+
     // Log action to account_audit_logs
     await logAccountAudit({
       adminId: user.id,
@@ -210,14 +242,15 @@ export async function POST(req: Request, { params }: RouteParams) {
       details: {
         previous_status: client.status,
         previous_plan: client.plan,
-        updated_to: updated?.[0],
+        updated_to: updatedUser,
+        authoritative,
         notes,
       },
     });
 
     return NextResponse.json({
       status: "success",
-      client: updated?.[0] || null,
+      client: updatedUser ? { ...updatedUser, ...authoritative } : null,
       message: `Client #${clientId} subscription updated via ${action}.`,
     });
   } catch (err: any) {

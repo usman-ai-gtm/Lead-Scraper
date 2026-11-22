@@ -1223,7 +1223,7 @@ export async function provisionNeonClient(data: {
     client: userRes[0],
     workspace: { id: workspaceId, name: createdWsName, plan },
     active_seats_used: activeCount + 1,
-    seats_remaining: Math.max(0, 50 - (activeCount + 1)),
+    seats_remaining: "Unlimited",
   };
 }
 
@@ -1239,6 +1239,8 @@ export async function updateNeonClientStatus(clientId: number, newStatus: string
       res = await sql.query(
         `UPDATE users
          SET status = 'ACTIVE',
+             active = 1,
+             is_active = 1,
              subscription_status = 'ACTIVE',
              subscription_expires_at = CASE
                WHEN plan = 'LIFETIME' THEN NULL
@@ -1252,7 +1254,7 @@ export async function updateNeonClientStatus(clientId: number, newStatus: string
       );
     } else {
       res = await sql.query(
-        "UPDATE users SET status = $1, subscription_status = $1, updated_at = $2 WHERE id = $3 AND role != 'ADMIN' RETURNING id",
+        "UPDATE users SET status = $1, active = 0, is_active = 0, subscription_status = $1, updated_at = $2 WHERE id = $3 AND role != 'ADMIN' RETURNING id",
         [validStatus, new Date().toISOString(), clientId]
       );
     }

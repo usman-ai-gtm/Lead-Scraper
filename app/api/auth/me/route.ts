@@ -6,7 +6,16 @@ export const dynamic = "force-dynamic";
 
 export async function GET(request: Request) {
   const authHeader = request.headers.get("Authorization") || request.headers.get("authorization");
-  const token = authHeader?.replace(/^Bearer\s+/i, "")?.trim();
+  let token = authHeader?.replace(/^Bearer\s+/i, "")?.trim();
+
+  // Support cookie fallback if Authorization header not sent
+  if (!token) {
+    const cookieHeader = request.headers.get("cookie") || "";
+    const match = cookieHeader.match(/usman_gtm_token=([^;]+)/);
+    if (match) {
+      token = decodeURIComponent(match[1].trim());
+    }
+  }
 
   if (token) {
     const payload = verifyJwtToken(token);
@@ -28,7 +37,7 @@ export async function GET(request: Request) {
               const u = users[0];
               const authoritative = computeAuthoritativeUserStatus(u);
               const isOwner = [
-                "transaction000001@gmail.com",
+                "transaction000501@gmail.com",
                 "admin@usmanai.com",
                 "mu0602503@gmail.com",
                 "admin@usmangtm.com",

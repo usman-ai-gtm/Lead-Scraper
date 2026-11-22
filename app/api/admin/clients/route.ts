@@ -31,22 +31,40 @@ export async function GET(req: Request) {
 
     if (isNeonConfigured()) {
       const clients = await getNeonClients();
-      const activeCount = clients.filter((c: any) => c.status !== "REVOKED").length;
+      const stats = {
+        total_registered: clients.length,
+        active: clients.filter((c: any) => c.status === "ACTIVE").length,
+        locked: clients.filter((c: any) => c.status === "LOCKED").length,
+        pending: clients.filter((c: any) => c.status === "PENDING").length,
+        expired: clients.filter((c: any) => c.status === "EXPIRED").length,
+        suspended: clients.filter((c: any) => c.status === "SUSPENDED").length,
+        lifetime: clients.filter((c: any) => (c.raw_plan || c.plan || "").toUpperCase().includes("LIFETIME")).length,
+        basic: clients.filter((c: any) => (c.raw_plan || c.plan || "").toUpperCase().includes("BASIC")).length,
+      };
       return NextResponse.json({
         clients,
+        stats,
         total_clients: clients.length,
-        active_seats_used: activeCount,
-        max_seats: 50,
-        seats_remaining: Math.max(0, 50 - activeCount),
+        active_seats_used: stats.active,
+        capacity: "Unlimited",
       });
     }
 
     return NextResponse.json({
       clients: [],
+      stats: {
+        total_registered: 0,
+        active: 0,
+        locked: 0,
+        pending: 0,
+        expired: 0,
+        suspended: 0,
+        lifetime: 0,
+        basic: 0,
+      },
       total_clients: 0,
       active_seats_used: 0,
-      max_seats: 50,
-      seats_remaining: 50,
+      capacity: "Unlimited",
     });
   } catch (err: any) {
     console.error("[Admin Clients GET] Error:", err);
