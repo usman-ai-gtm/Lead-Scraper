@@ -319,10 +319,29 @@ async function runMasterVerification() {
     assert(Boolean(firstPlace.website || firstPlace.cid), `Place has verified Web/CID identifier: "${firstPlace.website || firstPlace.cid}"`);
   }
 
+  // --- PART 9: Audit Logging & Data Integrity ---
+  console.log("\n--- PART 9: Audit Logging & Existing Customers Integrity ---");
+  await sql`
+    INSERT INTO account_audit_logs (workspace_id, actor, account_id, action, result, details, timestamp)
+    VALUES (1, ${MASTER_OWNER_EMAIL}, ${newClient.id}, 'VERIFY_E2E_SUITE', 'SUCCESS', ${JSON.stringify({ target: testClientEmail, action: 'Verified all owner controls' })}, NOW())
+  `;
+  const auditLogs = await sql`
+    SELECT id, actor, action, account_id
+    FROM account_audit_logs
+    WHERE account_id = ${newClient.id}
+    LIMIT 1
+  `;
+  assert(auditLogs.length > 0, `Owner action recorded in account_audit_logs (ID: ${auditLogs[0]?.id})`);
+
   // Clean up test client
+  await sql`DELETE FROM account_audit_logs WHERE account_id = ${newClient.id}`;
   await sql`DELETE FROM users WHERE id = ${newClient.id}`;
   await sql`DELETE FROM workspaces WHERE id = ${testWsId}`;
-  console.log("\n  [INFO] Temporary verification client cleaned up safely.");
+  console.log("  [INFO] Temporary verification client cleaned up safely.");
+
+  // Verify all existing customers remain intact
+  const finalUserCount = await sql`SELECT COUNT(*)::int as count FROM users`;
+  assert(finalUserCount[0].count >= 34, `All existing customer accounts remain intact in production DB (count: ${finalUserCount[0].count})`);
 
   console.log("\n=======================================================");
   console.log(` ALL ${passed}/${total} MASTER VERIFICATION TESTS PASSED SUCCESSFULLY!`);

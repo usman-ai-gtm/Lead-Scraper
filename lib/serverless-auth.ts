@@ -874,7 +874,7 @@ export async function verifyClientActiveSubscription(user: any): Promise<{
       try {
         const userId = Number(user.id || user.sub) || 0;
         const rows = await sql.query(
-          `SELECT id, email, role, status, plan, subscription_start, subscription_expires_at, subscription_status
+          `SELECT id, email, role, account_type, status, plan, subscription_start, subscription_expires_at, subscription_status
            FROM users
            WHERE id = $1 OR LOWER(email) = LOWER($2)
            LIMIT 1`,
