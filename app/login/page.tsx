@@ -231,6 +231,17 @@ function LoginForm() {
         <p className="text-center text-xs text-slate-400 mt-6">
           Managed enterprise access. For seat provisioning, contact your workspace administrator.
         </p>
+
+        {/* Master Owner Portal Link */}
+        <div className="text-center mt-4">
+          <Link
+            href="/admin/login"
+            className="inline-flex items-center gap-1.5 text-xs text-slate-500 hover:text-indigo-400 transition-colors"
+          >
+            <span>Master Owner Command Center Login</span>
+            <ArrowRight className="h-3 w-3" />
+          </Link>
+        </div>
       </div>
     </div>
   );

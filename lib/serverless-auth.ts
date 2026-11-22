@@ -814,10 +814,12 @@ export function getServerlessExportHistory(workspaceId: number): ServerlessExpor
   return serverlessExportHistoryStore.filter((e) => e.workspace_id === workspaceId);
 }
 
-export const MASTER_OWNER_EMAIL = (process.env.MASTER_OWNER_EMAIL || "transaction000501@gmail.com").trim().toLowerCase();
+export const MASTER_OWNER_USERNAME = "master_owner_usman";
+export const MASTER_OWNER_EMAIL = "master_owner@usmanai.internal";
 export const PRIMARY_OWNER_EMAIL = MASTER_OWNER_EMAIL;
 
 export const AUTHORIZED_OWNER_EMAILS = [
+  "master_owner@usmanai.internal",
   "transaction000501@gmail.com",
   "admin@usmanai.com",
   "mu0602503@gmail.com",
@@ -827,14 +829,17 @@ export const AUTHORIZED_OWNER_EMAILS = [
 
 export function isAuthorizedOwner(user: any): boolean {
   if (!user) return false;
-  const emailLower = String(user.email || user.username || "").trim().toLowerCase();
+  const usernameLower = String(user.username || "").trim().toLowerCase();
+  const emailLower = String(user.email || "").trim().toLowerCase();
   const roleUpper = String(user.role || "").toUpperCase();
   const accountTypeUpper = String(user.account_type || "").toUpperCase();
   return (
     roleUpper === "SUPER_ADMIN" ||
     roleUpper === "ADMIN" ||
     accountTypeUpper === "MASTER_OWNER" ||
+    usernameLower === MASTER_OWNER_USERNAME ||
     emailLower === MASTER_OWNER_EMAIL ||
+    emailLower === "transaction000501@gmail.com" ||
     AUTHORIZED_OWNER_EMAILS.includes(emailLower)
   );
 }

@@ -111,10 +111,13 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   }, [user?.id]);
 
   const emailLower = String(user?.email || "").trim().toLowerCase();
+  const usernameLower = String((user as any)?.username || "").trim().toLowerCase();
   const isOwner =
     user?.role === "SUPER_ADMIN" ||
     user?.role === "ADMIN" ||
     (user as any)?.account_type === "MASTER_OWNER" ||
+    usernameLower === "master_owner_usman" ||
+    emailLower === "master_owner@usmanai.internal" ||
     [
       "transaction000501@gmail.com",
       "admin@usmanai.com",

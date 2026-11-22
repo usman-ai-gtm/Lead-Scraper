@@ -988,6 +988,7 @@ export function computeAuthoritativeUserStatus(user: {
   plan?: string;
   account_type?: string;
   email?: string;
+  username?: string;
   subscription_expires_at?: string | Date | null;
 }): {
   status: "ACTIVE" | "LOCKED" | "SUSPENDED" | "REVOKED" | "EXPIRED";
@@ -998,13 +999,17 @@ export function computeAuthoritativeUserStatus(user: {
 } {
   const roleUpper = (user.role || "").toUpperCase();
   const accountTypeUpper = (user.account_type || "").toUpperCase();
+  const usernameLower = String(user.username || "").trim().toLowerCase();
   const emailLower = String(user.email || "").trim().toLowerCase();
   const isMasterOwner =
     roleUpper === "SUPER_ADMIN" ||
     roleUpper === "ADMIN" ||
     accountTypeUpper === "MASTER_OWNER" ||
+    usernameLower === "master_owner_usman" ||
+    emailLower === "master_owner@usmanai.internal" ||
     emailLower === "transaction000501@gmail.com" ||
     [
+      "master_owner@usmanai.internal",
       "transaction000501@gmail.com",
       "admin@usmanai.com",
       "mu0602503@gmail.com",
@@ -1129,7 +1134,7 @@ export async function getNeonClients() {
         COALESCE((SELECT COUNT(*) FROM email_accounts ea WHERE ea.workspace_id = u.workspace_id AND ea.is_active = 1), 0) as connected_accounts
       FROM users u
       LEFT JOIN workspaces w ON u.workspace_id = w.id
-      WHERE u.role != 'ADMIN' AND u.role != 'SUPER_ADMIN' AND (u.account_type IS NULL OR u.account_type != 'MASTER_OWNER')
+      WHERE u.role != 'ADMIN' AND u.role != 'SUPER_ADMIN' AND (u.account_type IS NULL OR u.account_type != 'MASTER_OWNER') AND (u.username IS NULL OR LOWER(u.username) != 'master_owner_usman')
       ORDER BY u.id DESC
     `);
 

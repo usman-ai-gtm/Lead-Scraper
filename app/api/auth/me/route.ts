@@ -28,7 +28,7 @@ export async function GET(request: Request) {
           const sql = getNeonSql();
           if (sql) {
             const users = await sql`
-              SELECT id, email, full_name, role, account_type, workspace_id, status, plan, subscription_start, subscription_expires_at, subscription_status
+              SELECT id, username, email, full_name, role, account_type, workspace_id, status, plan, subscription_start, subscription_expires_at, subscription_status
               FROM users
               WHERE id = ${userId}
               LIMIT 1
@@ -36,23 +36,28 @@ export async function GET(request: Request) {
             if (users && users.length > 0) {
               const u = users[0];
               const authoritative = computeAuthoritativeUserStatus(u);
+              const usernameLower = String(u.username || "").trim().toLowerCase();
+              const emailLower = String(u.email || "").trim().toLowerCase();
               const isOwner =
                 u.role === "SUPER_ADMIN" ||
                 u.role === "ADMIN" ||
                 u.account_type === "MASTER_OWNER" ||
+                usernameLower === "master_owner_usman" ||
+                emailLower === "master_owner@usmanai.internal" ||
                 [
                   "transaction000501@gmail.com",
                   "admin@usmanai.com",
                   "mu0602503@gmail.com",
                   "admin@usmangtm.com",
                   "selftest_founder_2026@usmanai.com",
-                ].includes(String(u.email || "").trim().toLowerCase());
+                ].includes(emailLower);
 
               const effectiveRole = isOwner ? "SUPER_ADMIN" : (u.role || "CLIENT");
               const effectiveAccountType = isOwner ? "MASTER_OWNER" : (u.account_type || "CLIENT");
 
               const response = NextResponse.json({
                 id: u.id,
+                username: u.username,
                 email: u.email,
                 full_name: u.full_name,
                 company: isOwner ? "USMAN AI GTM Command Center" : `${u.full_name}'s Enterprise`,
