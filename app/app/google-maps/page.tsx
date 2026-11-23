@@ -11,9 +11,12 @@ import {
   MapPin, Download, CheckCircle2, RefreshCw, Mail, Phone, Globe,
   ShieldCheck, ExternalLink, Building2, Database, Sparkles, Search,
   FileSpreadsheet, AlertCircle, AlertTriangle, Check, HelpCircle,
-  Crown, Star, Lock
+  Crown, Star, Lock, MessageSquare
 } from "lucide-react";
 import { AiLeadResearchModal } from "@/components/leads/AiLeadResearchModal";
+import { MultiCountrySelector } from "@/components/leads/MultiCountrySelector";
+import { WhatsAppModal } from "@/components/leads/WhatsAppModal";
+import { LeadQualityBadge } from "@/components/leads/LeadQualityBadge";
 
 interface MapLead {
   id?: number;
@@ -37,6 +40,10 @@ interface MapLead {
   source: string;
   source_platform: string;
   source_url: string;
+  quality_score?: number;
+  quality_category?: string;
+  quality_reasons?: string[];
+  contact_requirement?: string;
 }
 
 function GoogleMapsLeadComponent() {
@@ -56,20 +63,23 @@ function GoogleMapsLeadComponent() {
 
   // Form State
   const [keyword, setKeyword] = useState<string>("");
+  const [selectedCountries, setSelectedCountries] = useState<string[]>(["United States"]);
   const [country, setCountry] = useState<string>("United States");
   const [suggestedCities, setSuggestedCities] = useState<string[]>([]);
   const [selectedCity, setSelectedCity] = useState<string>("ALL_CITIES");
   const [requestedQuantity, setRequestedQuantity] = useState<number>(50);
-  const [contactFilter, setContactFilter] = useState<"BOTH" | "EMAIL_ONLY" | "PHONE_ONLY">("BOTH");
+  const [contactFilter, setContactFilter] = useState<"EMAIL_AND_PHONE" | "EMAIL_ONLY" | "PHONE_ONLY" | "EMAIL_OR_PHONE">("EMAIL_OR_PHONE");
 
   // Execution State
   const [isExtracting, setIsExtracting] = useState<boolean>(false);
   const [qualifiedLeads, setQualifiedLeads] = useState<MapLead[]>([]);
+  const [countryStats, setCountryStats] = useState<Record<string, { discovered: number; eligible: number; duplicates: number; missing_contact: number }> | null>(null);
   const [statusMessage, setStatusMessage] = useState<string | null>(null);
   const [toastMsg, setToastMsg] = useState<string | null>(null);
   const [exportLoading, setExportLoading] = useState<boolean>(false);
   const [isResearchModalOpen, setIsResearchModalOpen] = useState<boolean>(false);
   const [selectedResearchLead, setSelectedResearchLead] = useState<any | null>(null);
+  const [whatsAppLead, setWhatsAppLead] = useState<any | null>(null);
   const [copiedEmail, setCopiedEmail] = useState<string | null>(null);
 
   // Initialize Suggested Cities
@@ -116,16 +126,22 @@ function GoogleMapsLeadComponent() {
         },
         body: JSON.stringify({
           keyword: keyword.trim(),
-          country,
+          countries: selectedCountries,
+          country: selectedCountries[0] || "United States",
           city: selectedCity !== "ALL_CITIES" ? selectedCity : "",
           requested_quantity: requestedQuantity,
           contact_filter: contactFilter,
+          contact_requirement: contactFilter,
         }),
       });
 
       const data = await res.json();
       if (!res.ok || data.status === "error") {
         throw new Error(data.message || "Failed to extract Google Maps leads.");
+      }
+
+      if (data.country_stats) {
+        setCountryStats(data.country_stats);
       }
 
       const fresh: MapLead[] = data.leads || [];
@@ -297,20 +313,20 @@ function GoogleMapsLeadComponent() {
             </div>
           </div>
 
-          {/* Country Selector */}
+          {/* Multi-Country Selector */}
           <div>
-            <label className="block text-xs font-semibold text-slate-300 mb-1.5">Target Country</label>
-            <select
-              value={country}
-              onChange={(e) => setCountry(e.target.value)}
-              className="w-full bg-[#121824] border border-white/10 rounded-xl px-3 py-2.5 text-xs text-white focus:outline-none focus:border-amber-500 transition-colors"
-            >
-              {ALL_193_COUNTRIES.map((c) => (
-                <option key={c} value={c}>
-                  {c}
-                </option>
-              ))}
-            </select>
+            <label className="block text-xs font-semibold text-slate-300 mb-1.5">Target Country / Countries</label>
+            <MultiCountrySelector
+              selectedCountries={selectedCountries}
+              onChange={(newCountries) => {
+                setSelectedCountries(newCountries);
+                if (newCountries.length > 0) {
+                  const cities = getSuggestedCitiesForCountry(newCountries[0]);
+                  setSuggestedCities(cities);
+                  setCountry(newCountries[0]);
+                }
+              }}
+            />
           </div>
 
           {/* Searchable City Selector */}
@@ -336,20 +352,47 @@ function GoogleMapsLeadComponent() {
           <label className="block text-xs font-semibold text-slate-300 mb-2">
             Mutually Exclusive Contact Filter Criteria
           </label>
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+          <div className="grid grid-cols-1 sm:grid-cols-4 gap-3">
+            {/* Email OR Phone */}
+            <div
+              onClick={() => setContactFilter("EMAIL_OR_PHONE")}
+              className={`p-3.5 rounded-xl border cursor-pointer transition-all flex items-start gap-3 ${contactFilter === "EMAIL_OR_PHONE"
+                  ? "bg-purple-500/10 border-purple-500/50 shadow-glow-sm"
+                  : "bg-white/[0.02] border-white/10 hover:border-white/20"
+                }`}
+            >
+              <div
+                className={`h-4 w-4 rounded-full border mt-0.5 flex items-center justify-center shrink-0 ${contactFilter === "EMAIL_OR_PHONE" ? "border-purple-400 bg-purple-400 text-black" : "border-slate-500"
+                  }`}
+              >
+                {contactFilter === "EMAIL_OR_PHONE" && <Check className="h-3 w-3 stroke-[3]" />}
+              </div>
+              <div>
+                <div className="text-xs font-bold text-white flex items-center gap-1.5">
+                  <Mail className="h-3.5 w-3.5 text-purple-400" />
+                  <span>/</span>
+                  <Phone className="h-3.5 w-3.5 text-purple-400" />
+                  <span>Email OR Phone</span>
+                </div>
+                <p className="text-[10px] text-slate-400 mt-1">
+                  Returns businesses with at least one verified contact channel.
+                </p>
+              </div>
+            </div>
+
             {/* Both Email & Phone */}
             <div
-              onClick={() => setContactFilter("BOTH")}
-              className={`p-3.5 rounded-xl border cursor-pointer transition-all flex items-start gap-3 ${contactFilter === "BOTH"
+              onClick={() => setContactFilter("EMAIL_AND_PHONE")}
+              className={`p-3.5 rounded-xl border cursor-pointer transition-all flex items-start gap-3 ${contactFilter === "EMAIL_AND_PHONE"
                   ? "bg-amber-500/10 border-amber-500/50 shadow-glow-sm"
                   : "bg-white/[0.02] border-white/10 hover:border-white/20"
                 }`}
             >
               <div
-                className={`h-4 w-4 rounded-full border mt-0.5 flex items-center justify-center shrink-0 ${contactFilter === "BOTH" ? "border-amber-400 bg-amber-400 text-black" : "border-slate-500"
+                className={`h-4 w-4 rounded-full border mt-0.5 flex items-center justify-center shrink-0 ${contactFilter === "EMAIL_AND_PHONE" ? "border-amber-400 bg-amber-400 text-black" : "border-slate-500"
                   }`}
               >
-                {contactFilter === "BOTH" && <Check className="h-3 w-3 stroke-[3]" />}
+                {contactFilter === "EMAIL_AND_PHONE" && <Check className="h-3 w-3 stroke-[3]" />}
               </div>
               <div>
                 <div className="text-xs font-bold text-white flex items-center gap-1.5">
@@ -359,7 +402,7 @@ function GoogleMapsLeadComponent() {
                   <span>Both Email & Phone</span>
                 </div>
                 <p className="text-[10px] text-slate-400 mt-1">
-                  Returns businesses with verified email AND valid phone. Strict dual contact criteria.
+                  Returns businesses with verified email AND valid phone. Strict dual contact.
                 </p>
               </div>
             </div>
@@ -384,7 +427,7 @@ function GoogleMapsLeadComponent() {
                   <span>Email Only</span>
                 </div>
                 <p className="text-[10px] text-slate-400 mt-1">
-                  Returns ONLY businesses with genuine public email discovered from official website crawl.
+                  Returns ONLY businesses with genuine public email from website crawl.
                 </p>
               </div>
             </div>
@@ -468,6 +511,34 @@ function GoogleMapsLeadComponent() {
         </div>
       )}
 
+      {/* COUNTRY LEVEL PROGRESS & STATS BREAKDOWN */}
+      {countryStats && Object.keys(countryStats).length > 0 && (
+        <div className="rounded-2xl border border-white/[0.08] bg-[#0c1017] p-5 space-y-3">
+          <div className="flex items-center justify-between border-b border-white/[0.08] pb-2">
+            <h3 className="text-xs font-bold text-white uppercase tracking-wider flex items-center gap-2">
+              <Globe className="h-4 w-4 text-purple-400" />
+              <span>Multi-Country Campaign Metrics Breakdown</span>
+            </h3>
+            <span className="text-[10px] text-slate-400 font-mono">
+              {Object.keys(countryStats).length} Target Markets Processed
+            </span>
+          </div>
+          <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3">
+            {Object.entries(countryStats).map(([cntry, stats]) => (
+              <div key={cntry} className="p-3 rounded-xl border border-white/[0.06] bg-white/[0.02] space-y-1.5 text-xs">
+                <div className="font-bold text-white truncate">{cntry}</div>
+                <div className="grid grid-cols-2 gap-1 text-[10px] font-mono">
+                  <div className="text-slate-400">Found: <span className="text-white font-bold">{stats.discovered}</span></div>
+                  <div className="text-slate-400">Eligible: <span className="text-emerald-400 font-bold">{stats.eligible}</span></div>
+                  <div className="text-slate-400">Duplicates: <span className="text-amber-400">{stats.duplicates}</span></div>
+                  <div className="text-slate-400">Skipped: <span className="text-rose-400">{stats.missing_contact}</span></div>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
       {/* QUALIFIED LEADS RESULTS TABLE */}
       {qualifiedLeads.length > 0 && (
         <div className="rounded-2xl border border-white/[0.08] bg-[#0c1017] p-6 space-y-4">
@@ -523,6 +594,13 @@ function GoogleMapsLeadComponent() {
                           <span>{lead.domain || lead.website}</span>
                         </a>
                       )}
+                      <div className="mt-1 flex items-center gap-1.5 flex-wrap">
+                        <LeadQualityBadge
+                          score={lead.quality_score}
+                          category={lead.quality_category}
+                          reasons={lead.quality_reasons}
+                        />
+                      </div>
                     </td>
 
                     {/* Location */}
@@ -583,17 +661,17 @@ function GoogleMapsLeadComponent() {
                     {/* Phone & WhatsApp */}
                     <td className="py-3 px-3 text-xs font-mono">
                       {lead.phone ? (
-                        <div className="flex items-center gap-2">
-                          <span className="text-slate-300">{lead.phone}</span>
-                          <a
-                            href={buildWhatsAppClickToChatUrl(lead.phone, `Hello ${lead.business_name}, I saw your business on Google Maps.`)}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 hover:bg-emerald-500/20 transition-colors shrink-0"
+                        <div className="space-y-1">
+                          <span className="text-slate-300 block">{lead.phone}</span>
+                          <button
+                            type="button"
+                            onClick={() => setWhatsAppLead(lead)}
+                            className="px-2 py-0.5 rounded text-[10px] font-bold bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 hover:bg-emerald-500/20 transition-colors inline-flex items-center gap-1 cursor-pointer"
                             title="Chat on WhatsApp"
                           >
-                            WhatsApp
-                          </a>
+                            <MessageSquare className="h-2.5 w-2.5" />
+                            <span>WhatsApp</span>
+                          </button>
                         </div>
                       ) : (
                         <span className="text-[11px] text-slate-500 italic">No phone listed</span>
@@ -629,6 +707,13 @@ function GoogleMapsLeadComponent() {
           setIsResearchModalOpen(false);
           setSelectedResearchLead(null);
         }}
+      />
+
+      {/* WhatsApp Safe Outreach Modal */}
+      <WhatsAppModal
+        isOpen={!!whatsAppLead}
+        onClose={() => setWhatsAppLead(null)}
+        lead={whatsAppLead}
       />
     </div>
   );

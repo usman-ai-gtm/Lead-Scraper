@@ -1,7 +1,6 @@
 import { NextResponse } from "next/server";
 import { getCurrentUserFromRequest, verifyClientActiveSubscription } from "@/lib/serverless-auth";
 import {
-  getNeonSql,
   isNeonConfigured,
   saveNeonSearchRecordAndLeads,
   getNeonWorkspaceLeadSignatures,
@@ -9,7 +8,13 @@ import {
   completeActiveSearchJob,
 } from "@/lib/neon-db";
 import { cleanDomain, crawlWebsiteForContacts, querySerperForDomainContact } from "@/lib/search-intelligence";
-import { normalizePhoneNumber } from "@/lib/phone-utils";
+import {
+  evaluateContactRequirement,
+  calculateLeadQualityScore,
+  ContactRequirement,
+  validateAndNormalizePhone,
+} from "@/lib/lead-quality-engine";
+import { normalizeCountryName, isSupportedCountry } from "@/lib/countries";
 
 export const dynamic = "force-dynamic";
 
@@ -35,6 +40,10 @@ interface MapLead {
   source: string;
   source_platform: string;
   source_url: string;
+  quality_score?: number;
+  quality_category?: string;
+  quality_reasons?: string[];
+  contact_requirement?: string;
 }
 
 export async function POST(req: Request) {
@@ -84,10 +93,38 @@ export async function POST(req: Request) {
 
     const body = await req.json().catch(() => ({}));
     const keyword = String(body.keyword || "").trim();
-    const country = String(body.country || "United States").trim();
+
+    // Support both single country string or multi-country array
+    let selectedCountries: string[] = [];
+    if (Array.isArray(body.countries) && body.countries.length > 0) {
+      selectedCountries = body.countries
+        .map((c: string) => normalizeCountryName(c))
+        .filter((c: string) => isSupportedCountry(c));
+    } else if (body.country) {
+      const norm = normalizeCountryName(body.country);
+      if (isSupportedCountry(norm)) {
+        selectedCountries = [norm];
+      }
+    }
+    if (selectedCountries.length === 0) {
+      selectedCountries = ["United States"];
+    }
+
     const city = String(body.city || "").trim();
     const requestedQuantity = Math.min(Math.max(Number(body.requested_quantity) || 50, 10), 2000);
-    const contactFilter = String(body.contact_filter || "BOTH").toUpperCase(); // "EMAIL_ONLY" | "PHONE_ONLY" | "BOTH"
+
+    // Support contact_requirement or legacy contact_filter
+    let contactRequirement: ContactRequirement = "EMAIL_OR_PHONE";
+    const rawReq = String(body.contact_requirement || body.contact_filter || "").toUpperCase();
+    if (rawReq === "EMAIL_AND_PHONE" || rawReq === "BOTH") {
+      contactRequirement = "EMAIL_AND_PHONE";
+    } else if (rawReq === "EMAIL_ONLY") {
+      contactRequirement = "EMAIL_ONLY";
+    } else if (rawReq === "PHONE_ONLY") {
+      contactRequirement = "PHONE_ONLY";
+    } else {
+      contactRequirement = "EMAIL_OR_PHONE";
+    }
 
     if (!keyword) {
       return NextResponse.json(
@@ -104,7 +141,7 @@ export async function POST(req: Request) {
       user.id || 1,
       "MAPS_SEARCH",
       keyword,
-      country,
+      selectedCountries.join(", "),
       city,
       requestedQuantity
     );
@@ -122,33 +159,51 @@ export async function POST(req: Request) {
     }
     const currentJobId = jobLock.jobId;
 
-    // Verify Search Provider API Key (with verified high-capacity fallback)
+    // Verify Search Provider API Key (Serper with fallback)
     const serperKey = (process.env.SERPER_API_KEY || "2baa9b7d5907ecc3fe3fceebb8c4b9b7e30e3297").trim();
-    const googleMapsKey = (process.env.GOOGLE_MAPS_API_KEY || "").trim();
-
-    if (!serperKey && !googleMapsKey) {
+    if (!serperKey) {
       if (currentJobId) await completeActiveSearchJob(currentJobId, "FAILED", 0, undefined, "Search provider not configured");
       return NextResponse.json(
         {
           status: "error",
           code: "PROVIDER_NOT_CONFIGURED",
           message:
-            "Google Maps Search API is not configured. Please configure SERPER_API_KEY or GOOGLE_MAPS_API_KEY in Vercel environment variables or Admin Providers.",
+            "Google Maps Search API is not configured. Please configure SERPER_API_KEY in Vercel environment variables or Admin Providers.",
         },
         { status: 503 }
       );
     }
 
-    // Construct targeted query
-    let locationStr = country;
-    if (city && city !== "ALL_CITIES") {
-      locationStr = `${city}, ${country}`;
-    }
-    const searchQuery = `${keyword} in ${locationStr}`;
+    // Preload permanent account-level leads for deduplication
+    const existingSignatures = isNeonConfigured()
+      ? await getNeonWorkspaceLeadSignatures(workspaceId)
+      : { domains: new Set<string>(), emails: new Set<string>(), phones: new Set<string>(), placeIds: new Set<string>() };
 
-    // Query Serper Places
-    const rawPlaces: any[] = [];
-    if (serperKey) {
+    const qualifiedLeads: MapLead[] = [];
+    const seenDomains = new Set<string>(existingSignatures.domains);
+    const seenPlaceIds = new Set<string>(existingSignatures.placeIds);
+    const seenEmails = new Set<string>(existingSignatures.emails);
+    const seenPhones = new Set<string>(existingSignatures.phones);
+
+    let totalRawDiscovered = 0;
+    let excludedExistingDuplicates = 0;
+    let missingContactSkipped = 0;
+
+    const countryStats: Record<string, { discovered: number; eligible: number; duplicates: number; missing_contact: number }> = {};
+
+    // Search across each selected country
+    for (const targetCountry of selectedCountries) {
+      if (qualifiedLeads.length >= requestedQuantity) break;
+
+      countryStats[targetCountry] = { discovered: 0, eligible: 0, duplicates: 0, missing_contact: 0 };
+
+      let locationStr = targetCountry;
+      if (city && city !== "ALL_CITIES") {
+        locationStr = `${city}, ${targetCountry}`;
+      }
+      const searchQuery = `${keyword} in ${locationStr}`;
+
+      const rawPlaces: any[] = [];
       try {
         const placesRes = await fetch("https://google.serper.dev/places", {
           method: "POST",
@@ -168,120 +223,135 @@ export async function POST(req: Request) {
           if (Array.isArray(placesData.places)) {
             rawPlaces.push(...placesData.places);
           }
-        } else {
-          const errData = await placesRes.json().catch(() => ({}));
-          console.warn("[Google Maps API] Places query error:", placesRes.status, errData);
         }
       } catch (err: any) {
-        console.error("[Google Maps API] Exception:", err);
+        console.warn(`[Google Maps API] Places query error for ${targetCountry}:`, err);
       }
-    }
 
-    if (rawPlaces.length === 0) {
-      if (currentJobId) await completeActiveSearchJob(currentJobId, "COMPLETED", 0);
-      return NextResponse.json({
-        status: "success",
-        leads: [],
-        total_scraped: 0,
-        total_qualified: 0,
-        contact_filter: contactFilter,
-        message: `No Google Maps places found for "${searchQuery}". Try a broader keyword or city.`,
-      });
-    }
+      totalRawDiscovered += rawPlaces.length;
+      countryStats[targetCountry].discovered += rawPlaces.length;
 
-    // Preload permanent account-level leads for deduplication
-    const existingSignatures = isNeonConfigured()
-      ? await getNeonWorkspaceLeadSignatures(workspaceId)
-      : { domains: new Set<string>(), emails: new Set<string>(), phones: new Set<string>(), placeIds: new Set<string>() };
+      for (const place of rawPlaces) {
+        if (qualifiedLeads.length >= requestedQuantity) break;
 
-    const qualifiedLeads: MapLead[] = [];
-    const seenDomains = new Set<string>(existingSignatures.domains);
-    const seenPlaceIds = new Set<string>(existingSignatures.placeIds);
-    const seenEmails = new Set<string>(existingSignatures.emails);
-    let excludedExistingDuplicates = 0;
+        const placeId = place.placeId || place.cid || `place_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
+        if (seenPlaceIds.has(placeId)) {
+          excludedExistingDuplicates++;
+          countryStats[targetCountry].duplicates++;
+          continue;
+        }
 
-    for (const place of rawPlaces) {
-      if (qualifiedLeads.length >= requestedQuantity) break;
+        const title = String(place.title || place.name || "").trim();
+        if (!title) continue;
 
-      const placeId = place.placeId || place.cid || `place_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
-      if (seenPlaceIds.has(placeId)) {
-        excludedExistingDuplicates++;
-        continue;
-      }
-      seenPlaceIds.add(placeId);
+        const rawWebsite = String(place.website || "").trim();
+        const domain = rawWebsite ? cleanDomain(rawWebsite) : "";
 
-      const title = String(place.title || place.name || "").trim();
-      if (!title) continue;
+        if (domain && seenDomains.has(domain)) {
+          excludedExistingDuplicates++;
+          countryStats[targetCountry].duplicates++;
+          continue;
+        }
 
-      const rawWebsite = String(place.website || "").trim();
-      const domain = rawWebsite ? cleanDomain(rawWebsite) : "";
+        const rawPhone = String(place.phoneNumber || place.phone || "").trim();
+        const phoneNorm = validateAndNormalizePhone(rawPhone, targetCountry);
+        const phone = phoneNorm.valid ? phoneNorm.normalized : rawPhone;
 
-      if (domain && seenDomains.has(domain)) {
-        excludedExistingDuplicates++;
-        continue;
-      }
-      if (domain) seenDomains.add(domain);
+        if (phoneNorm.valid && seenPhones.has(phoneNorm.normalized)) {
+          excludedExistingDuplicates++;
+          countryStats[targetCountry].duplicates++;
+          continue;
+        }
 
-      const rawPhone = String(place.phoneNumber || place.phone || "").trim();
-      const normPhone = rawPhone ? normalizePhoneNumber(rawPhone, country) : null;
-      const phone = normPhone && normPhone.isValid ? normPhone.displayFormatted : rawPhone;
+        let email = "";
+        let emailSourceUrl = "";
+        let emailStatus = "NOT FOUND";
 
-      let email = "";
-      let emailSourceUrl = "";
-      let emailStatus = "NOT FOUND";
-
-      // Crawl public website for contact email if website exists
-      if (domain && domain.length > 3) {
-        try {
-          const contact = await crawlWebsiteForContacts(domain, "", phone);
-          if (contact.email) {
-            email = contact.email;
-            emailSourceUrl = contact.emailSourceUrl || `https://${domain}`;
-            emailStatus = contact.emailStatus;
-          } else if (serperKey) {
-            const fallback = await querySerperForDomainContact(domain, serperKey);
-            if (fallback.email) {
-              email = fallback.email;
-              emailSourceUrl = fallback.emailSourceUrl || `https://${domain}`;
-              emailStatus = "VERIFIED IN SEARCH INDEX";
+        // Discover email from website
+        if (domain && domain.length > 3) {
+          try {
+            const contact = await crawlWebsiteForContacts(domain, "", phone);
+            if (contact.email) {
+              email = contact.email;
+              emailSourceUrl = contact.emailSourceUrl || `https://${domain}`;
+              emailStatus = contact.emailStatus;
+            } else if (serperKey) {
+              const fallback = await querySerperForDomainContact(domain, serperKey);
+              if (fallback.email) {
+                email = fallback.email;
+                emailSourceUrl = fallback.emailSourceUrl || `https://${domain}`;
+                emailStatus = "VERIFIED IN SEARCH INDEX";
+              }
             }
-          }
-        } catch {}
+          } catch {}
+        }
+
+        // Contact Requirement Evaluation
+        const contactValidation = evaluateContactRequirement(
+          { email, phone },
+          contactRequirement,
+          targetCountry
+        );
+
+        if (!contactValidation.eligible) {
+          missingContactSkipped++;
+          countryStats[targetCountry].missing_contact++;
+          continue;
+        }
+
+        // Check email deduplication if email exists
+        if (contactValidation.normalizedEmail && seenEmails.has(contactValidation.normalizedEmail)) {
+          excludedExistingDuplicates++;
+          countryStats[targetCountry].duplicates++;
+          continue;
+        }
+
+        // Quality Scoring
+        const qualityResult = calculateLeadQualityScore({
+          business_name: title,
+          website: rawWebsite || (domain ? `https://${domain}` : ""),
+          email: contactValidation.normalizedEmail || email,
+          phone: contactValidation.normalizedPhone || phone,
+          country: targetCountry,
+          address: String(place.address || "").trim(),
+        });
+
+        // Add to signatures
+        seenPlaceIds.add(placeId);
+        if (domain) seenDomains.add(domain);
+        if (contactValidation.normalizedEmail) seenEmails.add(contactValidation.normalizedEmail);
+        if (contactValidation.normalizedPhone) seenPhones.add(contactValidation.normalizedPhone);
+
+        const newLead: MapLead = {
+          business_name: title,
+          website: rawWebsite || (domain ? `https://${domain}` : ""),
+          domain,
+          email: contactValidation.normalizedEmail || email || "",
+          email_source_url: emailSourceUrl || (domain ? `https://${domain}` : ""),
+          email_status: email ? emailStatus : "NOT FOUND",
+          phone: contactValidation.normalizedPhone || phone || "",
+          phone_source_url: `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(title + " " + (place.address || locationStr))}`,
+          phone_status: phoneNorm.valid ? "LISTED ON GOOGLE MAPS" : "NOT LISTED",
+          country: targetCountry,
+          city: city !== "ALL_CITIES" ? city : "",
+          address: String(place.address || "").trim(),
+          industry: keyword,
+          category: String(place.category || keyword).trim(),
+          rating: place.rating ? Number(place.rating) : undefined,
+          rating_count: place.ratingCount ? Number(place.ratingCount) : undefined,
+          place_id: placeId,
+          source: "Google Maps Platform",
+          source_platform: "Google Places API",
+          source_url: `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(title + " " + (place.address || locationStr))}`,
+          quality_score: qualityResult.score,
+          quality_category: qualityResult.category,
+          quality_reasons: qualityResult.reasons,
+          contact_requirement: contactRequirement,
+        };
+
+        qualifiedLeads.push(newLead);
+        countryStats[targetCountry].eligible++;
       }
-
-      // Filter based on explicit client criteria
-      const hasEmail = Boolean(email && email.includes("@"));
-      const hasPhone = Boolean(phone && phone.replace(/\D/g, "").length >= 7);
-
-      if (contactFilter === "EMAIL_ONLY") {
-        if (!hasEmail) continue; // Must have email
-      } else if (contactFilter === "PHONE_ONLY") {
-        if (!hasPhone) continue; // Must have phone
-      }
-      // For "BOTH" or standard queries, include genuine Google Maps business with phone or address and attach website email if discovered
-
-      qualifiedLeads.push({
-        business_name: title,
-        website: rawWebsite || (domain ? `https://${domain}` : ""),
-        domain,
-        email: email || "",
-        email_source_url: emailSourceUrl || (domain ? `https://${domain}` : ""),
-        email_status: hasEmail ? emailStatus : "NOT FOUND",
-        phone: phone || "",
-        phone_source_url: `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(title + " " + (place.address || locationStr))}`,
-        phone_status: hasPhone ? "LISTED ON GOOGLE MAPS" : "NOT LISTED",
-        country,
-        city: city !== "ALL_CITIES" ? city : "",
-        address: String(place.address || "").trim(),
-        industry: keyword,
-        category: String(place.category || keyword).trim(),
-        rating: place.rating ? Number(place.rating) : undefined,
-        rating_count: place.ratingCount ? Number(place.ratingCount) : undefined,
-        place_id: placeId,
-        source: "Google Maps Platform",
-        source_platform: "Google Places API",
-        source_url: `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(title + " " + (place.address || locationStr))}`,
-      });
     }
 
     // Persist to Authoritative Neon PostgreSQL Database
@@ -292,7 +362,7 @@ export async function POST(req: Request) {
           workspaceId,
           {
             keyword,
-            country,
+            country: selectedCountries.join(", "),
             city: city !== "ALL_CITIES" ? city : "",
             sources: ["Google Maps Platform", "Google Places API"],
             requested_quantity: requestedQuantity,
@@ -312,12 +382,15 @@ export async function POST(req: Request) {
     return NextResponse.json({
       status: "success",
       leads: qualifiedLeads,
-      total_scraped: rawPlaces.length,
+      total_scraped: totalRawDiscovered,
       total_qualified: qualifiedLeads.length,
-      contact_filter: contactFilter,
-      excluded_previous_duplicates: excludedExistingDuplicates,
+      contact_requirement: contactRequirement,
+      countries: selectedCountries,
+      country_stats: countryStats,
+      duplicates_skipped: excludedExistingDuplicates,
+      missing_contact_skipped: missingContactSkipped,
       source: "Google Maps Platform & Official Websites",
-      message: `Discovered and saved ${qualifiedLeads.length} unique qualified Google Maps leads for "${keyword}". (${excludedExistingDuplicates} previously saved leads were excluded via permanent account deduplication).`,
+      message: `Discovered and saved ${qualifiedLeads.length} unique qualified Google Maps leads for "${keyword}" across ${selectedCountries.length} countries. (${excludedExistingDuplicates} duplicates skipped, ${missingContactSkipped} skipped due to contact criteria).`,
     });
   } catch (err: any) {
     console.error("[Google Maps Lead Generator] Top-level error:", err);

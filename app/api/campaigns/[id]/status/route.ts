@@ -1,6 +1,52 @@
-import { proxyToBackend } from "@/lib/backend-proxy";
+import { NextResponse } from "next/server";
+import { getCurrentUserFromRequest } from "@/lib/serverless-auth";
+import { getNeonCampaignById, updateNeonCampaignProgress } from "@/lib/neon-db";
+import { runCampaignInBackground } from "@/lib/campaign-runner";
 
-export async function PUT(req: Request, { params }: { params: { id: string } }) {
-  const fallback = { status: "success", message: `Campaign #${params.id} status updated successfully` };
-  return proxyToBackend(`/api/campaigns/${params.id}/status`, req, fallback);
+export const dynamic = "force-dynamic";
+
+export async function POST(
+  req: Request,
+  { params }: { params: { id: string } }
+) {
+  const currentUser = getCurrentUserFromRequest(req);
+  if (!currentUser) {
+    return NextResponse.json({ detail: "Authentication required." }, { status: 401 });
+  }
+
+  const workspaceId = currentUser.workspace_id || 1;
+  const campaign = await getNeonCampaignById(params.id, workspaceId);
+
+  if (!campaign) {
+    return NextResponse.json({ error: "Campaign not found." }, { status: 404 });
+  }
+
+  const body = await req.json().catch(() => ({}));
+  const action = String(body.action || "").toUpperCase();
+
+  switch (action) {
+    case "PAUSE":
+      await updateNeonCampaignProgress(params.id, workspaceId, { status: "PAUSED" });
+      return NextResponse.json({ success: true, status: "PAUSED" });
+
+    case "RESUME":
+      await updateNeonCampaignProgress(params.id, workspaceId, { status: "RUNNING" });
+      runCampaignInBackground(params.id, workspaceId).catch(console.error);
+      return NextResponse.json({ success: true, status: "RUNNING" });
+
+    case "CANCEL":
+      await updateNeonCampaignProgress(params.id, workspaceId, { status: "CANCELLED" });
+      return NextResponse.json({ success: true, status: "CANCELLED" });
+
+    case "RETRY":
+      await updateNeonCampaignProgress(params.id, workspaceId, {
+        status: "RUNNING",
+        error_message: "",
+      });
+      runCampaignInBackground(params.id, workspaceId).catch(console.error);
+      return NextResponse.json({ success: true, status: "RUNNING" });
+
+    default:
+      return NextResponse.json({ error: "Invalid action. Supported: PAUSE, RESUME, CANCEL, RETRY" }, { status: 400 });
+  }
 }

@@ -11,9 +11,12 @@ import {
   Download, CheckCircle2, RefreshCw, Mail, Phone, Globe,
   ShieldCheck, ExternalLink, Building2, Database,
   Layers, Sparkles, Search, FileSpreadsheet,
-  AlertCircle, AlertTriangle, Check, HelpCircle, Hash, Briefcase, ArrowRight
+  AlertCircle, AlertTriangle, Check, HelpCircle, Hash, Briefcase, MessageSquare, ArrowRight
 } from "lucide-react";
 import { AiLeadResearchModal } from "@/components/leads/AiLeadResearchModal";
+import { MultiCountrySelector } from "@/components/leads/MultiCountrySelector";
+import { WhatsAppModal } from "@/components/leads/WhatsAppModal";
+import { LeadQualityBadge } from "@/components/leads/LeadQualityBadge";
 
 interface QualifiedLead {
   id: number;
@@ -40,6 +43,10 @@ interface QualifiedLead {
   extraction_date?: string;
   extraction_time?: string;
   created_at?: string;
+  quality_score?: number;
+  quality_category?: string;
+  quality_reasons?: string[];
+  contact_requirement?: string;
 }
 
 interface SourceStatus {
@@ -55,10 +62,14 @@ function LeadsSearchComponent() {
 
   // Search input state (pre-populated from Quick Search Launcher if parameters exist)
   const [keyword, setKeyword] = useState<string>("");
+  const [selectedCountries, setSelectedCountries] = useState<string[]>(["United States"]);
   const [country, setCountry] = useState<string>("United States");
   const [suggestedCities, setSuggestedCities] = useState<string[]>([]);
   const [selectedCity, setSelectedCity] = useState<string>("ALL_CITIES");
   const [targetCount, setTargetCount] = useState<number>(50);
+  const [contactRequirement, setContactRequirement] = useState<
+    "EMAIL_AND_PHONE" | "EMAIL_ONLY" | "PHONE_ONLY" | "EMAIL_OR_PHONE"
+  >("EMAIL_OR_PHONE");
 
   const [isExtracting, setIsExtracting] = useState<boolean>(false);
   const [qualifiedLeads, setQualifiedLeads] = useState<QualifiedLead[]>([]);
@@ -70,6 +81,7 @@ function LeadsSearchComponent() {
   const [saveStatus, setSaveStatus] = useState<"SAVING" | "SAVED" | "FAILED" | "IDLE">("IDLE");
   const [isResearchModalOpen, setIsResearchModalOpen] = useState<boolean>(false);
   const [selectedResearchLead, setSelectedResearchLead] = useState<any | null>(null);
+  const [whatsAppLead, setWhatsAppLead] = useState<any | null>(null);
 
   // Business Profile & AI Strategy State
   const [useBusinessProfile, setUseBusinessProfile] = useState<boolean>(false);
@@ -214,9 +226,11 @@ function LeadsSearchComponent() {
         },
         body: JSON.stringify({
           keyword: keyword.trim(),
-          country: country,
+          countries: selectedCountries,
+          country: selectedCountries[0] || "United States",
           city: selectedCity !== "ALL_CITIES" ? selectedCity : "",
           target_count: targetCount,
+          contact_requirement: contactRequirement,
           use_business_profile: useBusinessProfile,
         }),
       });
@@ -443,18 +457,19 @@ function LeadsSearchComponent() {
           <div className="md:col-span-3 space-y-1.5">
             <label className="block text-xs font-bold text-slate-200 flex items-center gap-1.5">
               <Globe className="h-3.5 w-3.5 text-purple-400" />
-              <span>Country</span>
+              <span>Target Country / Countries</span>
             </label>
-            <select
-              value={country}
-              onChange={(e) => handleCountryChange(e.target.value)}
-              className="w-full rounded-xl border border-white/10 bg-[#0c1017] px-3 py-2.5 text-xs text-white focus:border-blue-500 focus:outline-none"
-            >
-              <option value="ALL COUNTRIES">All Countries (Global)</option>
-              {ALL_193_COUNTRIES.map((c) => (
-                <option key={c} value={c}>{c}</option>
-              ))}
-            </select>
+            <MultiCountrySelector
+              selectedCountries={selectedCountries}
+              onChange={(newCountries) => {
+                setSelectedCountries(newCountries);
+                if (newCountries.length > 0) {
+                  const cities = getSuggestedCitiesForCountry(newCountries[0]);
+                  setSuggestedCities(cities);
+                  setCountry(newCountries[0]);
+                }
+              }}
+            />
           </div>
 
           {/* City Selector (Col 2) */}
@@ -492,6 +507,39 @@ function LeadsSearchComponent() {
           </div>
         </div>
 
+        {/* Contact Requirement Selector */}
+        <div className="pt-2 border-t border-white/[0.06]">
+          <label className="block text-xs font-bold text-slate-300 mb-1.5 flex items-center justify-between">
+            <span>Lead Contact Requirement</span>
+            <span className="text-[10px] text-blue-400 font-mono">Filters out leads lacking your chosen contact channels</span>
+          </label>
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+            {[
+              { id: "EMAIL_OR_PHONE", label: "Email OR Phone", desc: "Either email or phone is present" },
+              { id: "EMAIL_AND_PHONE", label: "Email AND Phone", desc: "Both email & phone mandatory" },
+              { id: "EMAIL_ONLY", label: "Email Only", desc: "Verified business email required" },
+              { id: "PHONE_ONLY", label: "Phone Only", desc: "Direct business phone required" },
+            ].map((opt) => (
+              <button
+                key={opt.id}
+                type="button"
+                onClick={() => setContactRequirement(opt.id as any)}
+                className={`p-2.5 rounded-xl border text-left transition-all cursor-pointer ${
+                  contactRequirement === opt.id
+                    ? "bg-blue-600/20 border-blue-500 text-white shadow-sm"
+                    : "bg-white/[0.02] border-white/10 text-slate-400 hover:border-white/20 hover:text-slate-200"
+                }`}
+              >
+                <div className="text-xs font-bold flex items-center gap-1.5">
+                  <span className={`h-2 w-2 rounded-full ${contactRequirement === opt.id ? "bg-blue-400" : "bg-slate-600"}`} />
+                  <span>{opt.label}</span>
+                </div>
+                <div className="text-[10px] text-slate-500 mt-0.5">{opt.desc}</div>
+              </button>
+            ))}
+          </div>
+        </div>
+
         {/* Business Profile Contextual Lead Generation Option */}
         <div className="rounded-xl border border-white/[0.06] bg-white/[0.02] p-3 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
           <div className="flex items-center gap-2.5">
@@ -519,11 +567,10 @@ function LeadsSearchComponent() {
             <button
               type="button"
               onClick={() => setUseBusinessProfile(!useBusinessProfile)}
-              className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer shrink-0 ${
-                useBusinessProfile
-                  ? "bg-emerald-600 hover:bg-emerald-500 text-white shadow-glow-sm"
-                  : "bg-white/[0.05] hover:bg-white/[0.1] text-slate-300 border border-white/10"
-              }`}
+              className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer shrink-0 ${useBusinessProfile
+                ? "bg-emerald-600 hover:bg-emerald-500 text-white shadow-glow-sm"
+                : "bg-white/[0.05] hover:bg-white/[0.1] text-slate-300 border border-white/10"
+                }`}
             >
               <span>{useBusinessProfile ? "✓ Profile Mode Active" : "Enable Profile Mode"}</span>
             </button>
@@ -764,6 +811,13 @@ function LeadsSearchComponent() {
                         ) : (
                           <span className="text-slate-600">None</span>
                         )}
+                        <div className="mt-1 flex items-center gap-1.5 flex-wrap">
+                          <LeadQualityBadge
+                            score={lead.quality_score}
+                            category={lead.quality_category}
+                            reasons={lead.quality_reasons}
+                          />
+                        </div>
                       </td>
 
                       {/* Public Email Address & Clickable Email Source Evidence */}
@@ -807,18 +861,16 @@ function LeadsSearchComponent() {
                                 {lead.phone}
                               </a>
                             </div>
-                            {waUrl && (
-                              <div className="mt-0.5">
-                                <a
-                                  href={waUrl}
-                                  target="_blank"
-                                  rel="noreferrer"
-                                  className="text-[10px] text-emerald-400 hover:underline font-mono inline-flex items-center gap-1"
-                                >
-                                  <span>WhatsApp Available</span>
-                                </a>
-                              </div>
-                            )}
+                            <div className="mt-1">
+                              <button
+                                type="button"
+                                onClick={() => setWhatsAppLead(lead)}
+                                className="text-[10px] text-emerald-400 hover:text-emerald-300 bg-emerald-500/10 hover:bg-emerald-500/20 px-2 py-0.5 rounded border border-emerald-500/20 font-mono inline-flex items-center gap-1 cursor-pointer transition-colors"
+                              >
+                                <MessageSquare className="h-2.5 w-2.5" />
+                                <span>Chat on WhatsApp</span>
+                              </button>
+                            </div>
                             {lead.phone_source_url && (
                               <a
                                 href={lead.phone_source_url}
@@ -925,6 +977,13 @@ function LeadsSearchComponent() {
         isOpen={isResearchModalOpen}
         onClose={() => setIsResearchModalOpen(false)}
         lead={selectedResearchLead}
+      />
+
+      {/* WhatsApp Safe Outreach Modal */}
+      <WhatsAppModal
+        isOpen={!!whatsAppLead}
+        onClose={() => setWhatsAppLead(null)}
+        lead={whatsAppLead}
       />
     </div>
   );

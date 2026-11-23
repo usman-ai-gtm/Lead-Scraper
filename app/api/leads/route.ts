@@ -35,6 +35,22 @@ export async function GET(req: Request) {
   const page = parseInt(url.searchParams.get("page") || "1", 10);
   const pageSize = parseInt(url.searchParams.get("page_size") || "50", 10);
 
+  // Advanced platform, quality, and contact requirement filters
+  const platformParam = url.searchParams.get("platform") || "";
+  const platformsParam = url.searchParams.get("platforms") || "";
+  const platforms = platformsParam
+    ? platformsParam.split(",").map((p) => p.trim()).filter(Boolean)
+    : platformParam
+    ? [platformParam.trim()]
+    : [];
+  const platformMode = (url.searchParams.get("platform_mode") || "ANY").toUpperCase() as "ANY" | "ALL";
+  const qualityCategory = url.searchParams.get("quality_category") || "";
+  const contactRequirement = url.searchParams.get("contact_requirement") || "";
+  const hasEmail = url.searchParams.get("has_email") === "true";
+  const hasPhone = url.searchParams.get("has_phone") === "true";
+  const hasWebsite = url.searchParams.get("has_website") === "true";
+  const campaignId = url.searchParams.get("campaign_id") || "";
+
   if (isNeonConfigured()) {
     const neonRes = await getNeonLeads(workspaceId, {
       keyword,
@@ -48,6 +64,14 @@ export async function GET(req: Request) {
       date_to: dateTo,
       page,
       page_size: pageSize,
+      platforms,
+      platform_mode: platformMode,
+      quality_category: qualityCategory,
+      contact_requirement: contactRequirement,
+      has_email: hasEmail,
+      has_phone: hasPhone,
+      has_website: hasWebsite,
+      campaign_id: campaignId,
     });
     if (neonRes !== null) {
       return NextResponse.json(neonRes);

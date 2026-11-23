@@ -44,6 +44,17 @@ export interface QualifiedLeadItem {
   extraction_date: string;
   extraction_time: string;
   created_at: string;
+  quality_score?: number;
+  quality_category?: string;
+  quality_reasons?: string[];
+  contact_requirement?: string;
+  instagram?: string;
+  facebook?: string;
+  linkedin?: string;
+  youtube?: string;
+  tiktok?: string;
+  twitter?: string;
+  is_enriched?: boolean;
 }
 
 // Global cache for website domain crawls during search to avoid redundant HTTP requests

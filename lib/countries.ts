@@ -20,3 +20,39 @@ export const ALL_193_COUNTRIES = [
   "Tuvalu", "Uganda", "Ukraine", "United Arab Emirates", "United Kingdom", "United States", "Uruguay", "Uzbekistan", "Vanuatu", "Vatican City",
   "Venezuela", "Vietnam", "Yemen", "Zambia", "Zimbabwe"
 ];
+
+/**
+ * Filter countries by search term (case-insensitive substring match).
+ */
+export function searchCountries(query?: string): string[] {
+  if (!query || !query.trim()) return ALL_193_COUNTRIES;
+  const q = query.trim().toLowerCase();
+  return ALL_193_COUNTRIES.filter((c) => c.toLowerCase().includes(q));
+}
+
+/**
+ * Normalizes input country string against recognized names.
+ */
+export function normalizeCountryName(raw?: string): string {
+  if (!raw || !raw.trim()) return "Global";
+  const clean = raw.trim().toLowerCase();
+  if (clean === "usa" || clean === "us" || clean === "america") return "United States";
+  if (clean === "uk" || clean === "great britain" || clean === "england") return "United Kingdom";
+  if (clean === "uae" || clean === "emirates" || clean === "dubai") return "United Arab Emirates";
+  if (clean === "pk" || clean === "pak") return "Pakistan";
+  if (clean === "in" || clean === "ind") return "India";
+  if (clean === "ca" || clean === "can") return "Canada";
+  if (clean === "au" || clean === "aus") return "Australia";
+  
+  const matched = ALL_193_COUNTRIES.find((c) => c.toLowerCase() === clean);
+  return matched || raw.trim();
+}
+
+/**
+ * Checks if a country is in the 193 recognized countries list.
+ */
+export function isSupportedCountry(country: string): boolean {
+  const norm = normalizeCountryName(country);
+  return ALL_193_COUNTRIES.includes(norm);
+}
+

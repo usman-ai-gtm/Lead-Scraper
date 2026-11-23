@@ -15,6 +15,8 @@ import {
   Layers, Eye, Check, Sparkles, Send, ShieldCheck, User
 } from "lucide-react";
 import { AiLeadResearchModal } from "@/components/leads/AiLeadResearchModal";
+import { WhatsAppModal } from "@/components/leads/WhatsAppModal";
+import { LeadQualityBadge } from "@/components/leads/LeadQualityBadge";
 
 interface SearchRecord {
   id: string;
@@ -86,6 +88,13 @@ export default function SavedLeadsPage() {
   const [dateFrom, setDateFrom] = useState<string>("");
   const [dateTo, setDateTo] = useState<string>("");
 
+  // Advanced Platform, Quality, and Enrichment State
+  const [selectedPlatforms, setSelectedPlatforms] = useState<string[]>([]);
+  const [platformMode, setPlatformMode] = useState<"ANY" | "ALL">("ANY");
+  const [qualityCategoryFilter, setQualityCategoryFilter] = useState<string>("all");
+  const [enrichingId, setEnrichingId] = useState<number | null>(null);
+  const [whatsAppLead, setWhatsAppLead] = useState<any | null>(null);
+
   // Selection
   const [selectedIds, setSelectedIds] = useState<number[]>([]);
   const [actionLoading, setActionLoading] = useState(false);
@@ -139,6 +148,9 @@ export default function SavedLeadsPage() {
         date_preset: datePresetFilter !== "all" && datePresetFilter !== "custom" ? datePresetFilter : undefined,
         date_from: datePresetFilter === "custom" && dateFrom ? dateFrom : undefined,
         date_to: datePresetFilter === "custom" && dateTo ? dateTo : undefined,
+        platforms: selectedPlatforms.length > 0 ? selectedPlatforms.join(",") : undefined,
+        platform_mode: selectedPlatforms.length > 0 ? platformMode : undefined,
+        quality_category: qualityCategoryFilter !== "all" ? qualityCategoryFilter : undefined,
         page,
         page_size: pageSize,
       });
@@ -197,7 +209,7 @@ export default function SavedLeadsPage() {
 
   useEffect(() => {
     fetchSavedLeads();
-  }, [page, pageSize, countryFilter, sourceFilter, datePresetFilter, dateFrom, dateTo]);
+  }, [page, pageSize, countryFilter, sourceFilter, datePresetFilter, dateFrom, dateTo, selectedPlatforms, platformMode, qualityCategoryFilter]);
 
   useEffect(() => {
     if (activeTab === "history") {
@@ -223,6 +235,30 @@ export default function SavedLeadsPage() {
       if (found) setViewingRecord(found);
     } finally {
       setRecordDetailLoading(false);
+    }
+  };
+
+  // Lead Enrichment Action
+  const handleEnrichLead = async (leadId: number) => {
+    setEnrichingId(leadId);
+    try {
+      const token = typeof window !== "undefined" ? localStorage.getItem("usman_gtm_token") : null;
+      const res = await fetch(`/api/leads/${leadId}/enrich`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        },
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Enrichment failed");
+      setToastMsg(`Successfully enriched "${data.lead?.business_name || "lead"}" with verified social & contact profiles!`);
+      // Update local state in place
+      setLeads((prev) => prev.map((l) => (l.id === leadId ? { ...l, ...data.lead } : l)));
+    } catch (err: any) {
+      setToastMsg(`Enrichment notice: ${err?.message || "Could not enrich lead"}`);
+    } finally {
+      setEnrichingId(null);
     }
   };
 
@@ -685,6 +721,73 @@ export default function SavedLeadsPage() {
       {/* ============================================================== */}
       {activeTab === "leads" && (
         <div className="space-y-4">
+          {/* ADVANCED ONLINE PLATFORM FILTERS */}
+          <div className="p-3.5 rounded-2xl border border-white/[0.08] bg-[#0c1017] space-y-2">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+              <span className="text-xs font-bold text-slate-300 flex items-center gap-1.5">
+                <Globe className="h-3.5 w-3.5 text-blue-400" />
+                <span>Filter Leads by Available Online Platforms:</span>
+              </span>
+              <div className="flex items-center gap-2">
+                <span className="text-[11px] text-slate-400">Match Mode:</span>
+                <button
+                  type="button"
+                  onClick={() => setPlatformMode(platformMode === "ANY" ? "ALL" : "ANY")}
+                  className="px-2 py-0.5 rounded text-[10px] font-mono font-bold bg-blue-500/20 text-blue-300 border border-blue-500/30 hover:bg-blue-500/30 transition-all cursor-pointer"
+                >
+                  {platformMode === "ANY" ? "ANY Selected Platform" : "ALL Selected Platforms"}
+                </button>
+              </div>
+            </div>
+
+            <div className="flex items-center gap-1.5 flex-wrap">
+              <button
+                type="button"
+                onClick={() => setSelectedPlatforms([])}
+                className={`px-3 py-1 rounded-xl text-xs font-semibold transition-all cursor-pointer ${
+                  selectedPlatforms.length === 0
+                    ? "bg-blue-600 text-white shadow-sm"
+                    : "bg-white/[0.04] text-slate-400 hover:text-white hover:bg-white/[0.08]"
+                }`}
+              >
+                All Platforms
+              </button>
+
+              {[
+                { id: "website", label: "Official Website" },
+                { id: "linkedin", label: "LinkedIn" },
+                { id: "instagram", label: "Instagram" },
+                { id: "facebook", label: "Facebook" },
+                { id: "youtube", label: "YouTube" },
+                { id: "tiktok", label: "TikTok" },
+                { id: "twitter", label: "X / Twitter" },
+              ].map((p) => {
+                const active = selectedPlatforms.includes(p.id);
+                return (
+                  <button
+                    key={p.id}
+                    type="button"
+                    onClick={() => {
+                      if (active) {
+                        setSelectedPlatforms(selectedPlatforms.filter((item) => item !== p.id));
+                      } else {
+                        setSelectedPlatforms([...selectedPlatforms, p.id]);
+                      }
+                    }}
+                    className={`px-3 py-1 rounded-xl text-xs font-semibold transition-all cursor-pointer flex items-center gap-1 ${
+                      active
+                        ? "bg-purple-600 text-white shadow-sm"
+                        : "bg-white/[0.04] text-slate-400 hover:text-white hover:bg-white/[0.08]"
+                    }`}
+                  >
+                    <span>{p.label}</span>
+                    {active && <Check className="h-3 w-3" />}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+
           {/* Filter & Export Controls Bar */}
           <div className="p-4 rounded-2xl border border-white/[0.08] bg-[#0c1017] flex flex-col md:flex-row gap-3 items-center justify-between">
             <div className="flex items-center gap-3 w-full md:w-auto flex-1 flex-wrap">
@@ -743,6 +846,18 @@ export default function SavedLeadsPage() {
                 <option value="all" className="bg-[#0c1017]">All Contacts</option>
                 <option value="email" className="bg-[#0c1017]">Has Email</option>
                 <option value="phone" className="bg-[#0c1017]">Has Phone</option>
+              </select>
+
+              <select
+                value={qualityCategoryFilter}
+                onChange={(e) => setQualityCategoryFilter(e.target.value)}
+                className="rounded-xl border border-white/10 bg-white/[0.03] px-3 py-1.5 text-xs text-white focus:border-blue-500 focus:outline-none"
+              >
+                <option value="all" className="bg-[#0c1017]">All Quality Scores</option>
+                <option value="Excellent" className="bg-[#0c1017]">Excellent (80-100)</option>
+                <option value="Good" className="bg-[#0c1017]">Good (60-79)</option>
+                <option value="Fair" className="bg-[#0c1017]">Fair (40-59)</option>
+                <option value="Basic" className="bg-[#0c1017]">Basic (&lt;40)</option>
               </select>
 
               <select
@@ -926,6 +1041,42 @@ export default function SavedLeadsPage() {
                                 <ExternalLink className="h-2.5 w-2.5" />
                               </a>
                             )}
+                            <div className="mt-1 flex items-center gap-1.5 flex-wrap">
+                              <LeadQualityBadge
+                                score={(l as any).quality_score}
+                                category={(l as any).quality_category}
+                                reasons={(l as any).quality_reasons}
+                              />
+                              {(l as any).is_enriched && (
+                                <span className="px-1.5 py-0.5 rounded text-[9px] font-bold bg-purple-500/20 text-purple-300 border border-purple-500/30">
+                                  Enriched
+                                </span>
+                              )}
+                            </div>
+                            {((l as any).linkedin || (l as any).instagram || (l as any).facebook || (l as any).youtube || (l as any).twitter) && (
+                              <div className="flex items-center gap-1.5 mt-1 text-[10px]">
+                                {(l as any).linkedin && (
+                                  <a href={(l as any).linkedin} target="_blank" rel="noreferrer" className="text-blue-400 hover:underline">
+                                    LinkedIn
+                                  </a>
+                                )}
+                                {(l as any).instagram && (
+                                  <a href={(l as any).instagram} target="_blank" rel="noreferrer" className="text-pink-400 hover:underline">
+                                    Instagram
+                                  </a>
+                                )}
+                                {(l as any).facebook && (
+                                  <a href={(l as any).facebook} target="_blank" rel="noreferrer" className="text-blue-500 hover:underline">
+                                    Facebook
+                                  </a>
+                                )}
+                                {(l as any).youtube && (
+                                  <a href={(l as any).youtube} target="_blank" rel="noreferrer" className="text-red-400 hover:underline">
+                                    YouTube
+                                  </a>
+                                )}
+                              </div>
+                            )}
                           </td>
                           <td className="py-3 px-3 text-slate-300">
                             <div>{[l.city, l.state].filter(Boolean).join(", ") || "—"}</div>
@@ -971,15 +1122,15 @@ export default function SavedLeadsPage() {
                                     <span>{l.phone}</span>
                                   </a>
                                   {waUrl && (
-                                    <a
-                                      href={waUrl}
-                                      target="_blank"
-                                      rel="noreferrer"
-                                      className="text-emerald-400 hover:text-emerald-300 text-[10px] font-bold bg-emerald-500/10 px-1.5 py-0.5 rounded flex items-center gap-0.5"
+                                    <button
+                                      type="button"
+                                      onClick={() => setWhatsAppLead(l)}
+                                      className="text-emerald-400 hover:text-emerald-300 text-[10px] font-bold bg-emerald-500/10 hover:bg-emerald-500/20 px-1.5 py-0.5 rounded flex items-center gap-0.5 border border-emerald-500/20 cursor-pointer"
+                                      title="Safe WhatsApp Outreach"
                                     >
                                       <MessageSquare className="h-2.5 w-2.5" />
                                       <span>WA</span>
-                                    </a>
+                                    </button>
                                   )}
                                 </div>
                                 {l.phone_source_url && (
@@ -1029,6 +1180,18 @@ export default function SavedLeadsPage() {
                           </td>
                           <td className="py-3 px-3 text-right">
                             <div className="flex items-center justify-end gap-1.5">
+                              <button
+                                onClick={() => handleEnrichLead(l.id)}
+                                disabled={enrichingId === l.id}
+                                className="p-1.5 rounded-lg text-purple-400 hover:text-purple-300 hover:bg-purple-500/10 transition-colors cursor-pointer disabled:opacity-50"
+                                title="Enrich Lead (Social Profiles, Contact Discovery & Quality Score)"
+                              >
+                                {enrichingId === l.id ? (
+                                  <RefreshCw className="h-3.5 w-3.5 animate-spin text-purple-400" />
+                                ) : (
+                                  <Sparkles className="h-3.5 w-3.5" />
+                                )}
+                              </button>
                               <button
                                 onClick={() => {
                                   setSelectedResearchLead(l);
@@ -1866,6 +2029,13 @@ export default function SavedLeadsPage() {
             setEmailBody(draft.body);
           }
         }}
+      />
+
+      {/* WhatsApp Outreach Modal */}
+      <WhatsAppModal
+        isOpen={!!whatsAppLead}
+        onClose={() => setWhatsAppLead(null)}
+        lead={whatsAppLead}
       />
     </div>
   );

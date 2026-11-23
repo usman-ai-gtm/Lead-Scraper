@@ -14,6 +14,7 @@ import {
   completeActiveSearchJob,
 } from "@/lib/neon-db";
 import { interpretSearchIntent, SearchIntentResult } from "@/lib/ai-search-parser";
+import { evaluateContactRequirement, calculateLeadQualityScore, ContactRequirement } from "@/lib/lead-quality-engine";
 import {
   cleanDomain,
   cleanBusinessName,
@@ -63,6 +64,15 @@ export async function POST(req: Request) {
 
     const rawKeyword = String(body.keyword || body.query || body.natural_query || "").trim();
     const rawCountry = String(body.country || "United States").trim();
+    const rawCountries = body.countries;
+    const countriesList: string[] = Array.isArray(rawCountries) && rawCountries.length > 0
+      ? rawCountries.map((c: string) => String(c).trim()).filter(Boolean)
+      : [rawCountry && rawCountry !== "ALL COUNTRIES" && rawCountry !== "All Countries" ? rawCountry : "United States"];
+
+    const contactRequirement: ContactRequirement = ["EMAIL_AND_PHONE", "EMAIL_ONLY", "PHONE_ONLY", "EMAIL_OR_PHONE"].includes(body.contact_requirement)
+      ? (body.contact_requirement as ContactRequirement)
+      : "EMAIL_AND_PHONE";
+
     const rawCity = String(body.city || "").trim();
     const rawIndustry = String(body.industry || "").trim();
     const useBusinessProfile = Boolean(body.use_business_profile || body.use_profile);
@@ -245,17 +255,26 @@ export async function POST(req: Request) {
       };
     }
 
-    const maxInternalPages = Math.min(10, Math.ceil(targetCount / 5) + 2);
+    let missingContactCount = 0;
+    const countryStats: Record<string, { candidates: number; eligible: number; duplicates: number; missing_contact: number }> = {};
+    for (const c of countriesList) {
+      countryStats[c] = { candidates: 0, eligible: 0, duplicates: 0, missing_contact: 0 };
+    }
 
-    for (let pageNum = 1; pageNum <= maxInternalPages; pageNum++) {
+    const maxInternalPages = Math.min(10, Math.ceil(targetCount / (5 * Math.max(1, countriesList.length))) + 2);
+
+    for (const currentCountry of countriesList) {
       if (qualifiedLeads.length >= targetCount) break;
 
-      const currentVariation = combinedKeywordVariations[(pageNum - 1) % combinedKeywordVariations.length] || effectiveKeyword;
+      for (let pageNum = 1; pageNum <= maxInternalPages; pageNum++) {
+        if (qualifiedLeads.length >= targetCount) break;
 
-      const channelSearches = sourceChannels.map(async (channel) => {
-        if (qualifiedLeads.length >= targetCount) return;
+        const currentVariation = combinedKeywordVariations[(pageNum - 1) % combinedKeywordVariations.length] || effectiveKeyword;
 
-        const currentQuery = channel.buildQuery(currentVariation);
+        const channelSearches = sourceChannels.map(async (channel) => {
+          if (qualifiedLeads.length >= targetCount) return;
+
+          const currentQuery = `${channel.buildQuery(currentVariation)} "${currentCountry}"`;
 
         try {
           const res = await fetch("https://google.serper.dev/search", {
@@ -363,19 +382,37 @@ export async function POST(req: Request) {
               emailEvidenceStatus = "FOUND ON THIRD-PARTY DIRECTORY • FORMAT CHECKED";
             }
 
-            // Compulsory Email Requirement
-            const hasName = Boolean(businessName && businessName.length >= 2);
-            const hasEmail = Boolean(email && email.includes("@") && email.includes("."));
-            if (!hasName || !hasEmail) {
+            // Evaluate Contact Requirement (EMAIL_AND_PHONE, EMAIL_ONLY, PHONE_ONLY, EMAIL_OR_PHONE)
+            const contactEval = evaluateContactRequirement(
+              { email, phone },
+              contactRequirement,
+              currentCountry
+            );
+
+            if (!contactEval.eligible) {
+              missingContactCount++;
+              if (countryStats[currentCountry]) countryStats[currentCountry].missing_contact++;
               continue;
             }
 
+            const cleanEmail = contactEval.normalizedEmail || email;
+            const cleanPhone = contactEval.normalizedPhone || phone;
+
             // Permanent Account Deduplication Check on Email
-            const normEmail = email.toLowerCase().trim();
-            if (seenEmails.has(normEmail)) {
+            if (cleanEmail && seenEmails.has(cleanEmail)) {
               excludedExistingDuplicates++;
+              if (countryStats[currentCountry]) countryStats[currentCountry].duplicates++;
               continue;
             }
+
+            const quality = calculateLeadQualityScore({
+              business_name: businessName,
+              email: cleanEmail,
+              phone: cleanPhone,
+              website: isSocialHost ? `https://${dom}` : (link.startsWith("http") ? link : `https://${dom}`),
+              country: currentCountry,
+              city: effectiveCity,
+            });
 
             const pkt = getPktDateTime();
             const qualifiedItem: QualifiedLeadItem = {
@@ -383,15 +420,15 @@ export async function POST(req: Request) {
               business_name: businessName,
               website: isSocialHost ? `https://${dom}` : (link.startsWith("http") ? link : `https://${dom}`),
               domain: dom,
-              email: email,
+              email: cleanEmail,
               email_source_url: emailSourceUrl,
               email_status: emailEvidenceStatus,
-              phone: phone || "",
-              phone_source_url: phone ? phoneSourceUrl : "",
+              phone: cleanPhone || "",
+              phone_source_url: cleanPhone ? phoneSourceUrl : "",
               phone_status: phoneEvidenceStatus,
-              country: effectiveCountry || "Global",
+              country: currentCountry || "Global",
               city: effectiveCity || locParts[0] || "",
-              address: snippet.includes(",") ? snippet.slice(0, 100) : [effectiveCity, effectiveCountry].filter(Boolean).join(", "),
+              address: snippet.includes(",") ? snippet.slice(0, 100) : [effectiveCity, currentCountry].filter(Boolean).join(", "),
               industry: rawIndustry && rawIndustry !== "Any" ? rawIndustry : aiStrategy.industry || effectiveKeyword,
               source_platform: channel.platformLabel,
               original_source_url: link,
@@ -403,12 +440,17 @@ export async function POST(req: Request) {
               extraction_date: pkt.date,
               extraction_time: pkt.time,
               created_at: new Date().toISOString(),
+              quality_score: quality.score,
+              quality_category: quality.category,
+              quality_reasons: quality.reasons,
+              contact_requirement: contactRequirement,
             };
 
             const wasAdded = mergeLeadIntoList(qualifiedLeads, qualifiedItem, seenDomains, seenNames, seenEmails);
             if (wasAdded) {
               sourceStats[channel.id].leads_contributed += 1;
               sourceStats[channel.id].sample_url = link;
+              if (countryStats[currentCountry]) countryStats[currentCountry].eligible++;
             }
           }
         } catch {
@@ -418,6 +460,7 @@ export async function POST(req: Request) {
 
       await Promise.allSettled(channelSearches);
     }
+  }
 
     const pkt = getPktDateTime();
     const searchRecordId = `SR-${Date.now()}`;
@@ -475,10 +518,15 @@ export async function POST(req: Request) {
       keyword: effectiveKeyword,
       country: effectiveCountry || "Global",
       city: effectiveCity || "All Cities",
+      selected_countries: countriesList,
+      contact_requirement: contactRequirement,
+      country_stats: countryStats,
       target_count: targetCount,
       qualified_count: qualifiedLeads.length,
       unique_businesses_count: qualifiedLeads.length,
       leads_with_phone_count: leadsWithPhone,
+      duplicates_skipped: excludedExistingDuplicates,
+      missing_contact_skipped: missingContactCount,
       duration_ms: durationMs,
       leads: qualifiedLeads,
       sources_breakdown: Object.values(sourceStats),

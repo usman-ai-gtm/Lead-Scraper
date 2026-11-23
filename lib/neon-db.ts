@@ -14,7 +14,8 @@ function getConnectionString(): string | null {
     } catch {}
   }
   if (!dbUrl || !dbUrl.includes("postgres")) return null;
-  return dbUrl;
+  // Sanitize connection string for serverless HTTP fetch driver
+  return dbUrl.replace("&channel_binding=require", "").replace("channel_binding=require&", "");
 }
 
 export function getNeonSql() {
@@ -441,6 +442,15 @@ export async function getNeonLeads(
     date_to?: string;
     page?: number;
     page_size?: number;
+    platform?: string;
+    platforms?: string[];
+    platform_mode?: "ANY" | "ALL";
+    quality_category?: string;
+    contact_requirement?: string;
+    has_email?: boolean;
+    has_phone?: boolean;
+    has_website?: boolean;
+    campaign_id?: string;
   }
 ) {
   const sql = getNeonSql();
@@ -472,6 +482,65 @@ export async function getNeonLeads(
     if (options?.city && options.city !== "Any" && options.city !== "ALL") {
       params.push(`%${options.city}%`);
       whereClause += ` AND city ILIKE $${params.length}`;
+    }
+    if (options?.campaign_id) {
+      params.push(options.campaign_id);
+      whereClause += ` AND campaign_id = $${params.length}`;
+    }
+    if (options?.quality_category && options.quality_category !== "ALL") {
+      params.push(options.quality_category);
+      whereClause += ` AND quality_category = $${params.length}`;
+    }
+
+    // Platform filters (Instagram, LinkedIn, Facebook, YouTube, TikTok, Website)
+    const platList = options?.platforms || (options?.platform && options.platform !== "ALL" ? [options.platform] : []);
+    if (platList.length > 0) {
+      const mode = options?.platform_mode === "ALL" ? "AND" : "OR";
+      const subClauses: string[] = [];
+
+      for (const p of platList) {
+        const pLower = p.toLowerCase();
+        if (pLower === "instagram") {
+          subClauses.push("(instagram IS NOT NULL AND instagram != '' AND instagram ILIKE '%instagram.com%')");
+        } else if (pLower === "linkedin") {
+          subClauses.push("(linkedin IS NOT NULL AND linkedin != '' AND linkedin ILIKE '%linkedin.com%')");
+        } else if (pLower === "facebook") {
+          subClauses.push("(facebook IS NOT NULL AND facebook != '' AND facebook ILIKE '%facebook.com%')");
+        } else if (pLower === "youtube") {
+          subClauses.push("(youtube IS NOT NULL AND youtube != '' AND youtube ILIKE '%youtube.com%')");
+        } else if (pLower === "tiktok") {
+          subClauses.push("(tiktok IS NOT NULL AND tiktok != '' AND tiktok ILIKE '%tiktok.com%')");
+        } else if (pLower === "website") {
+          subClauses.push("(website IS NOT NULL AND website != '' AND website != 'Not Found' AND website LIKE 'http%')");
+        }
+      }
+
+      if (subClauses.length > 0) {
+        whereClause += ` AND (${subClauses.join(` ${mode} `)})`;
+      }
+    }
+
+    // Contact availability filters
+    if (options?.has_email) {
+      whereClause += ` AND (email IS NOT NULL AND email != '' AND email != 'Not Found' AND email LIKE '%@%')`;
+    }
+    if (options?.has_phone) {
+      whereClause += ` AND (phone IS NOT NULL AND phone != '' AND phone != 'Not Found' AND phone != 'Not Listed')`;
+    }
+    if (options?.has_website) {
+      whereClause += ` AND (website IS NOT NULL AND website != '' AND website != 'Not Found' AND website LIKE 'http%')`;
+    }
+
+    // Contact requirement filter
+    if (options?.contact_requirement === "EMAIL_AND_PHONE") {
+      whereClause += ` AND (email IS NOT NULL AND email != '' AND email != 'Not Found' AND email LIKE '%@%')`;
+      whereClause += ` AND (phone IS NOT NULL AND phone != '' AND phone != 'Not Found' AND phone != 'Not Listed')`;
+    } else if (options?.contact_requirement === "EMAIL_ONLY") {
+      whereClause += ` AND (email IS NOT NULL AND email != '' AND email != 'Not Found' AND email LIKE '%@%')`;
+    } else if (options?.contact_requirement === "PHONE_ONLY") {
+      whereClause += ` AND (phone IS NOT NULL AND phone != '' AND phone != 'Not Found' AND phone != 'Not Listed')`;
+    } else if (options?.contact_requirement === "EMAIL_OR_PHONE") {
+      whereClause += ` AND ((email IS NOT NULL AND email != '' AND email != 'Not Found' AND email LIKE '%@%') OR (phone IS NOT NULL AND phone != '' AND phone != 'Not Found' AND phone != 'Not Listed'))`;
     }
 
     // Date filtering (UTC timestamps)
@@ -1943,6 +2012,172 @@ export async function deleteNeonChatConversation(
     return true;
   } catch (e) {
     console.error("deleteNeonChatConversation error:", e);
+    return false;
+  }
+}
+
+export async function getNeonCampaigns(workspaceId: number): Promise<any[]> {
+  const sql = getNeonSql();
+  if (!sql) return [];
+  try {
+    const rows = await sql.query(
+      `SELECT * FROM campaigns WHERE workspace_id = $1 ORDER BY updated_at DESC`,
+      [workspaceId]
+    );
+    return rows;
+  } catch (e) {
+    console.error("getNeonCampaigns error:", e);
+    return [];
+  }
+}
+
+export async function getNeonCampaignById(campaignId: string, workspaceId: number): Promise<any | null> {
+  const sql = getNeonSql();
+  if (!sql) return null;
+  try {
+    const rows = await sql.query(
+      `SELECT * FROM campaigns WHERE id = $1 AND workspace_id = $2 LIMIT 1`,
+      [campaignId, workspaceId]
+    );
+    return rows[0] || null;
+  } catch (e) {
+    console.error("getNeonCampaignById error:", e);
+    return null;
+  }
+}
+
+export async function createNeonCampaign(data: {
+  id: string;
+  workspace_id: number;
+  name: string;
+  campaign_type: string;
+  keyword: string;
+  countries: string[];
+  target_quantity: number;
+  contact_requirement: string;
+  search_mode?: string;
+  search_variations?: any[];
+}): Promise<any | null> {
+  const sql = getNeonSql();
+  if (!sql) return null;
+  try {
+    const rows = await sql.query(
+      `INSERT INTO campaigns (
+        id, workspace_id, name, campaign_type, keyword,
+        countries, target_quantity, contact_requirement, search_mode,
+        search_variations, status, progress_percent
+      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, 'PENDING', 0)
+      RETURNING *`,
+      [
+        data.id,
+        data.workspace_id,
+        data.name,
+        data.campaign_type || 'FIND_LEADS',
+        data.keyword,
+        JSON.stringify(data.countries || []),
+        data.target_quantity || 50,
+        data.contact_requirement || 'EMAIL_AND_PHONE',
+        data.search_mode || 'STANDARD',
+        JSON.stringify(data.search_variations || []),
+      ]
+    );
+    return rows[0] || null;
+  } catch (e) {
+    console.error("createNeonCampaign error:", e);
+    return null;
+  }
+}
+
+export async function updateNeonCampaignProgress(
+  campaignId: string,
+  workspaceId: number,
+  updates: {
+    status?: string;
+    current_country?: string;
+    candidates_processed?: number;
+    eligible_leads_count?: number;
+    duplicates_skipped?: number;
+    missing_contact_count?: number;
+    errors_count?: number;
+    progress_percent?: number;
+    country_stats?: any;
+    search_variations?: any;
+    error_message?: string;
+    completed_at?: Date | null;
+  }
+): Promise<boolean> {
+  const sql = getNeonSql();
+  if (!sql) return false;
+  try {
+    const fields: string[] = ["updated_at = CURRENT_TIMESTAMP"];
+    const params: any[] = [campaignId, workspaceId];
+
+    if (updates.status !== undefined) {
+      params.push(updates.status);
+      fields.push(`status = $${params.length}`);
+    }
+    if (updates.current_country !== undefined) {
+      params.push(updates.current_country);
+      fields.push(`current_country = $${params.length}`);
+    }
+    if (updates.candidates_processed !== undefined) {
+      params.push(updates.candidates_processed);
+      fields.push(`candidates_processed = $${params.length}`);
+    }
+    if (updates.eligible_leads_count !== undefined) {
+      params.push(updates.eligible_leads_count);
+      fields.push(`eligible_leads_count = $${params.length}`);
+    }
+    if (updates.duplicates_skipped !== undefined) {
+      params.push(updates.duplicates_skipped);
+      fields.push(`duplicates_skipped = $${params.length}`);
+    }
+    if (updates.missing_contact_count !== undefined) {
+      params.push(updates.missing_contact_count);
+      fields.push(`missing_contact_count = $${params.length}`);
+    }
+    if (updates.errors_count !== undefined) {
+      params.push(updates.errors_count);
+      fields.push(`errors_count = $${params.length}`);
+    }
+    if (updates.progress_percent !== undefined) {
+      params.push(updates.progress_percent);
+      fields.push(`progress_percent = $${params.length}`);
+    }
+    if (updates.country_stats !== undefined) {
+      params.push(JSON.stringify(updates.country_stats));
+      fields.push(`country_stats = $${params.length}`);
+    }
+    if (updates.search_variations !== undefined) {
+      params.push(JSON.stringify(updates.search_variations));
+      fields.push(`search_variations = $${params.length}`);
+    }
+    if (updates.error_message !== undefined) {
+      params.push(updates.error_message);
+      fields.push(`error_message = $${params.length}`);
+    }
+    if (updates.completed_at !== undefined) {
+      params.push(updates.completed_at ? updates.completed_at.toISOString() : null);
+      fields.push(`completed_at = $${params.length}`);
+    }
+
+    const query = `UPDATE campaigns SET ${fields.join(", ")} WHERE id = $1 AND workspace_id = $2`;
+    await sql.query(query, params);
+    return true;
+  } catch (e) {
+    console.error("updateNeonCampaignProgress error:", e);
+    return false;
+  }
+}
+
+export async function deleteNeonCampaign(campaignId: string, workspaceId: number): Promise<boolean> {
+  const sql = getNeonSql();
+  if (!sql) return false;
+  try {
+    await sql.query(`DELETE FROM campaigns WHERE id = $1 AND workspace_id = $2`, [campaignId, workspaceId]);
+    return true;
+  } catch (e) {
+    console.error("deleteNeonCampaign error:", e);
     return false;
   }
 }
