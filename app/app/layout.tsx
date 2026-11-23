@@ -68,7 +68,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
     return () => window.removeEventListener("keydown", handleKeyDown);
   }, []);
 
-  // Exactly 9 Client Navigation Items (Including Lifetime Google Maps)
+  // Client Navigation Items (Including Lifetime Google Maps & Multilingual AI Assistant)
   const clientNav: NavItem[] = [
     { name: "Dashboard", href: "/app", icon: LayoutDashboard },
     { name: "Business Profile", href: "/app/business-profile", icon: Briefcase },
@@ -78,6 +78,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
     { name: "Search History", href: "/app/history", icon: History },
     { name: "Email Accounts", href: "/app/accounts", icon: Mail },
     { name: "Cold Email", href: "/app/outreach", icon: Send },
+    { name: "AI Assistant", href: "/app/assistant", icon: MessageCircle },
     { name: "Usage & Subscription", href: "/app/subscription", icon: CreditCard },
   ];
 
@@ -98,6 +99,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
     { title: "Search History", subtitle: "Reopen past search snapshots organized by PKT date & time", url: "/app/history", badge: "HISTORY" },
     { title: "Email Accounts", subtitle: "Connect your official Gmail account for $0 cold outreach", url: "/app/accounts", badge: "GMAIL" },
     { title: "Cold Email Outreach", subtitle: "Dispatch personalized business emails via Gmail API", url: "/app/outreach", badge: "OUTREACH" },
+    { title: "AI Assistant", subtitle: "Multilingual B2B sales and growth consultation", url: "/app/assistant", badge: "ASSISTANT" },
     { title: "Usage & Subscription", subtitle: "$25/mo or $100 Lifetime status, quotas, and WhatsApp activation", url: "/app/subscription", badge: "BILLING" },
     ...(isAdmin ? [
       { title: "Client Accounts", subtitle: "Manage client workspaces, activation, and usage limits", url: "/app/admin/clients", badge: "ADMIN" },

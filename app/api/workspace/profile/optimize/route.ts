@@ -76,7 +76,7 @@ Provide your response in JSON format with exactly these four string keys:
 }
 Output strictly valid JSON only. Do not invent fake claims, fake awards, or hallucinated facts.`;
 
-    const models = ["gemini-2.0-flash", "gemini-1.5-flash", "gemini-1.5-flash-8b"];
+    const models = ["gemini-3.5-flash-lite", "gemini-3.5-flash", "gemini-flash-latest"];
     let resultJson: any = null;
     let modelUsed = "";
 

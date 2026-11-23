@@ -6,7 +6,8 @@ import { useAuth } from "@/lib/auth-context";
 import {
   Mail, Send, CheckCircle2, AlertCircle, RefreshCw,
   Eye, Sparkles, Shield, User, Building2, Check, X,
-  Clock, AlertTriangle, ArrowRight, Ban, Filter
+  Clock, AlertTriangle, ArrowRight, Ban, Filter, FileText,
+  Plus, Trash2, BookmarkPlus
 } from "lucide-react";
 
 interface LeadItem {
@@ -46,11 +47,17 @@ function ColdEmailContent() {
   const [isGmailConnected, setIsGmailConnected] = useState(false);
   const [checkingSender, setCheckingSender] = useState(true);
 
-  // Email form
+  // Email form & templates
   const [subject, setSubject] = useState("Exploring collaboration with {{business_name}}");
   const [bodyText, setBodyText] = useState(
     "Hi {{contact_name}},\n\nI came across {{business_name}} and was impressed by your work in {{city}}. At USMAN AI GTM, we help companies in the {{industry}} space discover verified B2B growth opportunities.\n\nWould you be open to a brief 10-minute introductory conversation next week?\n\nBest regards,\n{{sender_name}}\nUSMAN AI GTM"
   );
+  const [templates, setTemplates] = useState<any[]>([]);
+  const [selectedTemplateId, setSelectedTemplateId] = useState<string>("");
+  const [loadingTemplates, setLoadingTemplates] = useState<boolean>(true);
+  const [saveModalOpen, setSaveModalOpen] = useState<boolean>(false);
+  const [newTemplateName, setNewTemplateName] = useState<string>("");
+  const [savingTemplate, setSavingTemplate] = useState<boolean>(false);
 
   // Generation with Gemini AI
   const [aiGenerating, setAiGenerating] = useState(false);
@@ -146,11 +153,103 @@ function ColdEmailContent() {
     }
   };
 
+  // 4. Fetch email template library
+  const fetchTemplates = async () => {
+    setLoadingTemplates(true);
+    try {
+      const res = await fetch("/api/outreach/templates", {
+        headers: getAuthHeaders(),
+      });
+      const data = await res.json();
+      if (data && Array.isArray(data.templates)) {
+        setTemplates(data.templates);
+        if (!selectedTemplateId && data.templates.length > 0) {
+          const first = data.templates[0];
+          setSelectedTemplateId(String(first.id));
+          setSubject(first.subject);
+          setBodyText(first.body);
+        }
+      }
+    } catch (err) {
+      console.warn("Could not load email templates", err);
+    } finally {
+      setLoadingTemplates(false);
+    }
+  };
+
   useEffect(() => {
     fetchSenderStatus();
     fetchLeads();
     fetchHistory();
+    fetchTemplates();
   }, [historyFilter]);
+
+  const handleSelectTemplate = (idStr: string) => {
+    setSelectedTemplateId(idStr);
+    const t = templates.find((item) => String(item.id) === idStr);
+    if (t) {
+      setSubject(t.subject);
+      setBodyText(t.body);
+    }
+  };
+
+  const handleSaveCustomTemplate = async () => {
+    if (!newTemplateName.trim()) {
+      alert("Please enter a name for your custom template.");
+      return;
+    }
+    setSavingTemplate(true);
+    try {
+      const res = await fetch("/api/outreach/templates", {
+        method: "POST",
+        headers: getAuthHeaders(),
+        body: JSON.stringify({
+          name: newTemplateName.trim(),
+          subject,
+          body: bodyText,
+          category: "CUSTOM",
+        }),
+      });
+      const data = await res.json();
+      if (res.ok && data.template) {
+        setToastType("success");
+        setToastMsg(`Template "${newTemplateName}" saved successfully.`);
+        setSaveModalOpen(false);
+        setNewTemplateName("");
+        await fetchTemplates();
+        setSelectedTemplateId(String(data.template.id));
+      } else {
+        alert(data.error || "Failed to save template.");
+      }
+    } catch (err: any) {
+      alert("Error saving template: " + err.message);
+    } finally {
+      setSavingTemplate(false);
+    }
+  };
+
+  const handleDeleteTemplate = async () => {
+    const cur = templates.find((t) => String(t.id) === selectedTemplateId);
+    if (!cur || cur.is_default) {
+      alert("Default system templates cannot be deleted.");
+      return;
+    }
+    if (!confirm(`Are you sure you want to delete "${cur.name}"?`)) return;
+
+    try {
+      const res = await fetch(`/api/outreach/templates?id=${cur.id}`, {
+        method: "DELETE",
+        headers: getAuthHeaders(),
+      });
+      if (res.ok) {
+        setToastType("info");
+        setToastMsg(`Template "${cur.name}" deleted.`);
+        await fetchTemplates();
+      }
+    } catch (err: any) {
+      alert("Error deleting template: " + err.message);
+    }
+  };
 
   // Insert personalization variable
   const insertVariable = (tag: string) => {
@@ -178,21 +277,27 @@ function ColdEmailContent() {
 
   // Render personalized template for a specific lead
   const renderTemplate = (text: string, lead: LeadItem) => {
-    const contactName = lead.business_name || "Business Owner";
+    const businessName = lead.business_name || "Company";
+    const firstName = businessName.split(/\s+/)[0] || "Business Owner";
     const senderName = senderAccount?.sender_name || user?.full_name || "USMAN AI GTM";
+    const serviceName = "B2B Growth & Lead Solutions";
+
     let rendered = text
-      .replace(/{{business_name}}/g, lead.business_name || "your business")
-      .replace(/{{contact_name}}/g, contactName)
-      .replace(/{{city}}/g, lead.city || "your region")
-      .replace(/{{country}}/g, lead.country || "")
-      .replace(/{{industry}}/g, lead.industry || "industry")
-      .replace(/{{website}}/g, lead.website || "")
-      .replace(/{{sender_name}}/g, senderName);
+      .replace(/\{\{first_name\}\}/gi, firstName)
+      .replace(/\{\{business_name\}\}/gi, businessName)
+      .replace(/\{\{company_name\}\}/gi, businessName)
+      .replace(/\{\{contact_name\}\}/gi, firstName)
+      .replace(/\{\{city\}\}/gi, lead.city || "your region")
+      .replace(/\{\{country\}\}/gi, lead.country || "")
+      .replace(/\{\{industry\}\}/gi, lead.industry || "industry")
+      .replace(/\{\{website\}\}/gi, lead.website || "")
+      .replace(/\{\{service_name\}\}/gi, serviceName)
+      .replace(/\{\{sender_name\}\}/gi, senderName);
 
     // Strict Anti-Glitch Cleanup: strip any leftover unresolved placeholders
     rendered = rendered
       .replace(/\{\{[^}]+\}\}/g, "")
-      .replace(/\[(?:Business Name|Contact Name|Name|Your Name|Company Name|Sender Name|Title)\]/gi, "");
+      .replace(/\[(?:Business Name|Contact Name|Name|Your Name|Company Name|Sender Name|Title|Service Name)\]/gi, "");
 
     return rendered.trim();
   };
@@ -533,33 +638,94 @@ function ColdEmailContent() {
 
         {/* RIGHT COLUMN: COMPOSE & PREVIEW (7 COLS) */}
         <div className="lg:col-span-7 rounded-2xl border border-white/[0.08] bg-[#0c1017] p-5 space-y-4">
-          <div className="flex items-center justify-between pb-3 border-b border-white/[0.06]">
+          <div className="flex items-center justify-between pb-3 border-b border-white/[0.06] flex-wrap gap-2">
             <div>
               <h3 className="text-sm font-bold text-white">Compose Personalized Message</h3>
               <p className="text-[11px] text-slate-400">
-                Variables will be automatically replaced with each recipient&apos;s data.
+                Choose a pre-built template or draft your own with AI.
               </p>
             </div>
 
-            <button
-              onClick={handleGeminiDraft}
-              disabled={aiGenerating || leads.length === 0}
-              className="px-3 py-1.5 text-xs font-semibold text-purple-300 bg-purple-500/10 hover:bg-purple-500/20 border border-purple-500/20 rounded-xl transition-all flex items-center gap-1.5 disabled:opacity-50"
-            >
-              <Sparkles className={`h-3.5 w-3.5 ${aiGenerating ? "animate-spin" : ""}`} />
-              <span>{aiGenerating ? "Drafting with Gemini..." : "Draft with Gemini AI"}</span>
-            </button>
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={() => setSaveModalOpen(true)}
+                className="px-2.5 py-1.5 text-xs font-semibold text-slate-300 bg-white/[0.04] hover:bg-white/[0.08] border border-white/10 rounded-xl transition-all flex items-center gap-1.5"
+                title="Save current message as custom template"
+              >
+                <BookmarkPlus className="h-3.5 w-3.5 text-emerald-400" />
+                <span>Save Template</span>
+              </button>
+
+              <button
+                onClick={handleGeminiDraft}
+                disabled={aiGenerating || leads.length === 0}
+                className="px-3 py-1.5 text-xs font-semibold text-purple-300 bg-purple-500/10 hover:bg-purple-500/20 border border-purple-500/20 rounded-xl transition-all flex items-center gap-1.5 disabled:opacity-50"
+              >
+                <Sparkles className={`h-3.5 w-3.5 ${aiGenerating ? "animate-spin" : ""}`} />
+                <span>{aiGenerating ? "Drafting with Gemini..." : "Draft with Gemini AI"}</span>
+              </button>
+            </div>
+          </div>
+
+          {/* Template Selector Bar */}
+          <div className="flex items-center gap-2 p-2.5 rounded-xl bg-white/[0.02] border border-white/[0.06]">
+            <FileText className="h-4 w-4 text-blue-400 shrink-0" />
+            <div className="flex-1 min-w-0">
+              <select
+                value={selectedTemplateId}
+                onChange={(e) => handleSelectTemplate(e.target.value)}
+                disabled={loadingTemplates}
+                className="w-full bg-transparent text-xs font-medium text-slate-200 focus:outline-none cursor-pointer"
+              >
+                <option value="" disabled className="bg-[#0c1017] text-slate-500">
+                  Select an email template...
+                </option>
+                <optgroup label="Default System Templates (10)" className="bg-[#0c1017] text-blue-400 font-semibold">
+                  {templates
+                    .filter((t) => t.is_default)
+                    .map((t) => (
+                      <option key={t.id} value={t.id} className="bg-[#0c1017] text-slate-200 font-normal">
+                        {t.name}
+                      </option>
+                    ))}
+                </optgroup>
+                {templates.some((t) => !t.is_default) && (
+                  <optgroup label="Custom Workspace Templates" className="bg-[#0c1017] text-emerald-400 font-semibold">
+                    {templates
+                      .filter((t) => !t.is_default)
+                      .map((t) => (
+                        <option key={t.id} value={t.id} className="bg-[#0c1017] text-slate-200 font-normal">
+                          {t.name} (Custom)
+                        </option>
+                      ))}
+                  </optgroup>
+                )}
+              </select>
+            </div>
+            {templates.find((t) => String(t.id) === selectedTemplateId && !t.is_default) && (
+              <button
+                type="button"
+                onClick={handleDeleteTemplate}
+                className="p-1 text-slate-400 hover:text-rose-400 transition-colors"
+                title="Delete this custom template"
+              >
+                <Trash2 className="h-3.5 w-3.5" />
+              </button>
+            )}
           </div>
 
           {/* Variable Insertion Pills */}
           <div className="flex items-center gap-1.5 flex-wrap text-[11px]">
             <span className="text-slate-400">Insert tag:</span>
             {[
+              { tag: "{{first_name}}", label: "First Name" },
               { tag: "{{business_name}}", label: "Business Name" },
-              { tag: "{{contact_name}}", label: "Contact Name" },
-              { tag: "{{city}}", label: "City" },
+              { tag: "{{company_name}}", label: "Company" },
               { tag: "{{industry}}", label: "Industry" },
+              { tag: "{{city}}", label: "City" },
               { tag: "{{website}}", label: "Website" },
+              { tag: "{{service_name}}", label: "Service" },
             ].map((v) => (
               <button
                 key={v.tag}
@@ -773,6 +939,62 @@ function ColdEmailContent() {
                 className="px-4 py-2 text-xs font-semibold text-white bg-blue-600 rounded-xl"
               >
                 Looks Good
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* SAVE CUSTOM TEMPLATE MODAL */}
+      {saveModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/75 backdrop-blur-sm px-4">
+          <div className="w-full max-w-md rounded-2xl border border-white/10 bg-[#0c1017] p-6 shadow-2xl text-slate-100 space-y-4">
+            <div className="flex items-center justify-between pb-3 border-b border-white/[0.08]">
+              <div className="flex items-center gap-2">
+                <BookmarkPlus className="h-5 w-5 text-emerald-400" />
+                <h3 className="text-base font-bold text-white">Save as Custom Template</h3>
+              </div>
+              <button
+                onClick={() => setSaveModalOpen(false)}
+                className="text-xs text-slate-400 hover:text-white"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+
+            <p className="text-xs text-slate-400">
+              Save your current subject line and body text as a reusable workspace template.
+            </p>
+
+            <div>
+              <label className="block text-xs font-semibold text-slate-300 mb-1">
+                Template Name
+              </label>
+              <input
+                type="text"
+                value={newTemplateName}
+                onChange={(e) => setNewTemplateName(e.target.value)}
+                placeholder="e.g. Agency Website Audit Intro"
+                className="w-full rounded-xl border border-white/10 bg-white/[0.03] px-3.5 py-2.5 text-xs text-white placeholder-slate-500 focus:border-emerald-500 focus:outline-none"
+                autoFocus
+              />
+            </div>
+
+            <div className="pt-2 flex items-center justify-end gap-2">
+              <button
+                type="button"
+                onClick={() => setSaveModalOpen(false)}
+                className="px-4 py-2 text-xs text-slate-400 hover:text-white"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={handleSaveCustomTemplate}
+                disabled={savingTemplate || !newTemplateName.trim()}
+                className="px-5 py-2 text-xs font-bold text-white bg-emerald-600 hover:bg-emerald-500 rounded-xl transition-all shadow-glow-sm flex items-center gap-1.5 disabled:opacity-50"
+              >
+                <span>{savingTemplate ? "Saving..." : "Save Template"}</span>
               </button>
             </div>
           </div>

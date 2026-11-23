@@ -11,7 +11,7 @@ import {
   Download, CheckCircle2, RefreshCw, Mail, Phone, Globe,
   ShieldCheck, ExternalLink, Building2, Database,
   Layers, Sparkles, Search, FileSpreadsheet,
-  AlertCircle, AlertTriangle, Check, HelpCircle, Hash
+  AlertCircle, AlertTriangle, Check, HelpCircle, Hash, Briefcase, ArrowRight
 } from "lucide-react";
 import { AiLeadResearchModal } from "@/components/leads/AiLeadResearchModal";
 
@@ -71,6 +71,12 @@ function LeadsSearchComponent() {
   const [isResearchModalOpen, setIsResearchModalOpen] = useState<boolean>(false);
   const [selectedResearchLead, setSelectedResearchLead] = useState<any | null>(null);
 
+  // Business Profile & AI Strategy State
+  const [useBusinessProfile, setUseBusinessProfile] = useState<boolean>(false);
+  const [profileAvailable, setProfileAvailable] = useState<boolean>(false);
+  const [profileData, setProfileData] = useState<any | null>(null);
+  const [aiStrategyData, setAiStrategyData] = useState<any | null>(null);
+
   // Active verified non-Maps sources
   const configuredSourcesList = [
     "Google Organic Web Search",
@@ -116,6 +122,41 @@ function LeadsSearchComponent() {
         }
       } catch { }
     }
+
+    // Check Business Profile availability
+    async function checkProfile() {
+      try {
+        const token = typeof window !== "undefined" ? localStorage.getItem("usman_gtm_token") : null;
+        const res = await fetch("/api/workspace/profile", {
+          headers: token ? { Authorization: `Bearer ${token}` } : {},
+        });
+        const data = await res.json();
+        if (data && data.profile && (data.profile.business_name || data.profile.products_services || data.profile.industry)) {
+          setProfileAvailable(true);
+          setProfileData(data.profile);
+        } else {
+          setProfileAvailable(false);
+          setProfileData(null);
+        }
+      } catch { }
+    }
+    checkProfile();
+
+    // Check if an active search job is already running
+    async function checkJob() {
+      try {
+        const token = typeof window !== "undefined" ? localStorage.getItem("usman_gtm_token") : null;
+        const res = await fetch("/api/leads/job-status", {
+          headers: token ? { Authorization: `Bearer ${token}` } : {},
+        });
+        const data = await res.json();
+        if (data && data.is_running && data.active_job) {
+          setIsExtracting(true);
+          setStatusMessage(`A lead search for "${data.active_job.keyword}" is currently running...`);
+        }
+      } catch { }
+    }
+    checkJob();
   }, [searchParams]);
 
   // Update suggested cities when country selector changes
@@ -176,6 +217,7 @@ function LeadsSearchComponent() {
           country: country,
           city: selectedCity !== "ALL_CITIES" ? selectedCity : "",
           target_count: targetCount,
+          use_business_profile: useBusinessProfile,
         }),
       });
 
@@ -183,6 +225,10 @@ function LeadsSearchComponent() {
       if (!res.ok || data.status === "error") {
         setSaveStatus("FAILED");
         throw new Error(data.message || "Extraction failed.");
+      }
+
+      if (data.ai_strategy) {
+        setAiStrategyData(data.ai_strategy);
       }
 
       const fresh: QualifiedLead[] = data.leads || [];
@@ -388,7 +434,7 @@ function LeadsSearchComponent() {
               value={keyword}
               onChange={(e) => setKeyword(e.target.value)}
               onKeyDown={(e) => e.key === "Enter" && handleStartExtraction()}
-              placeholder="e.g. Mobile Accessories, Real Estate Agencies, Construction, Law Firms..."
+              placeholder="Enter keywords, category, or natural description (e.g. Dentists in London, or 'Businesses selling office furniture that need a website')..."
               className="w-full rounded-xl border border-white/10 bg-white/[0.03] px-3.5 py-2.5 text-xs text-white placeholder-slate-500 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500/50"
             />
           </div>
@@ -446,6 +492,52 @@ function LeadsSearchComponent() {
           </div>
         </div>
 
+        {/* Business Profile Contextual Lead Generation Option */}
+        <div className="rounded-xl border border-white/[0.06] bg-white/[0.02] p-3 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
+          <div className="flex items-center gap-2.5">
+            <div className={`h-8 w-8 rounded-lg flex items-center justify-center text-sm ${profileAvailable ? (useBusinessProfile ? "bg-emerald-500/20 text-emerald-400 border border-emerald-500/30" : "bg-blue-500/10 text-blue-400 border border-blue-500/20") : "bg-slate-800 text-slate-500"}`}>
+              <Briefcase className="h-4 w-4" />
+            </div>
+            <div>
+              <div className="text-xs font-bold text-white flex items-center gap-2">
+                <span>Generate Leads Using My Business Profile</span>
+                {profileAvailable && (
+                  <span className="text-[10px] font-mono px-2 py-0.5 rounded-full bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
+                    Profile Ready: {profileData?.business_name || "Configured"}
+                  </span>
+                )}
+              </div>
+              <div className="text-[11px] text-slate-400">
+                {profileAvailable
+                  ? "Uses your saved ICP, products/services, and target customer criteria to discover prospects seeking your exact solutions."
+                  : "Complete your Business Profile once to enable intelligent ICP-tailored client discovery."}
+              </div>
+            </div>
+          </div>
+
+          {profileAvailable ? (
+            <button
+              type="button"
+              onClick={() => setUseBusinessProfile(!useBusinessProfile)}
+              className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer shrink-0 ${
+                useBusinessProfile
+                  ? "bg-emerald-600 hover:bg-emerald-500 text-white shadow-glow-sm"
+                  : "bg-white/[0.05] hover:bg-white/[0.1] text-slate-300 border border-white/10"
+              }`}
+            >
+              <span>{useBusinessProfile ? "✓ Profile Mode Active" : "Enable Profile Mode"}</span>
+            </button>
+          ) : (
+            <Link
+              href="/app/business-profile"
+              className="px-3 py-1.5 rounded-lg bg-blue-500/10 hover:bg-blue-500/20 text-blue-400 border border-blue-500/30 text-xs font-bold transition-all flex items-center gap-1 shrink-0"
+            >
+              <span>Set Up Business Profile</span>
+              <ArrowRight className="h-3.5 w-3.5" />
+            </Link>
+          )}
+        </div>
+
         {/* Quick Quantity Presets & Extraction Trigger */}
         <div className="flex flex-col sm:flex-row items-center justify-between gap-3 pt-3 border-t border-white/[0.06]">
           <div className="flex items-center gap-1.5 flex-wrap">
@@ -495,6 +587,42 @@ function LeadsSearchComponent() {
           )}
         </div>
       </div>
+
+      {/* AI Strategy Insights Card */}
+      {aiStrategyData && (
+        <div className="rounded-xl border border-indigo-500/30 bg-indigo-500/[0.06] p-4 text-xs space-y-2.5 animate-in fade-in">
+          <div className="flex items-center justify-between">
+            <span className="font-bold text-indigo-300 flex items-center gap-1.5">
+              <Sparkles className="h-4 w-4 text-indigo-400" />
+              <span>AI Search Strategy & Intent Analysis:</span>
+            </span>
+            {aiStrategyData.excluded_previous_duplicates > 0 && (
+              <span className="px-2 py-0.5 rounded-full bg-amber-500/10 text-amber-300 border border-amber-500/20 text-[10px] font-mono">
+                {aiStrategyData.excluded_previous_duplicates} past leads excluded (Account Deduplication)
+              </span>
+            )}
+          </div>
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 text-[11px]">
+            <div className="p-2 rounded bg-black/30 border border-white/5">
+              <span className="text-slate-400 block text-[10px] uppercase font-mono">Target Prospects</span>
+              <span className="text-white font-semibold">{aiStrategyData.target_business_type || aiStrategyData.interpreted_keyword}</span>
+            </div>
+            <div className="p-2 rounded bg-black/30 border border-white/5">
+              <span className="text-slate-400 block text-[10px] uppercase font-mono">Industry Classification</span>
+              <span className="text-white font-semibold">{aiStrategyData.industry || "Commercial B2B"}</span>
+            </div>
+            <div className="p-2 rounded bg-black/30 border border-white/5">
+              <span className="text-slate-400 block text-[10px] uppercase font-mono">Market Context</span>
+              <span className="text-white font-semibold">{aiStrategyData.target_audience || "Direct verified decision makers"}</span>
+            </div>
+          </div>
+          {aiStrategyData.reasoning && (
+            <p className="text-[11px] text-indigo-200/80 italic leading-relaxed">
+              💡 {aiStrategyData.reasoning}
+            </p>
+          )}
+        </div>
+      )}
 
       {/* SEARCH STATUS & SOURCE HEALTH BREAKDOWN */}
       <div className="rounded-xl border border-white/[0.08] bg-[#0c1017] p-4 space-y-3 text-xs">

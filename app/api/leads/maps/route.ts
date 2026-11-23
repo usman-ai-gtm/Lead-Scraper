@@ -1,6 +1,13 @@
 import { NextResponse } from "next/server";
 import { getCurrentUserFromRequest, verifyClientActiveSubscription } from "@/lib/serverless-auth";
-import { getNeonSql, isNeonConfigured, saveNeonSearchRecordAndLeads } from "@/lib/neon-db";
+import {
+  getNeonSql,
+  isNeonConfigured,
+  saveNeonSearchRecordAndLeads,
+  getNeonWorkspaceLeadSignatures,
+  acquireActiveSearchJob,
+  completeActiveSearchJob,
+} from "@/lib/neon-db";
 import { cleanDomain, crawlWebsiteForContacts, querySerperForDomainContact } from "@/lib/search-intelligence";
 import { normalizePhoneNumber } from "@/lib/phone-utils";
 
@@ -89,11 +96,38 @@ export async function POST(req: Request) {
       );
     }
 
+    const workspaceId = Number(user.workspace_id) || 1;
+
+    // 1. One active search job per customer account lock
+    const jobLock = await acquireActiveSearchJob(
+      workspaceId,
+      user.id || 1,
+      "MAPS_SEARCH",
+      keyword,
+      country,
+      city,
+      requestedQuantity
+    );
+
+    if (!jobLock.allowed) {
+      return NextResponse.json(
+        {
+          status: "error",
+          code: "SEARCH_ALREADY_RUNNING",
+          message: jobLock.message || "A lead generation search is already in progress for your workspace. Please wait for it to complete.",
+          active_job_id: jobLock.jobId,
+        },
+        { status: 409 }
+      );
+    }
+    const currentJobId = jobLock.jobId;
+
     // Verify Search Provider API Key (with verified high-capacity fallback)
     const serperKey = (process.env.SERPER_API_KEY || "2baa9b7d5907ecc3fe3fceebb8c4b9b7e30e3297").trim();
     const googleMapsKey = (process.env.GOOGLE_MAPS_API_KEY || "").trim();
 
     if (!serperKey && !googleMapsKey) {
+      if (currentJobId) await completeActiveSearchJob(currentJobId, "FAILED", 0, undefined, "Search provider not configured");
       return NextResponse.json(
         {
           status: "error",
@@ -144,6 +178,7 @@ export async function POST(req: Request) {
     }
 
     if (rawPlaces.length === 0) {
+      if (currentJobId) await completeActiveSearchJob(currentJobId, "COMPLETED", 0);
       return NextResponse.json({
         status: "success",
         leads: [],
@@ -154,16 +189,25 @@ export async function POST(req: Request) {
       });
     }
 
-    // Process & Filter Places
+    // Preload permanent account-level leads for deduplication
+    const existingSignatures = isNeonConfigured()
+      ? await getNeonWorkspaceLeadSignatures(workspaceId)
+      : { domains: new Set<string>(), emails: new Set<string>(), phones: new Set<string>(), placeIds: new Set<string>() };
+
     const qualifiedLeads: MapLead[] = [];
-    const seenDomains = new Set<string>();
-    const seenPlaceIds = new Set<string>();
+    const seenDomains = new Set<string>(existingSignatures.domains);
+    const seenPlaceIds = new Set<string>(existingSignatures.placeIds);
+    const seenEmails = new Set<string>(existingSignatures.emails);
+    let excludedExistingDuplicates = 0;
 
     for (const place of rawPlaces) {
       if (qualifiedLeads.length >= requestedQuantity) break;
 
       const placeId = place.placeId || place.cid || `place_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
-      if (seenPlaceIds.has(placeId)) continue;
+      if (seenPlaceIds.has(placeId)) {
+        excludedExistingDuplicates++;
+        continue;
+      }
       seenPlaceIds.add(placeId);
 
       const title = String(place.title || place.name || "").trim();
@@ -172,7 +216,10 @@ export async function POST(req: Request) {
       const rawWebsite = String(place.website || "").trim();
       const domain = rawWebsite ? cleanDomain(rawWebsite) : "";
 
-      if (domain && seenDomains.has(domain)) continue;
+      if (domain && seenDomains.has(domain)) {
+        excludedExistingDuplicates++;
+        continue;
+      }
       if (domain) seenDomains.add(domain);
 
       const rawPhone = String(place.phoneNumber || place.phone || "").trim();
@@ -238,7 +285,7 @@ export async function POST(req: Request) {
     }
 
     // Persist to Authoritative Neon PostgreSQL Database
-    const workspaceId = Number(user.workspace_id) || 1;
+    const searchRecordId = `SR-MAPS-${Date.now()}`;
     if (isNeonConfigured() && qualifiedLeads.length > 0) {
       try {
         await saveNeonSearchRecordAndLeads(
@@ -249,7 +296,7 @@ export async function POST(req: Request) {
             city: city !== "ALL_CITIES" ? city : "",
             sources: ["Google Maps Platform", "Google Places API"],
             requested_quantity: requestedQuantity,
-            search_record_id: `SR-MAPS-${Date.now()}`,
+            search_record_id: searchRecordId,
           },
           qualifiedLeads
         );
@@ -258,14 +305,19 @@ export async function POST(req: Request) {
       }
     }
 
+    if (currentJobId) {
+      await completeActiveSearchJob(currentJobId, "COMPLETED", qualifiedLeads.length, searchRecordId);
+    }
+
     return NextResponse.json({
       status: "success",
       leads: qualifiedLeads,
       total_scraped: rawPlaces.length,
       total_qualified: qualifiedLeads.length,
       contact_filter: contactFilter,
+      excluded_previous_duplicates: excludedExistingDuplicates,
       source: "Google Maps Platform & Official Websites",
-      message: `Discovered ${qualifiedLeads.length} qualified Google Maps leads for "${keyword}" with ${contactFilter} criteria.`,
+      message: `Discovered and saved ${qualifiedLeads.length} unique qualified Google Maps leads for "${keyword}". (${excludedExistingDuplicates} previously saved leads were excluded via permanent account deduplication).`,
     });
   } catch (err: any) {
     console.error("[Google Maps Lead Generator] Top-level error:", err);

@@ -21,11 +21,17 @@ export async function GET(req: Request) {
     );
   }
 
-  const workspaceId = currentUser.workspace_id;
+  const workspaceId = currentUser.workspace_id || 1;
   const url = new URL(req.url);
   const keyword = url.searchParams.get("keyword") || "";
   const country = url.searchParams.get("country") || "Any";
   const city = url.searchParams.get("city") || "Any";
+  const searchName = url.searchParams.get("company") || url.searchParams.get("name") || url.searchParams.get("search_name") || "";
+  const searchEmail = url.searchParams.get("email") || url.searchParams.get("search_email") || "";
+  const source = url.searchParams.get("source") || "";
+  const datePreset = url.searchParams.get("date_preset") || "";
+  const dateFrom = url.searchParams.get("date_from") || "";
+  const dateTo = url.searchParams.get("date_to") || "";
   const page = parseInt(url.searchParams.get("page") || "1", 10);
   const pageSize = parseInt(url.searchParams.get("page_size") || "50", 10);
 
@@ -34,6 +40,12 @@ export async function GET(req: Request) {
       keyword,
       country,
       city,
+      search_name: searchName,
+      search_email: searchEmail,
+      source,
+      date_preset: datePreset,
+      date_from: dateFrom,
+      date_to: dateTo,
       page,
       page_size: pageSize,
     });

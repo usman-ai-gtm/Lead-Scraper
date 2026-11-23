@@ -5,7 +5,15 @@ import {
   saveServerlessSearchRecordAndLeads,
   getPktDateTime,
 } from "@/lib/serverless-auth";
-import { saveNeonSearchRecordAndLeads, isNeonConfigured } from "@/lib/neon-db";
+import {
+  saveNeonSearchRecordAndLeads,
+  isNeonConfigured,
+  getNeonSql,
+  getNeonWorkspaceLeadSignatures,
+  acquireActiveSearchJob,
+  completeActiveSearchJob,
+} from "@/lib/neon-db";
+import { interpretSearchIntent, SearchIntentResult } from "@/lib/ai-search-parser";
 import {
   cleanDomain,
   cleanBusinessName,
@@ -35,6 +43,9 @@ interface SourceStatus {
 
 export async function POST(req: Request) {
   const startTime = Date.now();
+  let currentJobId: string | null = null;
+  const qualifiedLeads: QualifiedLeadItem[] = [];
+
   try {
     const body = await req.json().catch(() => ({}));
     const currentUser = getCurrentUserFromRequest(req);
@@ -50,18 +61,19 @@ export async function POST(req: Request) {
     }
     const workspaceId = currentUser.workspace_id || 1;
 
-    const rawKeyword = String(body.keyword || body.query || "").trim();
+    const rawKeyword = String(body.keyword || body.query || body.natural_query || "").trim();
     const rawCountry = String(body.country || "United States").trim();
     const rawCity = String(body.city || "").trim();
     const rawIndustry = String(body.industry || "").trim();
+    const useBusinessProfile = Boolean(body.use_business_profile || body.use_profile);
     // Manual requested lead count: supports any number 1 to 1000
     const targetCount = Math.min(1000, Math.max(1, Number(body.target_count || body.limit) || 50));
 
-    if (!rawKeyword && !rawIndustry) {
+    if (!rawKeyword && !rawIndustry && !useBusinessProfile) {
       return NextResponse.json(
         {
           status: "error",
-          message: "Please enter a target keyword (e.g. Mobile Accessories, Real Estate Agencies, Software Houses).",
+          message: "Please enter a target keyword or description (e.g. Dentists in London, Mobile Accessories, Software Houses).",
           qualified_count: 0,
           leads: [],
         },
@@ -69,9 +81,33 @@ export async function POST(req: Request) {
       );
     }
 
-    const keyword = rawKeyword || rawIndustry;
+    const keyword = rawKeyword || rawIndustry || "Business Prospects";
     const country = (rawCountry === "ALL COUNTRIES" || rawCountry === "All Countries" || !rawCountry) ? "" : rawCountry;
     const city = (rawCity === "ALL_CITIES" || rawCity === "All Cities") ? "" : rawCity;
+
+    // 1. One active search job per customer account lock
+    const jobLock = await acquireActiveSearchJob(
+      workspaceId,
+      currentUser.id || 1,
+      "WEB_SEARCH",
+      keyword,
+      country,
+      city,
+      targetCount
+    );
+
+    if (!jobLock.allowed) {
+      return NextResponse.json(
+        {
+          status: "error",
+          code: "SEARCH_ALREADY_RUNNING",
+          message: jobLock.message || "A lead generation search is already in progress for your workspace. Please wait for it to complete.",
+          active_job_id: jobLock.jobId,
+        },
+        { status: 409 }
+      );
+    }
+    currentJobId = jobLock.jobId || null;
 
     const serperKey = process.env.SERPER_API_KEY || "2baa9b7d5907ecc3fe3fceebb8c4b9b7e30e3297";
     if (!serperKey || serperKey.startsWith("your_")) {
@@ -86,77 +122,119 @@ export async function POST(req: Request) {
       );
     }
 
+    // 2. Load Business Profile if requested
+    let businessProfile: any = null;
+    if (useBusinessProfile && isNeonConfigured()) {
+      try {
+        const sql = getNeonSql();
+        if (sql) {
+          const profileRows = await sql.query(
+            "SELECT * FROM workspace_profiles WHERE workspace_id = $1 LIMIT 1",
+            [workspaceId]
+          );
+          if (profileRows && profileRows.length > 0) {
+            businessProfile = profileRows[0];
+          }
+        }
+      } catch (err) {
+        console.error("Error loading workspace profile for search:", err);
+      }
+    }
+
+    // 3. AI-Powered Natural Language Search Intent Interpretation
+    const aiStrategy: SearchIntentResult = await interpretSearchIntent(
+      keyword,
+      country || rawCountry,
+      city || rawCity,
+      businessProfile
+    );
+
+    const effectiveKeyword = aiStrategy.interpreted_keyword || keyword;
+    const effectiveCountry = aiStrategy.detected_country || country || rawCountry;
+    const effectiveCity = aiStrategy.detected_city || city || rawCity;
+
     // Build location string
-    const locParts = [city, country].filter(Boolean);
+    const locParts = [effectiveCity, effectiveCountry].filter(Boolean);
     const locStr = locParts.length > 0 ? locParts.join(" ") : "international";
 
-    // 1. Intelligent B2B Keyword Expansion
-    // Derives commercial variations: wholesale, distributors, manufacturers, suppliers, retail
-    const keywordVariations = generateB2bKeywordVariations(keyword, country, city, rawIndustry);
+    // 4. Keyword Variations from AI & B2B Expansion
+    const b2bVariations = generateB2bKeywordVariations(effectiveKeyword, effectiveCountry, effectiveCity, rawIndustry);
+    const combinedKeywordVariations = Array.from(
+      new Set([
+        ...aiStrategy.search_variations,
+        ...b2bVariations,
+        effectiveKeyword,
+        keyword,
+      ].filter(Boolean))
+    );
 
-    // 2. Multi-Source Non-Maps Search Channels
-    // Strictly excludes Google Maps and Google Places API
+    // 5. Preload permanent account-level leads for deduplication
+    const existingSignatures = isNeonConfigured()
+      ? await getNeonWorkspaceLeadSignatures(workspaceId)
+      : { domains: new Set<string>(), emails: new Set<string>(), phones: new Set<string>(), placeIds: new Set<string>() };
+
+    const seenDomains = new Set<string>(existingSignatures.domains);
+    const seenEmails = new Set<string>(existingSignatures.emails);
+    const seenNames = new Set<string>();
+    let excludedExistingDuplicates = 0;
+
+    // 6. Multi-Source Non-Maps Search Channels
     const sourceChannels = [
       {
         id: "google_organic",
         name: "Google Organic Web Search",
         platformLabel: "Google Organic Web Search",
-        buildQuery: (kw: string, p: number) => `${kw} contact email`,
+        buildQuery: (kw: string) => `${kw} contact email`,
       },
       {
         id: "official_websites",
         name: "Official Business Websites",
         platformLabel: "Official Business Website",
-        buildQuery: (kw: string, p: number) => `${kw} official website "email"`,
+        buildQuery: (kw: string) => `${kw} official website "email"`,
       },
       {
         id: "facebook_business",
         name: "Facebook Public Business Pages",
         platformLabel: "Facebook Public Business Page",
-        buildQuery: (kw: string, p: number) => `site:facebook.com "${keyword}" "email" OR "contact" ${locStr}`,
+        buildQuery: (kw: string) => `site:facebook.com "${effectiveKeyword}" "email" OR "contact" ${locStr}`,
       },
       {
         id: "instagram_business",
         name: "Instagram Public Business Profiles",
         platformLabel: "Instagram Public Business Profile",
-        buildQuery: (kw: string, p: number) => `site:instagram.com "${keyword}" ("email:" OR "@gmail.com" OR "contact:") ${locStr}`,
+        buildQuery: (kw: string) => `site:instagram.com "${effectiveKeyword}" ("email:" OR "@gmail.com" OR "contact:") ${locStr}`,
       },
       {
         id: "linkedin_company",
         name: "LinkedIn Public Company Directory",
         platformLabel: "LinkedIn Public Company Profile",
-        buildQuery: (kw: string, p: number) => `site:linkedin.com/company "${keyword}" ${locStr}`,
+        buildQuery: (kw: string) => `site:linkedin.com/company "${effectiveKeyword}" ${locStr}`,
       },
       {
         id: "commercial_directories",
         name: "Public Commercial Directories",
         platformLabel: "Public Commercial Directory",
-        buildQuery: (kw: string, p: number) => `(site:yellowpages.com OR site:clutch.co OR site:yelp.com) "${keyword}" ${locStr} contact email`,
+        buildQuery: (kw: string) => `(site:yellowpages.com OR site:clutch.co OR site:yelp.com) "${effectiveKeyword}" ${locStr} contact email`,
       },
       {
         id: "youtube_business",
         name: "YouTube Public Channels",
         platformLabel: "YouTube Public Channel",
-        buildQuery: (kw: string, p: number) => `site:youtube.com "${keyword}" ("business inquiries" OR "email:" OR "@gmail.com") ${locStr}`,
+        buildQuery: (kw: string) => `site:youtube.com "${effectiveKeyword}" ("business inquiries" OR "email:" OR "@gmail.com") ${locStr}`,
       },
       {
         id: "x_twitter_business",
         name: "Public X / Twitter Business Profiles",
         platformLabel: "Public X / Twitter Business Profile",
-        buildQuery: (kw: string, p: number) => `(site:twitter.com OR site:x.com) "${keyword}" ("email:" OR "@gmail.com" OR "contact") ${locStr}`,
+        buildQuery: (kw: string) => `(site:twitter.com OR site:x.com) "${effectiveKeyword}" ("email:" OR "@gmail.com" OR "contact") ${locStr}`,
       },
       {
         id: "tiktok_business",
         name: "Public TikTok Business Profiles",
         platformLabel: "Public TikTok Business Profile",
-        buildQuery: (kw: string, p: number) => `site:tiktok.com "${keyword}" ("email:" OR "@gmail.com" OR "contact:") ${locStr}`,
+        buildQuery: (kw: string) => `site:tiktok.com "${effectiveKeyword}" ("email:" OR "@gmail.com" OR "contact:") ${locStr}`,
       },
     ];
-
-    const qualifiedLeads: QualifiedLeadItem[] = [];
-    const seenDomains = new Set<string>();
-    const seenNames = new Set<string>();
-    const seenEmails = new Set<string>();
 
     const sourceStats: Record<string, SourceStatus> = {};
     for (const ch of sourceChannels) {
@@ -167,22 +245,17 @@ export async function POST(req: Request) {
       };
     }
 
-    // Dynamic internal provider pagination limit
-    // Calculates maximum internal pages needed to satisfy requested lead quantity
     const maxInternalPages = Math.min(10, Math.ceil(targetCount / 5) + 2);
 
-    // Loop through keyword variations and internal pages
     for (let pageNum = 1; pageNum <= maxInternalPages; pageNum++) {
       if (qualifiedLeads.length >= targetCount) break;
 
-      // Select query variation for this internal page
-      const currentVariation = keywordVariations[(pageNum - 1) % keywordVariations.length] || keyword;
+      const currentVariation = combinedKeywordVariations[(pageNum - 1) % combinedKeywordVariations.length] || effectiveKeyword;
 
-      // Execute non-Maps channel searches in concurrent batches for maximum throughput
       const channelSearches = sourceChannels.map(async (channel) => {
         if (qualifiedLeads.length >= targetCount) return;
 
-        const currentQuery = channel.buildQuery(currentVariation, pageNum);
+        const currentQuery = channel.buildQuery(currentVariation);
 
         try {
           const res = await fetch("https://google.serper.dev/search", {
@@ -221,7 +294,6 @@ export async function POST(req: Request) {
 
             if (!link || !rawTitle) continue;
 
-            // Completely filter out search engines, index aggregators, and social video feeds
             if (["google.", "bing.", "yahoo.", "wikipedia.org", "youtube.com/watch", "reddit.com"].some((x) => link.includes(x))) {
               continue;
             }
@@ -229,7 +301,12 @@ export async function POST(req: Request) {
             const dom = cleanDomain(link);
             if (!dom) continue;
 
-            // Extract contacts from search snippet and title
+            // Permanent Account Deduplication Check on Domain
+            if (seenDomains.has(dom)) {
+              excludedExistingDuplicates++;
+              continue;
+            }
+
             const fullText = `${rawTitle} ${snippet}`;
             const { emails, phones } = extractContactsFromText(fullText);
 
@@ -241,7 +318,6 @@ export async function POST(req: Request) {
             let phoneSourceUrl = link;
             let phoneEvidenceStatus = phone ? "FOUND IN SEARCH SNIPPET • FORMAT CHECKED" : "NOT LISTED";
 
-            // Extract clean business name and check for generic page titles
             let businessName = cleanBusinessName(rawTitle, link, email);
             if (isGenericTitleText(businessName) || businessName.length < 2) {
               continue;
@@ -253,8 +329,6 @@ export async function POST(req: Request) {
             ].some((s) => dom.includes(s));
 
             // Deep Business Website Contact Page Extraction
-            // If email is not in snippet and domain is an official business website,
-            // inspect contact pages (e.g. /contact, /contact-us, /pages/contact-us)
             if (!email && !isSocialHost) {
               const crawlResult = await crawlWebsiteForContacts(dom, email, phone);
               if (crawlResult.email) {
@@ -268,7 +342,6 @@ export async function POST(req: Request) {
                 phoneEvidenceStatus = crawlResult.phoneStatus;
               }
 
-              // Fallback to indexed Serper contact query if direct crawl yielded no email
               if (!email) {
                 const resolved = await querySerperForDomainContact(dom, serperKey);
                 if (resolved.email) {
@@ -290,21 +363,21 @@ export async function POST(req: Request) {
               emailEvidenceStatus = "FOUND ON THIRD-PARTY DIRECTORY • FORMAT CHECKED";
             }
 
-            // STRICT COMPULSORY EMAIL QUALIFICATION RULE:
-            // 1. Genuine business name (Mandatory)
-            // 2. Business Email (COMPULSORY! A lead without a verified email must NEVER qualify)
-            // 3. Exact Source URL supporting the email (Mandatory)
-            // 4. Phone is optional/secondary (A lead with email and no phone STILL qualifies)
+            // Compulsory Email Requirement
             const hasName = Boolean(businessName && businessName.length >= 2);
             const hasEmail = Boolean(email && email.includes("@") && email.includes("."));
-
             if (!hasName || !hasEmail) {
-              // Missing compulsory business email -> Exclude from qualified results
+              continue;
+            }
+
+            // Permanent Account Deduplication Check on Email
+            const normEmail = email.toLowerCase().trim();
+            if (seenEmails.has(normEmail)) {
+              excludedExistingDuplicates++;
               continue;
             }
 
             const pkt = getPktDateTime();
-
             const qualifiedItem: QualifiedLeadItem = {
               id: Date.now() + qualifiedLeads.length + 1,
               business_name: businessName,
@@ -316,23 +389,22 @@ export async function POST(req: Request) {
               phone: phone || "",
               phone_source_url: phone ? phoneSourceUrl : "",
               phone_status: phoneEvidenceStatus,
-              country: rawCountry === "ALL COUNTRIES" ? "Global" : (rawCountry || "Global"),
-              city: city || locParts[0] || "",
-              address: snippet.includes(",") ? snippet.slice(0, 100) : [city, rawCountry].filter(Boolean).join(", "),
-              industry: rawIndustry && rawIndustry !== "Any" ? rawIndustry : keyword,
+              country: effectiveCountry || "Global",
+              city: effectiveCity || locParts[0] || "",
+              address: snippet.includes(",") ? snippet.slice(0, 100) : [effectiveCity, effectiveCountry].filter(Boolean).join(", "),
+              industry: rawIndustry && rawIndustry !== "Any" ? rawIndustry : aiStrategy.industry || effectiveKeyword,
               source_platform: channel.platformLabel,
               original_source_url: link,
-              search_keyword: keyword,
-              search_date: pkt.date_human,
-              search_time: pkt.time_human,
-              saved_date: pkt.date_human,
-              saved_time: pkt.time_human,
-              extraction_date: pkt.date_human,
-              extraction_time: pkt.time_human,
-              created_at: pkt.iso_utc,
+              search_keyword: effectiveKeyword,
+              search_date: pkt.date,
+              search_time: pkt.time,
+              saved_date: pkt.date,
+              saved_time: pkt.time,
+              extraction_date: pkt.date,
+              extraction_time: pkt.time,
+              created_at: new Date().toISOString(),
             };
 
-            // Multi-Signal Deduplication and Cross-Platform Evidence Merging
             const wasAdded = mergeLeadIntoList(qualifiedLeads, qualifiedItem, seenDomains, seenNames, seenEmails);
             if (wasAdded) {
               sourceStats[channel.id].leads_contributed += 1;
@@ -344,7 +416,6 @@ export async function POST(req: Request) {
         }
       });
 
-      // Await the concurrent batch of search channel queries
       await Promise.allSettled(channelSearches);
     }
 
@@ -354,13 +425,12 @@ export async function POST(req: Request) {
 
     // Permanent Persistence to Neon PostgreSQL & Serverless Cache
     if (qualifiedLeads.length > 0) {
-      // 1. Sync to serverless memory
       saveServerlessSearchRecordAndLeads(
         workspaceId,
         {
-          keyword,
-          country: rawCountry,
-          city: city || locParts[0] || "",
+          keyword: effectiveKeyword,
+          country: effectiveCountry,
+          city: effectiveCity || locParts[0] || "",
           sources: configuredSources,
           requested_quantity: targetCount,
           search_record_id: searchRecordId,
@@ -368,15 +438,14 @@ export async function POST(req: Request) {
         qualifiedLeads
       );
 
-      // 2. Permanently save to Neon PostgreSQL database
       if (isNeonConfigured()) {
         try {
           await saveNeonSearchRecordAndLeads(
             workspaceId,
             {
-              keyword,
-              country: rawCountry,
-              city: city || locParts[0] || "",
+              keyword: effectiveKeyword,
+              country: effectiveCountry,
+              city: effectiveCity || locParts[0] || "",
               sources: configuredSources,
               requested_quantity: targetCount,
               search_record_id: searchRecordId,
@@ -389,19 +458,23 @@ export async function POST(req: Request) {
       }
     }
 
+    // Complete the active search job
+    if (currentJobId) {
+      await completeActiveSearchJob(currentJobId, "COMPLETED", qualifiedLeads.length, searchRecordId);
+    }
+
     const durationMs = Date.now() - startTime;
     const leadsWithPhone = qualifiedLeads.filter((l) => Boolean(l.phone)).length;
 
-    // Return One Consolidated Result Set
     return NextResponse.json({
       status: "success",
       search_record_id: searchRecordId,
-      search_date: pkt.date_human,
-      search_time: pkt.time_human,
-      completion_time: pkt.completion_human,
-      keyword: keyword,
-      country: rawCountry || "Global",
-      city: city || "All Cities",
+      search_date: pkt.date,
+      search_time: pkt.time,
+      completion_time: pkt.completionTime,
+      keyword: effectiveKeyword,
+      country: effectiveCountry || "Global",
+      city: effectiveCity || "All Cities",
       target_count: targetCount,
       qualified_count: qualifiedLeads.length,
       unique_businesses_count: qualifiedLeads.length,
@@ -409,11 +482,24 @@ export async function POST(req: Request) {
       duration_ms: durationMs,
       leads: qualifiedLeads,
       sources_breakdown: Object.values(sourceStats),
+      ai_strategy: {
+        raw_query: aiStrategy.raw_query,
+        interpreted_keyword: aiStrategy.interpreted_keyword,
+        target_business_type: aiStrategy.target_business_type,
+        industry: aiStrategy.industry,
+        target_audience: aiStrategy.target_audience,
+        reasoning: aiStrategy.reasoning,
+        used_business_profile: aiStrategy.used_business_profile,
+        excluded_previous_duplicates: excludedExistingDuplicates,
+      },
       message: qualifiedLeads.length >= targetCount
         ? `Successfully extracted and permanently saved exactly ${qualifiedLeads.length} unique qualified leads with verified emails into Neon PostgreSQL.`
-        : `Discovered and permanently saved ${qualifiedLeads.length} unique qualified leads with verified emails from non-Maps web sources into Neon PostgreSQL. (All available legitimate contacts for '${keyword}' were retrieved without synthetic data).`,
+        : `Discovered and permanently saved ${qualifiedLeads.length} unique qualified leads with verified emails into Neon PostgreSQL. (${excludedExistingDuplicates} previously saved leads were excluded via permanent account deduplication; all results are authentic without synthetic filler).`,
     });
   } catch (err: any) {
+    if (currentJobId) {
+      await completeActiveSearchJob(currentJobId, "FAILED", 0, undefined, err?.message);
+    }
     return NextResponse.json(
       {
         status: "error",

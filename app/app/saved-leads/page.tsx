@@ -81,6 +81,10 @@ export default function SavedLeadsPage() {
   const [searchFilter, setSearchFilter] = useState("");
   const [countryFilter, setCountryFilter] = useState("Any");
   const [contactFilter, setContactFilter] = useState<"all" | "email" | "phone">("all");
+  const [sourceFilter, setSourceFilter] = useState("All");
+  const [datePresetFilter, setDatePresetFilter] = useState<string>("all");
+  const [dateFrom, setDateFrom] = useState<string>("");
+  const [dateTo, setDateTo] = useState<string>("");
 
   // Selection
   const [selectedIds, setSelectedIds] = useState<number[]>([]);
@@ -131,6 +135,10 @@ export default function SavedLeadsPage() {
       const res = await api.get<any>("/leads", {
         keyword: searchFilter || undefined,
         country: countryFilter !== "Any" ? countryFilter : undefined,
+        source: sourceFilter !== "All" ? sourceFilter : undefined,
+        date_preset: datePresetFilter !== "all" && datePresetFilter !== "custom" ? datePresetFilter : undefined,
+        date_from: datePresetFilter === "custom" && dateFrom ? dateFrom : undefined,
+        date_to: datePresetFilter === "custom" && dateTo ? dateTo : undefined,
         page,
         page_size: pageSize,
       });
@@ -189,7 +197,7 @@ export default function SavedLeadsPage() {
 
   useEffect(() => {
     fetchSavedLeads();
-  }, [page, pageSize, countryFilter]);
+  }, [page, pageSize, countryFilter, sourceFilter, datePresetFilter, dateFrom, dateTo]);
 
   useEffect(() => {
     if (activeTab === "history") {
@@ -700,6 +708,31 @@ export default function SavedLeadsPage() {
                 {ALL_193_COUNTRIES.map((c) => (
                   <option key={c} value={c} className="bg-[#0c1017]">{c}</option>
                 ))}
+              </select>
+
+              <select
+                value={datePresetFilter}
+                onChange={(e) => setDatePresetFilter(e.target.value)}
+                className="rounded-xl border border-white/10 bg-white/[0.03] px-3 py-1.5 text-xs text-white focus:border-blue-500 focus:outline-none"
+              >
+                <option value="all" className="bg-[#0c1017]">All Dates</option>
+                <option value="today" className="bg-[#0c1017]">Today&apos;s Leads</option>
+                <option value="yesterday" className="bg-[#0c1017]">Yesterday&apos;s Leads</option>
+                <option value="last_7_days" className="bg-[#0c1017]">Last 7 Days</option>
+                <option value="last_30_days" className="bg-[#0c1017]">Last 30 Days</option>
+              </select>
+
+              <select
+                value={sourceFilter}
+                onChange={(e) => setSourceFilter(e.target.value)}
+                className="rounded-xl border border-white/10 bg-white/[0.03] px-3 py-1.5 text-xs text-white focus:border-blue-500 focus:outline-none"
+              >
+                <option value="All" className="bg-[#0c1017]">All Sources</option>
+                <option value="Google Organic" className="bg-[#0c1017]">Google Web Search</option>
+                <option value="Google Maps" className="bg-[#0c1017]">Google Maps</option>
+                <option value="Official Business" className="bg-[#0c1017]">Official Websites</option>
+                <option value="LinkedIn" className="bg-[#0c1017]">LinkedIn</option>
+                <option value="Directories" className="bg-[#0c1017]">Commercial Directories</option>
               </select>
 
               <select

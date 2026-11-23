@@ -275,41 +275,69 @@ export async function saveNeonSearchRecordAndLeads(
         const emailStatus = String(lead.email_status || "FOUND IN SOURCE EVIDENCE").trim();
         const phoneStatus = String(lead.phone_status || (phone ? "FOUND IN SOURCE EVIDENCE" : "NOT LISTED")).trim();
 
-        const ins = await sql.query(
-          `INSERT INTO leads (
-            workspace_id, business_name, email, phone, website,
-            source, source_url, search_keyword, search_location,
-            lead_score, fit_score, lead_temperature, crm_stage,
-            date_discovered, created_at, updated_at,
-            domain, city, country, address, email_status, phone_status
-          ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22)
-          RETURNING id`,
-          [
-            workspaceId,
-            bName,
-            email,
-            phone,
-            website,
-            lead.source_platform || lead.source || "Google Organic Web Search",
-            lead.original_source_url || lead.source_url || website,
-            searchMeta.keyword,
-            city || country,
-            lead.lead_score || 50,
-            lead.fit_score || 50,
-            "HOT",
-            "Lead Discovered",
-            pkt.date,
-            nowIso,
-            nowIso,
-            dom,
-            city,
-            country,
-            address,
-            emailStatus,
-            phoneStatus,
-          ]
+        const normEmail = email.toLowerCase().trim();
+        const normDom = dom.replace(/^https?:\/\//i, "").replace(/^www\./i, "").split("/")[0].toLowerCase().trim();
+        const normPhone = phone ? phone.replace(/[^0-9+]/g, "") : "";
+        const placeId = String(lead.place_id || "").trim();
+
+        // Check if matching domain, email, or place_id already exists in workspace
+        const existingCheck = await sql.query(
+          `SELECT id FROM leads 
+           WHERE workspace_id = $1 
+             AND (
+               (normalized_email = $2 AND normalized_email != '')
+               OR (normalized_domain = $3 AND normalized_domain != '')
+               OR (place_id = $4 AND place_id != '')
+             )
+           LIMIT 1`,
+          [workspaceId, normEmail, normDom, placeId]
         );
-        leadId = ins[0]?.id;
+
+        if (existingCheck.length > 0) {
+          leadId = existingCheck[0].id;
+        } else {
+          const ins = await sql.query(
+            `INSERT INTO leads (
+              workspace_id, business_name, email, phone, website,
+              source, source_url, search_keyword, search_location,
+              lead_score, fit_score, lead_temperature, crm_stage,
+              date_discovered, created_at, updated_at,
+              domain, city, country, address, email_status, phone_status,
+              normalized_domain, normalized_email, normalized_phone, place_id
+            ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26)
+            ON CONFLICT DO NOTHING
+            RETURNING id`,
+            [
+              workspaceId,
+              bName,
+              email,
+              phone,
+              website,
+              lead.source_platform || lead.source || "Google Organic Web Search",
+              lead.original_source_url || lead.source_url || website,
+              searchMeta.keyword,
+              city || country,
+              lead.lead_score || 50,
+              lead.fit_score || 50,
+              "HOT",
+              "Lead Discovered",
+              pkt.date,
+              nowIso,
+              nowIso,
+              dom,
+              city,
+              country,
+              address,
+              emailStatus,
+              phoneStatus,
+              normDom,
+              normEmail,
+              normPhone,
+              placeId,
+            ]
+          );
+          leadId = ins[0]?.id;
+        }
       }
 
       if (leadId) {
@@ -405,6 +433,12 @@ export async function getNeonLeads(
     keyword?: string;
     country?: string;
     city?: string;
+    search_name?: string;
+    search_email?: string;
+    source?: string;
+    date_preset?: string;
+    date_from?: string;
+    date_to?: string;
     page?: number;
     page_size?: number;
   }
@@ -417,7 +451,19 @@ export async function getNeonLeads(
 
     if (options?.keyword) {
       params.push(`%${options.keyword}%`);
-      whereClause += ` AND (business_name ILIKE $${params.length} OR email ILIKE $${params.length} OR search_keyword ILIKE $${params.length})`;
+      whereClause += ` AND (business_name ILIKE $${params.length} OR email ILIKE $${params.length} OR search_keyword ILIKE $${params.length} OR industry ILIKE $${params.length})`;
+    }
+    if (options?.search_name) {
+      params.push(`%${options.search_name}%`);
+      whereClause += ` AND business_name ILIKE $${params.length}`;
+    }
+    if (options?.search_email) {
+      params.push(`%${options.search_email}%`);
+      whereClause += ` AND email ILIKE $${params.length}`;
+    }
+    if (options?.source && options.source !== "All" && options.source !== "ALL" && options.source !== "Any") {
+      params.push(`%${options.source}%`);
+      whereClause += ` AND (source ILIKE $${params.length} OR source_platform ILIKE $${params.length})`;
     }
     if (options?.country && options.country !== "Any" && options.country !== "ALL" && options.country !== "Global") {
       params.push(`%${options.country}%`);
@@ -426,6 +472,24 @@ export async function getNeonLeads(
     if (options?.city && options.city !== "Any" && options.city !== "ALL") {
       params.push(`%${options.city}%`);
       whereClause += ` AND city ILIKE $${params.length}`;
+    }
+
+    // Date filtering (UTC timestamps)
+    if (options?.date_preset === "today") {
+      whereClause += ` AND (created_at::timestamptz >= CURRENT_DATE)`;
+    } else if (options?.date_preset === "yesterday") {
+      whereClause += ` AND (created_at::timestamptz >= CURRENT_DATE - INTERVAL '1 day' AND created_at::timestamptz < CURRENT_DATE)`;
+    } else if (options?.date_preset === "last_7_days") {
+      whereClause += ` AND (created_at::timestamptz >= CURRENT_DATE - INTERVAL '7 days')`;
+    } else if (options?.date_preset === "last_30_days") {
+      whereClause += ` AND (created_at::timestamptz >= CURRENT_DATE - INTERVAL '30 days')`;
+    } else if (options?.date_from && options?.date_to) {
+      params.push(options.date_from);
+      params.push(options.date_to);
+      whereClause += ` AND (created_at::timestamptz >= $${params.length - 1}::timestamptz AND created_at::timestamptz <= $${params.length}::timestamptz)`;
+    } else if (options?.date_from) {
+      params.push(options.date_from);
+      whereClause += ` AND (created_at::timestamptz >= $${params.length}::timestamptz)`;
     }
 
     const countRes = await sql.query(`SELECT COUNT(*) as cnt FROM leads ${whereClause}`, params);
@@ -1547,3 +1611,339 @@ export async function getNeonClientDashboardMetrics(workspaceId: number) {
     return null;
   }
 }
+
+/**
+ * -----------------------------------------------------------------------------
+ * 1. ACCOUNT-LEVEL PERMANENT LEAD DEDUPLICATION SIGNATURES
+ * Fetches all normalized domains, emails, phones, and place IDs previously saved
+ * for this workspace so future searches never return the same business twice.
+ * -----------------------------------------------------------------------------
+ */
+export async function getNeonWorkspaceLeadSignatures(workspaceId: number): Promise<{
+  domains: Set<string>;
+  emails: Set<string>;
+  phones: Set<string>;
+  placeIds: Set<string>;
+}> {
+  const result = {
+    domains: new Set<string>(),
+    emails: new Set<string>(),
+    phones: new Set<string>(),
+    placeIds: new Set<string>(),
+  };
+
+  const sql = getNeonSql();
+  if (!sql) return result;
+
+  try {
+    const rows = await sql.query(
+      `SELECT normalized_domain, normalized_email, normalized_phone, place_id, domain, email, phone
+       FROM leads 
+       WHERE workspace_id = $1`,
+      [workspaceId]
+    );
+
+    for (const r of rows) {
+      const d = String(r.normalized_domain || r.domain || "").toLowerCase().trim();
+      if (d) result.domains.add(d);
+
+      const e = String(r.normalized_email || r.email || "").toLowerCase().trim();
+      if (e) result.emails.add(e);
+
+      const p = String(r.normalized_phone || r.phone || "").replace(/[^0-9+]/g, "").trim();
+      if (p && p.length >= 7) result.phones.add(p);
+
+      const pl = String(r.place_id || "").trim();
+      if (pl) result.placeIds.add(pl);
+    }
+  } catch (err) {
+    console.error("Neon getWorkspaceLeadSignatures error:", err);
+  }
+
+  return result;
+}
+
+/**
+ * -----------------------------------------------------------------------------
+ * 2. ONE ACTIVE SEARCH JOB PER ACCOUNT (IDEMPOTENCY & LOCKING)
+ * Protects against duplicate concurrent searches, repeated clicks, and ensures
+ * page refreshes preserve status.
+ * -----------------------------------------------------------------------------
+ */
+export async function acquireActiveSearchJob(
+  workspaceId: number,
+  userId: number,
+  jobType: string,
+  keyword: string,
+  country?: string,
+  city?: string,
+  targetCount: number = 50
+): Promise<{ allowed: boolean; jobId?: string; message?: string }> {
+  const sql = getNeonSql();
+  if (!sql) return { allowed: true, jobId: `job_${Date.now()}_fallback` };
+
+  try {
+    // Check if an active search job is already running within the last 3 minutes
+    const runningJobs = await sql.query(
+      `SELECT id, keyword, status, updated_at 
+       FROM active_search_jobs 
+       WHERE workspace_id = $1 AND status = 'RUNNING' 
+         AND updated_at > NOW() - INTERVAL '3 minutes'
+       LIMIT 1`,
+      [workspaceId]
+    );
+
+    if (runningJobs.length > 0) {
+      return {
+        allowed: false,
+        jobId: runningJobs[0].id,
+        message: `A lead search for "${runningJobs[0].keyword}" is already in progress for your workspace. Please wait for it to complete.`,
+      };
+    }
+
+    const jobId = `job_${Date.now()}_${workspaceId}`;
+    await sql.query(
+      `INSERT INTO active_search_jobs (
+        id, workspace_id, user_id, job_type, status, keyword, country, city, target_count, progress_message
+      ) VALUES ($1, $2, $3, $4, 'RUNNING', $5, $6, $7, $8, 'Search job started')`,
+      [jobId, workspaceId, userId, jobType, keyword, country || "Global", city || "", targetCount]
+    );
+
+    return { allowed: true, jobId };
+  } catch (err: any) {
+    console.error("acquireActiveSearchJob error:", err);
+    return { allowed: true, jobId: `job_${Date.now()}_recovery` };
+  }
+}
+
+export async function completeActiveSearchJob(
+  jobId: string,
+  status: "COMPLETED" | "FAILED",
+  qualifiedCount: number = 0,
+  searchRecordId?: string,
+  errorMessage?: string
+): Promise<void> {
+  const sql = getNeonSql();
+  if (!sql || !jobId) return;
+
+  try {
+    await sql.query(
+      `UPDATE active_search_jobs 
+       SET status = $1, 
+           progress_count = $2, 
+           search_record_id = $3, 
+           error_message = $4, 
+           updated_at = CURRENT_TIMESTAMP
+       WHERE id = $5`,
+      [status, qualifiedCount, searchRecordId || null, errorMessage || null, jobId]
+    );
+  } catch (err) {
+    console.error("completeActiveSearchJob error:", err);
+  }
+}
+
+export async function getNeonActiveSearchJob(workspaceId: number): Promise<any | null> {
+  const sql = getNeonSql();
+  if (!sql) return null;
+
+  try {
+    const rows = await sql.query(
+      `SELECT * FROM active_search_jobs 
+       WHERE workspace_id = $1 AND status = 'RUNNING' 
+         AND updated_at > NOW() - INTERVAL '3 minutes'
+       ORDER BY updated_at DESC LIMIT 1`,
+      [workspaceId]
+    );
+    return rows[0] || null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * -----------------------------------------------------------------------------
+ * 3. COLD EMAIL TEMPLATES MANAGEMENT
+ * Stores 10 editable templates and custom templates per workspace.
+ * -----------------------------------------------------------------------------
+ */
+export async function getNeonEmailTemplates(workspaceId: number): Promise<any[]> {
+  const sql = getNeonSql();
+  if (!sql) return [];
+
+  try {
+    const rows = await sql.query(
+      `SELECT * FROM email_templates 
+       WHERE workspace_id = $1 OR workspace_id = 1 
+       ORDER BY id ASC`,
+      [workspaceId]
+    );
+    return rows;
+  } catch (e) {
+    console.error("getNeonEmailTemplates error:", e);
+    return [];
+  }
+}
+
+export async function saveNeonEmailTemplate(
+  workspaceId: number,
+  template: { id?: number; name: string; subject: string; body: string; category?: string }
+): Promise<any | null> {
+  const sql = getNeonSql();
+  if (!sql) return null;
+
+  try {
+    if (template.id) {
+      const updated = await sql.query(
+        `UPDATE email_templates 
+         SET name = $1, subject = $2, body = $3, category = $4, updated_at = CURRENT_TIMESTAMP
+         WHERE id = $5 AND workspace_id = $6
+         RETURNING *`,
+        [template.name, template.subject, template.body, template.category || "OUTREACH", template.id, workspaceId]
+      );
+      return updated[0] || null;
+    } else {
+      const inserted = await sql.query(
+        `INSERT INTO email_templates (workspace_id, name, subject, body, category)
+         VALUES ($1, $2, $3, $4, $5)
+         RETURNING *`,
+        [workspaceId, template.name, template.subject, template.body, template.category || "CUSTOM"]
+      );
+      return inserted[0] || null;
+    }
+  } catch (e) {
+    console.error("saveNeonEmailTemplate error:", e);
+    return null;
+  }
+}
+
+export async function deleteNeonEmailTemplate(workspaceId: number, templateId: number): Promise<boolean> {
+  const sql = getNeonSql();
+  if (!sql) return false;
+
+  try {
+    await sql.query(
+      "DELETE FROM email_templates WHERE id = $1 AND workspace_id = $2",
+      [templateId, workspaceId]
+    );
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * -----------------------------------------------------------------------------
+ * 4. PERSISTENT MULTILINGUAL AI ASSISTANT CHAT CONVERSATIONS & MESSAGES
+ * -----------------------------------------------------------------------------
+ */
+export async function getNeonChatConversations(workspaceId: number): Promise<any[]> {
+  const sql = getNeonSql();
+  if (!sql) return [];
+
+  try {
+    const rows = await sql.query(
+      `SELECT * FROM chat_conversations 
+       WHERE workspace_id = $1 
+       ORDER BY updated_at DESC`,
+      [workspaceId]
+    );
+    return rows;
+  } catch (e) {
+    console.error("getNeonChatConversations error:", e);
+    return [];
+  }
+}
+
+export async function createNeonChatConversation(
+  workspaceId: number,
+  userId: number,
+  title: string,
+  language: string = "english",
+  context: any = {}
+): Promise<any | null> {
+  const sql = getNeonSql();
+  if (!sql) return null;
+
+  try {
+    const convId = `conv_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
+    const rows = await sql.query(
+      `INSERT INTO chat_conversations (id, workspace_id, user_id, title, detected_language, business_context)
+       VALUES ($1, $2, $3, $4, $5, $6)
+       RETURNING *`,
+      [convId, workspaceId, userId, title, language, JSON.stringify(context)]
+    );
+    return rows[0] || null;
+  } catch (e) {
+    console.error("createNeonChatConversation error:", e);
+    return null;
+  }
+}
+
+export async function getNeonChatMessages(conversationId: string, workspaceId: number): Promise<any[]> {
+  const sql = getNeonSql();
+  if (!sql) return [];
+
+  try {
+    const rows = await sql.query(
+      `SELECT * FROM chat_messages 
+       WHERE conversation_id = $1 AND workspace_id = $2 
+       ORDER BY id ASC`,
+      [conversationId, workspaceId]
+    );
+    return rows;
+  } catch (e) {
+    console.error("getNeonChatMessages error:", e);
+    return [];
+  }
+}
+
+export async function addNeonChatMessage(
+  conversationId: string,
+  workspaceId: number,
+  role: "user" | "assistant" | "system",
+  content: string,
+  suggestedActions: any[] = []
+): Promise<any | null> {
+  const sql = getNeonSql();
+  if (!sql) return null;
+
+  try {
+    const rows = await sql.query(
+      `INSERT INTO chat_messages (conversation_id, workspace_id, role, content, suggested_actions)
+       VALUES ($1, $2, $3, $4, $5)
+       RETURNING *`,
+      [conversationId, workspaceId, role, content, JSON.stringify(suggestedActions)]
+    );
+
+    // Update conversation updated_at
+    await sql.query(
+      "UPDATE chat_conversations SET updated_at = CURRENT_TIMESTAMP WHERE id = $1 AND workspace_id = $2",
+      [conversationId, workspaceId]
+    );
+
+    return rows[0] || null;
+  } catch (e) {
+    console.error("addNeonChatMessage error:", e);
+    return null;
+  }
+}
+
+export async function deleteNeonChatConversation(
+  conversationId: string,
+  workspaceId: number
+): Promise<boolean> {
+  const sql = getNeonSql();
+  if (!sql) return false;
+
+  try {
+    await sql.query(
+      `DELETE FROM chat_conversations WHERE id = $1 AND workspace_id = $2`,
+      [conversationId, workspaceId]
+    );
+    return true;
+  } catch (e) {
+    console.error("deleteNeonChatConversation error:", e);
+    return false;
+  }
+}
+

@@ -434,6 +434,9 @@ export function getPktDateTime() {
     time_human: `${hours12}:${min} ${ampm}`,
     completion_human: `${hours12}:${min}:${ss} ${ampm} PKT`,
     iso_utc: now.toISOString(),
+    date: `${pktTime.getDate()} ${monthName} ${yyyy}`,
+    time: `${hours12}:${min} ${ampm}`,
+    completionTime: `${hours12}:${min}:${ss} ${ampm} PKT`,
   };
 }
 
