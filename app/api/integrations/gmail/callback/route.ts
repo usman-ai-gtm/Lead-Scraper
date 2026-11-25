@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
-import { saveNeonGmailAccount, getNeonSql, isNeonConfigured } from "@/lib/neon-db";
-import { createJwtToken } from "@/lib/serverless-auth";
+import { saveNeonGmailAccount, getNeonSql, isNeonConfigured, logAccountAudit } from "@/lib/neon-db";
+import { createJwtToken, verifyOAuthState, verifyClientActiveSubscription } from "@/lib/serverless-auth";
 
 export const dynamic = "force-dynamic";
 
@@ -31,28 +31,63 @@ export async function GET(request: Request) {
   const appBase = getAppBaseUrl(request);
   const isVercel = Boolean(process.env.VERCEL || process.env.NEXT_PUBLIC_VERCEL_ENV);
 
-  // Parse state
+  // Parse & HMAC-verify state
   let stateAction = "gmail_connect";
   let workspaceId = 1;
   let userId = 1;
+  let stateVerified = false;
   if (state) {
-    try {
-      const decoded = JSON.parse(Buffer.from(state, "base64url").toString("utf-8"));
-      if (decoded.action) stateAction = decoded.action;
-      if (decoded.workspace_id) workspaceId = Number(decoded.workspace_id);
-      if (decoded.user_id) userId = Number(decoded.user_id);
-    } catch (e) {
-      console.warn("[OAuth Callback] Failed to decode state token:", e);
+    const verified = verifyOAuthState(state, 60 * 60 * 1000);
+    if (verified) {
+      stateVerified = true;
+      if (verified.action) stateAction = String(verified.action);
+      if (verified.workspace_id) workspaceId = Number(verified.workspace_id);
+      if (verified.user_id) userId = Number(verified.user_id);
+    } else {
+      // Allow legacy unsigned payload ONLY for read-only login flow (never elevate gmail_connect)
+      try {
+        const decoded = JSON.parse(Buffer.from(state, "base64url").toString("utf-8"));
+        if (decoded.action === "google_login") {
+          stateAction = "google_login";
+        }
+      } catch (e) {
+        console.warn("[OAuth Callback] Invalid OAuth state token:", e);
+      }
     }
   }
 
   // Handle cancelled or failed auth
   if (error || !code) {
-    const errorMsg = error || "Google authorization was cancelled or failed.";
+    const errorCode = String(error || "cancelled");
+    const errorMsg =
+      errorCode === "access_denied"
+        ? "Google blocked or cancelled access (Error 403 access_denied: either consent was declined or this app's gmail.send OAuth verification / Testing list in Google Cloud Console blocked the sign-in)."
+        : errorCode;
+    if (stateAction === "gmail_connect" && userId > 0) {
+      await logAccountAudit({
+        adminId: userId,
+        adminEmail: "oauth_callback",
+        clientId: userId,
+        workspaceId,
+        action: "GMAIL_CONNECT_FAILED",
+        result: "FAILED",
+        details: { error_code: errorCode, reason: errorMsg },
+      }).catch(() => {});
+    }
     if (stateAction === "google_login") {
       return NextResponse.redirect(`${appBase}/login?error=${encodeURIComponent(errorMsg)}`);
     }
-    return NextResponse.redirect(`${appBase}/app/accounts?status=error&message=${encodeURIComponent(errorMsg)}`);
+    return NextResponse.redirect(
+      `${appBase}/app/accounts?status=error&error_code=${encodeURIComponent(errorCode)}&message=${encodeURIComponent(errorMsg)}`
+    );
+  }
+
+  if (stateAction !== "google_login" && (!stateVerified || workspaceId <= 0 || userId <= 0)) {
+    return NextResponse.redirect(
+      `${appBase}/app/accounts?status=error&error_code=invalid_state&message=${encodeURIComponent(
+        "Invalid or expired Gmail OAuth security state. Please retry connecting Gmail from your dashboard."
+      )}`
+    );
   }
 
   const clientId = (process.env.GOOGLE_CLIENT_ID || process.env.NEXT_PUBLIC_GOOGLE_CLIENT_ID || "").trim();
@@ -220,6 +255,19 @@ export async function GET(request: Request) {
         }
       }
 
+      await sql`
+        UPDATE users SET last_login = NOW(), last_activity_at = NOW() WHERE id = ${activeUser.id}
+      `.catch(() => {});
+      await logAccountAudit({
+        adminId: activeUser.id,
+        adminEmail: activeUser.email,
+        clientId: activeUser.id,
+        clientEmail: activeUser.email,
+        workspaceId: activeUser.workspace_id,
+        action: "USER_LOGIN_GOOGLE",
+        details: { email: profileEmail, account_type: activeUser.account_type || "FREE_PREVIEW" },
+      });
+
       const sessionToken = createJwtToken({
         sub: String(activeUser.id),
         email: activeUser.email,
@@ -260,12 +308,49 @@ export async function GET(request: Request) {
     // ========================================================
     // CASE B: CLIENT GMAIL MAILBOX OUTREACH CONNECTION
     // ========================================================
-    // Tokens are encrypted at rest with AES-256-GCM via saveNeonGmailAccount
-    await saveNeonGmailAccount(workspaceId, {
+    // Verify workspace matches userId from authoritative DB before persisting tokens
+    const sqlCheck = getNeonSql();
+    let authoritativeWsId = workspaceId;
+    if (sqlCheck) {
+      const ownerRows = await sqlCheck.query(
+        "SELECT id, username, email, role, account_type, workspace_id, status FROM users WHERE id = $1 LIMIT 1",
+        [userId]
+      );
+      if (!ownerRows || ownerRows.length === 0) {
+        return NextResponse.redirect(
+          `${appBase}/app/accounts?status=error&error_code=invalid_user&message=${encodeURIComponent("User account not found.")}`
+        );
+      }
+      authoritativeWsId = Number(ownerRows[0].workspace_id) || workspaceId;
+      const subGate = await verifyClientActiveSubscription(ownerRows[0], "cold_email");
+      if (!subGate.allowed) {
+        return NextResponse.redirect(
+          `${appBase}/app/accounts?status=error&error_code=subscription_inactive&message=${encodeURIComponent(subGate.message || "Active subscription required to connect Gmail.")}`
+        );
+      }
+    }
+
+    // Tokens are encrypted at rest with AES-256-GCM via saveNeonGmailAccount (refresh_token preserved across re-consents)
+    const savedAccount = await saveNeonGmailAccount(authoritativeWsId, {
       senderName: profileName,
       senderEmail: profileEmail,
       tokenData: tokens,
       dailyLimit: 500, // Standard free Gmail daily quota
+    });
+
+    await logAccountAudit({
+      adminId: userId,
+      adminEmail: profileEmail,
+      clientId: userId,
+      clientEmail: profileEmail,
+      workspaceId: authoritativeWsId,
+      action: "GMAIL_CONNECT",
+      details: {
+        sender_email: profileEmail,
+        account_id: savedAccount?.id || null,
+        has_refresh_token: Boolean(tokens.refresh_token),
+        scopes_granted: tokens.scope || "gmail.send userinfo.email",
+      },
     });
 
     return NextResponse.redirect(
@@ -273,8 +358,13 @@ export async function GET(request: Request) {
     );
   } catch (err: any) {
     console.error("[OAuth Callback] Exception:", err);
+    if (stateAction === "google_login") {
+      return NextResponse.redirect(
+        `${appBase}/login?error=${encodeURIComponent("Google authentication could not be completed. Please try again or contact WhatsApp (+923174383702).")}`
+      );
+    }
     return NextResponse.redirect(
-      `${appBase}/login?error=${encodeURIComponent("Google authentication could not be completed. Please try again or contact WhatsApp (+923174383702).")}`
+      `${appBase}/app/accounts?status=error&error_code=oauth_exception&message=${encodeURIComponent(err?.message || "Failed to connect Gmail account.")}`
     );
   }
 }

@@ -4,11 +4,13 @@ import {
   getNeonGmailTokens,
   getNeonAllActiveGmailTokens,
   saveNeonGmailAccount,
+  markNeonGmailAccountHealth,
   saveNeonOutreachRecord,
   updateNeonLeadOutreachStatus,
   getNeonEmailsSentTodayUtc,
   isRecipientSuppressed,
   isDuplicateOutreach,
+  logAccountAudit,
 } from "@/lib/neon-db";
 
 export async function POST(request: Request) {
@@ -175,12 +177,14 @@ export async function POST(request: Request) {
   }
 
   let accessToken = tokens.access_token;
-  const clientId = process.env.GOOGLE_CLIENT_ID || process.env.NEXT_PUBLIC_GOOGLE_CLIENT_ID || "";
-  const clientSecret = process.env.GOOGLE_CLIENT_SECRET || "";
+  const clientId = (process.env.GOOGLE_CLIENT_ID || process.env.NEXT_PUBLIC_GOOGLE_CLIENT_ID || "").trim();
+  const clientSecret = (process.env.GOOGLE_CLIENT_SECRET || "").trim();
 
-  // Helper to refresh token
-  async function refreshAccessToken(): Promise<string | null> {
-    if (!tokens.refresh_token || !clientId || !clientSecret) return null;
+  // Helper to refresh token & detect revoked/invalid credentials
+  async function refreshAccessToken(): Promise<{ token: string | null; revoked?: boolean; errorDetail?: string }> {
+    if (!tokens.refresh_token || !clientId || !clientSecret) {
+      return { token: null, errorDetail: "Missing refresh_token or OAuth server configuration" };
+    }
     try {
       const res = await fetch("https://oauth2.googleapis.com/token", {
         method: "POST",
@@ -199,6 +203,7 @@ export async function POST(request: Request) {
           ...tokens,
           access_token: newAccessToken,
           expires_in: data.expires_in || tokens.expires_in,
+          obtained_at: Date.now(),
         };
         await saveNeonGmailAccount(workspaceId, {
           senderName: activeAccount.senderName,
@@ -206,12 +211,58 @@ export async function POST(request: Request) {
           tokenData: updatedTokens,
           dailyLimit: activeAccount.dailyLimit || 500,
         });
-        return newAccessToken;
+        return { token: newAccessToken };
+      } else {
+        const errBody = await res.json().catch(() => ({}));
+        const errCode = String(errBody.error || "");
+        const errDesc = String(errBody.error_description || errCode || `HTTP ${res.status}`);
+        const isRevoked =
+          errCode === "invalid_grant" ||
+          errCode === "unauthorized_client" ||
+          res.status === 400 ||
+          res.status === 401;
+        if (isRevoked) {
+          await markNeonGmailAccountHealth(
+            workspaceId,
+            activeAccount.accountId,
+            "RECONNECT_REQUIRED",
+            `Google OAuth permission revoked or expired (${errDesc}). Please reconnect Gmail.`
+          );
+          await logAccountAudit({
+            adminId: userId,
+            adminEmail: activeAccount.senderEmail,
+            clientId: userId,
+            clientEmail: activeAccount.senderEmail,
+            workspaceId,
+            action: "GMAIL_TOKEN_REVOKED",
+            result: "FAILED",
+            details: { sender_email: activeAccount.senderEmail, error: errDesc },
+          }).catch(() => {});
+        }
+        return { token: null, revoked: isRevoked, errorDetail: errDesc };
       }
-    } catch (e) {
+    } catch (e: any) {
       console.error("[Gmail Send] Refresh token error:", e);
+      return { token: null, errorDetail: e?.message || "Refresh request failed" };
     }
-    return null;
+  }
+
+  // Proactive refresh when stored token age nears/exceeds expires_in
+  const obtainedAt = Number(tokens.obtained_at || 0);
+  const expiresInSec = Number(tokens.expires_in || 3500);
+  if (obtainedAt > 0 && Date.now() - obtainedAt > (expiresInSec - 120) * 1000 && tokens.refresh_token) {
+    const pro = await refreshAccessToken();
+    if (pro.token) {
+      accessToken = pro.token;
+    } else if (pro.revoked) {
+      return NextResponse.json(
+        {
+          error: `Gmail authorization for ${activeAccount.senderEmail} was revoked or expired. Please reconnect your Gmail account in Settings.`,
+          reconnect_required: true,
+        },
+        { status: 401 }
+      );
+    }
   }
 
   // Construct RFC 2822 standard email message
@@ -259,9 +310,30 @@ export async function POST(request: Request) {
 
   if (sendRes.status === 401 && tokens.refresh_token) {
     const refreshed = await refreshAccessToken();
-    if (refreshed) {
-      accessToken = refreshed;
+    if (refreshed.token) {
+      accessToken = refreshed.token;
       sendRes = await attemptSend(accessToken);
+    } else if (refreshed.revoked) {
+      await saveNeonOutreachRecord({
+        workspaceId,
+        userId,
+        leadId: lead_id ? Number(lead_id) : undefined,
+        recipientEmail: cleanRecipientEmail,
+        recipientName: cleanRecipientName || cleanRecipientEmail,
+        senderEmail: senderEmail,
+        senderName: senderName,
+        subject: subject,
+        body: emailBody,
+        outreachStatus: "FAILED",
+        followupNotes: `Gmail access revoked (${refreshed.errorDetail})`,
+      }).catch(() => {});
+      return NextResponse.json(
+        {
+          error: `Gmail permissions for ${senderEmail} were revoked or expired. Please reconnect your Gmail account.`,
+          reconnect_required: true,
+        },
+        { status: 401 }
+      );
     }
   }
 
@@ -269,6 +341,10 @@ export async function POST(request: Request) {
     const errData = await sendRes.json().catch(() => ({}));
     const errMsg = errData?.error?.message || `Gmail API returned HTTP ${sendRes.status}`;
     console.error("[Gmail Send Error]", sendRes.status, errData);
+
+    if (sendRes.status === 401) {
+      await markNeonGmailAccountHealth(workspaceId, activeAccount.accountId, "RECONNECT_REQUIRED", errMsg);
+    }
 
     await saveNeonOutreachRecord({
       workspaceId,
@@ -284,12 +360,23 @@ export async function POST(request: Request) {
       followupNotes: errMsg,
     }).catch(() => {});
 
+    await logAccountAudit({
+      adminId: userId,
+      adminEmail: senderEmail,
+      clientId: userId,
+      clientEmail: senderEmail,
+      workspaceId,
+      action: "EMAIL_FAILED",
+      result: "FAILED",
+      details: { sender_email: senderEmail, recipient_email: cleanRecipientEmail, error: errMsg },
+    }).catch(() => {});
+
     return NextResponse.json(
       {
         error: `Failed to send email via Gmail (${senderEmail}): ${errMsg}`,
         details: errData?.error || null,
       },
-      { status: sendRes.status === 403 ? 403 : 500 }
+      { status: sendRes.status === 403 ? 403 : sendRes.status === 401 ? 401 : 500 }
     );
   }
 
@@ -312,6 +399,16 @@ export async function POST(request: Request) {
     followupDate: followup_date || undefined,
     followupNotes: followup_notes || undefined,
   });
+
+  await logAccountAudit({
+    adminId: userId,
+    adminEmail: senderEmail,
+    clientId: userId,
+    clientEmail: senderEmail,
+    workspaceId,
+    action: "EMAIL_SENT",
+    details: { sender_email: senderEmail, recipient_email: cleanRecipientEmail, message_id: sendResult.id },
+  }).catch(() => {});
 
   // Update lead CRM stage to 'EMAIL SENT'
   if (lead_id) {

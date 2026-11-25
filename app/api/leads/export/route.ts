@@ -8,7 +8,7 @@ import {
   getPktDateTime,
   addServerlessExportHistory
 } from "@/lib/serverless-auth";
-import { recordNeonExport, isNeonConfigured } from "@/lib/neon-db";
+import { recordNeonExport, isNeonConfigured, logAccountAudit } from "@/lib/neon-db";
 import { proxyToBackend } from "@/lib/backend-proxy";
 
 export interface ExportLeadItem {
@@ -407,16 +407,31 @@ export async function POST(req: Request) {
     const workspaceId = Number(authCheck.userRecord?.workspace_id || currentUser?.workspace_id) || 1;
 
     // Record export history in background
+    const exportUserId = Number(authCheck.userRecord?.id || currentUser?.id) || 1;
     if (isNeonConfigured()) {
       recordNeonExport(
         workspaceId,
-        currentUser ? currentUser.id : 1,
+        exportUserId,
         meta.export_target || (meta.keyword ? `Search: ${meta.keyword}` : "Workspace Leads"),
         format.toUpperCase(),
         leads.length,
         meta.search_record_id,
         meta.search_date
       ).catch((err) => console.error("Neon export log error:", err));
+
+      logAccountAudit({
+        adminId: exportUserId,
+        adminEmail: authCheck.userRecord?.email || authCheck.userRecord?.username || "client",
+        clientId: exportUserId,
+        clientEmail: authCheck.userRecord?.email || authCheck.userRecord?.username || "",
+        workspaceId,
+        action: `EXPORT_${format.toUpperCase()}`,
+        details: {
+          format: format.toUpperCase(),
+          record_count: leads.length,
+          export_target: meta.export_target || meta.keyword || "Workspace Leads",
+        },
+      }).catch(() => {});
     }
 
     addServerlessExportHistory(workspaceId, {

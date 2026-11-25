@@ -47,11 +47,11 @@ export async function POST(req: Request, { params }: RouteParams) {
 
     // Fetch current client (strict RBAC: cannot modify admin or Master Owner accounts)
     const existing = await sql`
-      SELECT id, email, full_name, role, account_type, status, plan, plan_type, plan_label,
+      SELECT id, username, email, full_name, role, account_type, workspace_id, status, plan, plan_type, plan_label,
              custom_duration_value, custom_duration_unit, daily_email_limit, google_maps_enabled,
              features_json, active, is_active, subscription_start, subscription_expires_at, subscription_status
       FROM users
-      WHERE id = ${clientId} AND role != 'ADMIN' AND role != 'SUPER_ADMIN' AND (account_type IS NULL OR account_type != 'MASTER_OWNER')
+      WHERE id = ${clientId} AND role NOT IN ('ADMIN', 'SUPER_ADMIN') AND (account_type IS NULL OR account_type != 'MASTER_OWNER') AND (username IS NULL OR LOWER(username) != 'master_owner_usman')
       LIMIT 1
     `;
 
@@ -297,22 +297,45 @@ export async function POST(req: Request, { params }: RouteParams) {
       }
 
       case "UNLOCK":
+      case "ACTIVATE":
       case "RESTORE": {
-        // Unlock: restore status to ACTIVE, but DO NOT grant free 30 days if expired.
-        // If the subscription is expired or has no expiry, computeAuthoritativeUserStatus
-        // will keep them strictly EXPIRED / LOCKED until the Owner explicitly chooses ACTIVATE_BASIC or RENEW.
-        updated = await sql`
-          UPDATE users
-          SET status = 'ACTIVE',
-              active = 1,
-              is_active = 1,
-              subscription_status = 'ACTIVE',
-              subscription_notes = COALESCE(${notes}, subscription_notes),
-              updated_at = NOW()
-          WHERE id = ${clientId}
-          RETURNING id, email, full_name, role, status, plan, active, is_active,
-                    subscription_start, subscription_expires_at, subscription_status
-        `;
+        // Unlock / Activate: removes suspension ONLY. Never grants free days to an expired subscription.
+        const planRawUpper = String(client.plan_type || client.plan || "BASIC").toUpperCase();
+        const durUnitLower = String(client.custom_duration_unit || "").toLowerCase();
+        const isLifetimeSub =
+          planRawUpper === "LIFETIME" || (planRawUpper === "CUSTOM" && durUnitLower === "lifetime");
+        const expMs = client.subscription_expires_at ? new Date(client.subscription_expires_at).getTime() : NaN;
+        const isExpiredAlready = !isLifetimeSub && (!client.subscription_expires_at || Number.isNaN(expMs) || expMs <= Date.now());
+
+        if (isExpiredAlready) {
+          updated = await sql`
+            UPDATE users
+            SET status = 'EXPIRED',
+                active = 0,
+                is_active = 0,
+                subscription_status = 'EXPIRED',
+                subscription_notes = COALESCE(${notes}, subscription_notes),
+                updated_at = NOW()
+            WHERE id = ${clientId}
+            RETURNING id, username, email, full_name, role, workspace_id, status, plan, plan_type, plan_label,
+                      custom_duration_value, custom_duration_unit, daily_email_limit, google_maps_enabled,
+                      features_json, active, is_active, subscription_start, subscription_expires_at, subscription_status
+          `;
+        } else {
+          updated = await sql`
+            UPDATE users
+            SET status = 'ACTIVE',
+                active = 1,
+                is_active = 1,
+                subscription_status = 'ACTIVE',
+                subscription_notes = COALESCE(${notes}, subscription_notes),
+                updated_at = NOW()
+            WHERE id = ${clientId}
+            RETURNING id, username, email, full_name, role, workspace_id, status, plan, plan_type, plan_label,
+                      custom_duration_value, custom_duration_unit, daily_email_limit, google_maps_enabled,
+                      features_json, active, is_active, subscription_start, subscription_expires_at, subscription_status
+          `;
+        }
         break;
       }
 
@@ -351,34 +374,45 @@ export async function POST(req: Request, { params }: RouteParams) {
 
       default:
         return NextResponse.json(
-          { detail: "Invalid action. Supported: ACTIVATE_BASIC, ACTIVATE_LIFETIME, EXTEND_30, SET_EXPIRY, LOCK, UNLOCK, SUSPEND, REVOKE" },
+          { detail: "Invalid action. Supported: ACTIVATE_BASIC, ACTIVATE_LIFETIME, ACTIVATE_CUSTOM, EXTEND_CUSTOM, EXTEND_30, SET_EXPIRY, LOCK, UNLOCK, ACTIVATE, SUSPEND, REVOKE, DEACTIVATE" },
           { status: 400 }
         );
     }
 
     const updatedUser = updated?.[0];
     const authoritative = updatedUser ? computeAuthoritativeUserStatus(updatedUser) : null;
+    const restoredAccess =
+      (action === "UNLOCK" || action === "ACTIVATE" || action === "RESTORE")
+        ? !authoritative?.isLocked
+        : undefined;
 
-    // Log action to account_audit_logs
+    // Log action to account_audit_logs with proper workspace association
     await logAccountAudit({
       adminId: user.id,
-      adminEmail: user.email,
+      adminEmail: user.email || user.username || "master_owner",
       clientId: client.id,
-      clientEmail: client.email,
+      clientEmail: client.email || client.username,
+      workspaceId: client.workspace_id || 1,
       action: `SUBSCRIPTION_${action}`,
       details: {
         previous_status: client.status,
         previous_plan: client.plan,
-        updated_to: updatedUser,
-        authoritative,
+        authoritative_status: authoritative?.status,
+        restored_access: restoredAccess,
         notes,
       },
     });
 
+    const msg =
+      (action === "UNLOCK" || action === "ACTIVATE" || action === "RESTORE") && authoritative?.status === "EXPIRED"
+        ? `Suspension cleared for #${clientId}, but subscription expired — paid access stays LOCKED until renewed.`
+        : `Client #${clientId} subscription updated via ${action}.`;
+
     return NextResponse.json({
       status: "success",
+      restored_access: restoredAccess,
       client: updatedUser ? { ...updatedUser, ...authoritative } : null,
-      message: `Client #${clientId} subscription updated via ${action}.`,
+      message: msg,
     });
   } catch (err: any) {
     console.error("[Admin Subscription Update] Error:", err);

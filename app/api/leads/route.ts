@@ -50,6 +50,7 @@ export async function GET(req: Request) {
   const platformMode = (url.searchParams.get("platform_mode") || "ANY").toUpperCase() as "ANY" | "ALL";
   const qualityCategory = url.searchParams.get("quality_category") || "";
   const contactRequirement = url.searchParams.get("contact_requirement") || "";
+  const whatsappStatus = url.searchParams.get("whatsapp_status") || "";
   const hasEmail = url.searchParams.get("has_email") === "true";
   const hasPhone = url.searchParams.get("has_phone") === "true";
   const hasWebsite = url.searchParams.get("has_website") === "true";
@@ -73,6 +74,7 @@ export async function GET(req: Request) {
       platform_mode: platformMode,
       quality_category: qualityCategory,
       contact_requirement: contactRequirement,
+      whatsapp_status: whatsappStatus,
       has_email: hasEmail,
       has_phone: hasPhone,
       has_website: hasWebsite,
@@ -101,7 +103,7 @@ export async function POST(req: Request) {
     );
   }
 
-  const subCheck = await verifyClientActiveSubscription(currentUser);
+  const subCheck = await verifyClientActiveSubscription(currentUser, "saved_leads");
   if (!subCheck.allowed) {
     return NextResponse.json(
       { detail: subCheck.message, error: subCheck.message },
@@ -109,7 +111,7 @@ export async function POST(req: Request) {
     );
   }
 
-  const workspaceId = currentUser.workspace_id;
+  const workspaceId = Number(subCheck.userRecord?.workspace_id || currentUser.workspace_id) || 1;
 
   let body: any = {};
   try {

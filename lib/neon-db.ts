@@ -466,6 +466,7 @@ export async function getNeonLeads(
     platform_mode?: "ANY" | "ALL";
     quality_category?: string;
     contact_requirement?: string;
+    whatsapp_status?: string;
     has_email?: boolean;
     has_phone?: boolean;
     has_website?: boolean;
@@ -563,6 +564,18 @@ export async function getNeonLeads(
       whereClause += ` AND (phone IS NOT NULL AND phone != '' AND phone != 'Not Found' AND phone != 'Not Listed')`;
     } else if (options?.contact_requirement === "EMAIL_OR_PHONE") {
       whereClause += ` AND ((email IS NOT NULL AND email != '' AND email != 'Not Found' AND email LIKE '%@%') OR (phone IS NOT NULL AND phone != '' AND phone != 'Not Found' AND phone != 'Not Listed'))`;
+    }
+
+    // Honest WhatsApp availability filter (only manually confirmed vs not confirmed vs not checked)
+    if (options?.whatsapp_status && options.whatsapp_status !== "ALL" && options.whatsapp_status !== "all") {
+      const waUp = options.whatsapp_status.toUpperCase();
+      if (waUp === "CONFIRMED") {
+        whereClause += ` AND UPPER(COALESCE(whatsapp_status, 'NOT_CHECKED')) = 'CONFIRMED'`;
+      } else if (waUp === "NOT_CONFIRMED") {
+        whereClause += ` AND UPPER(COALESCE(whatsapp_status, 'NOT_CHECKED')) = 'NOT_CONFIRMED'`;
+      } else if (waUp === "NOT_CHECKED") {
+        whereClause += ` AND UPPER(COALESCE(whatsapp_status, 'NOT_CHECKED')) = 'NOT_CHECKED'`;
+      }
     }
 
     // Date filtering (UTC day/range comparisons)
@@ -767,11 +780,11 @@ export async function getNeonGmailAccount(workspaceId: number) {
     const rows = await sql.query(
       `SELECT id, workspace_id, account_name, sender_name, sender_email,
               provider_type, daily_limit, sent_today, last_sent_at, is_active,
-              health_status, spf_status, dkim_status, dmarc_status, mx_status,
+              health_status, last_error, last_refreshed_at, spf_status, dkim_status, dmarc_status, mx_status,
               created_at, updated_at
        FROM email_accounts
-       WHERE workspace_id = $1 AND is_active = 1
-       ORDER BY id DESC LIMIT 1`,
+       WHERE workspace_id = $1 AND is_active = 1 AND COALESCE(health_status, 'CONNECTED') != 'DISCONNECTED'
+       ORDER BY CASE WHEN health_status = 'CONNECTED' THEN 0 ELSE 1 END, id DESC LIMIT 1`,
       [workspaceId]
     );
     return rows[0] || null;
@@ -791,17 +804,17 @@ export async function getNeonGmailTokens(workspaceId: number, accountId?: number
     let rows: any[] = [];
     if (accountId) {
       rows = await sql.query(
-        `SELECT id, sender_email, sender_name, oauth_token_json, daily_limit, sent_today
+        `SELECT id, sender_email, sender_name, oauth_token_json, daily_limit, sent_today, health_status
          FROM email_accounts
-         WHERE workspace_id = $1 AND id = $2 AND is_active = 1
+         WHERE workspace_id = $1 AND id = $2 AND is_active = 1 AND COALESCE(health_status, 'CONNECTED') = 'CONNECTED'
          LIMIT 1`,
         [workspaceId, accountId]
       );
     } else {
       rows = await sql.query(
-        `SELECT id, sender_email, sender_name, oauth_token_json, daily_limit, sent_today
+        `SELECT id, sender_email, sender_name, oauth_token_json, daily_limit, sent_today, health_status
          FROM email_accounts
-         WHERE workspace_id = $1 AND is_active = 1
+         WHERE workspace_id = $1 AND is_active = 1 AND COALESCE(health_status, 'CONNECTED') = 'CONNECTED'
          ORDER BY id DESC LIMIT 1`,
         [workspaceId]
       );
@@ -832,7 +845,7 @@ export async function getNeonAllActiveGmailTokens(workspaceId: number) {
     const rows = await sql.query(
       `SELECT id, sender_email, sender_name, oauth_token_json, daily_limit, sent_today
        FROM email_accounts
-       WHERE workspace_id = $1 AND is_active = 1
+       WHERE workspace_id = $1 AND is_active = 1 AND COALESCE(health_status, 'CONNECTED') = 'CONNECTED'
        ORDER BY id ASC`,
       [workspaceId]
     );
@@ -850,9 +863,35 @@ export async function getNeonAllActiveGmailTokens(workspaceId: number) {
   }
 }
 
+export async function markNeonGmailAccountHealth(
+  workspaceId: number,
+  accountId: number,
+  healthStatus: "CONNECTED" | "RECONNECT_REQUIRED" | "REVOKED" | "DISCONNECTED",
+  errorMessage?: string
+): Promise<boolean> {
+  const sql = getNeonSql();
+  if (!sql) return false;
+  try {
+    const nowIso = new Date().toISOString();
+    await sql.query(
+      `UPDATE email_accounts
+       SET health_status = $1,
+           last_error = $2,
+           revoked_at = CASE WHEN $1 IN ('RECONNECT_REQUIRED', 'REVOKED') THEN NOW() ELSE revoked_at END,
+           updated_at = $3
+       WHERE workspace_id = $4 AND id = $5`,
+      [healthStatus, errorMessage ? errorMessage.slice(0, 400) : null, nowIso, workspaceId, accountId]
+    );
+    return true;
+  } catch (e) {
+    console.error("markNeonGmailAccountHealth error:", e);
+    return false;
+  }
+}
+
 /**
  * Save or connect Gmail OAuth account in workspace.
- * Supports multiple accounts per workspace without overwriting existing accounts.
+ * Supports multiple accounts per workspace and preserves existing refresh_token when Google omits it on re-consent.
  */
 export async function saveNeonGmailAccount(
   workspaceId: number,
@@ -869,28 +908,41 @@ export async function saveNeonGmailAccount(
   try {
     const nowIso = new Date().toISOString();
     const cleanEmail = data.senderEmail.toLowerCase().trim();
-    const tokens = data.tokenData || data.oauthTokens || {};
-    const encryptedTokens = encryptToken(tokens);
+    const incomingTokens = { ...(data.tokenData || data.oauthTokens || {}) };
     const limit = data.dailyLimit || 500;
 
     // Check if this senderEmail is already connected in this workspace
     const existing = await sql.query(
-      "SELECT id FROM email_accounts WHERE workspace_id = $1 AND LOWER(sender_email) = $2 LIMIT 1",
+      "SELECT id, oauth_token_json FROM email_accounts WHERE workspace_id = $1 AND LOWER(sender_email) = $2 LIMIT 1",
       [workspaceId, cleanEmail]
     );
 
     if (existing && existing.length > 0) {
+      const prevTokens = existing[0].oauth_token_json ? decryptToken(existing[0].oauth_token_json) : null;
+      if (!incomingTokens.refresh_token && prevTokens?.refresh_token) {
+        incomingTokens.refresh_token = prevTokens.refresh_token;
+      }
+      if (!incomingTokens.obtained_at) {
+        incomingTokens.obtained_at = Date.now();
+      }
+      const encryptedTokens = encryptToken(incomingTokens);
       // Update existing account credentials and reactivate
       const rows = await sql.query(
         `UPDATE email_accounts
          SET oauth_token_json = $1, sender_name = $2, is_active = 1,
-             health_status = 'CONNECTED', daily_limit = $3, updated_at = $4
+             health_status = 'CONNECTED', last_error = NULL, revoked_at = NULL,
+             last_refreshed_at = NOW(), daily_limit = $3, updated_at = $4
          WHERE id = $5
          RETURNING id, workspace_id, account_name, sender_name, sender_email, health_status, daily_limit`,
         [encryptedTokens, data.senderName, limit, nowIso, existing[0].id]
       );
       return rows[0] || null;
     }
+
+    if (!incomingTokens.obtained_at) {
+      incomingTokens.obtained_at = Date.now();
+    }
+    const encryptedTokens = encryptToken(incomingTokens);
 
     // Insert new connected Gmail account for this workspace
     const rows = await sql.query(
@@ -1726,36 +1778,83 @@ export async function provisionNeonClient(data: {
   };
 }
 
-export async function updateNeonClientStatus(clientId: number, newStatus: string) {
+export async function updateNeonClientStatus(
+  clientId: number,
+  newStatus: string
+): Promise<{ ok: boolean; effectiveStatus: string; restoredAccess: boolean }> {
   const sql = getNeonSql();
-  if (!sql) return false;
+  if (!sql) return { ok: false, effectiveStatus: newStatus, restoredAccess: false };
   try {
-    const validStatus = ["ACTIVE", "LOCKED", "SUSPENDED", "REVOKED"].includes(newStatus.toUpperCase())
+    const validStatus = ["ACTIVE", "LOCKED", "SUSPENDED", "REVOKED", "EXPIRED"].includes(newStatus.toUpperCase())
       ? newStatus.toUpperCase()
       : "ACTIVE";
-    let res: any;
+
+    // Never allow modifying Master Owner / Admin accounts
+    const rows = await sql.query(
+      `SELECT id, role, account_type, username, plan, plan_type, custom_duration_unit, subscription_expires_at
+       FROM users
+       WHERE id = $1
+         AND role NOT IN ('ADMIN', 'SUPER_ADMIN')
+         AND (account_type IS NULL OR account_type != 'MASTER_OWNER')
+         AND (username IS NULL OR LOWER(username) != 'master_owner_usman')
+       LIMIT 1`,
+      [clientId]
+    );
+    if (!rows || rows.length === 0) {
+      return { ok: false, effectiveStatus: newStatus, restoredAccess: false };
+    }
+
+    const u = rows[0];
+    const nowIso = new Date().toISOString();
+
     if (validStatus === "ACTIVE") {
-      res = await sql.query(
+      const planRaw = String(u.plan_type || u.plan || "BASIC").toUpperCase();
+      const rawUnit = String(u.custom_duration_unit || "").toLowerCase();
+      const isLifetime = planRaw === "LIFETIME" || (planRaw === "CUSTOM" && rawUnit === "lifetime");
+      const expMs = u.subscription_expires_at ? new Date(u.subscription_expires_at).getTime() : NaN;
+      const isExpired = !isLifetime && (!u.subscription_expires_at || Number.isNaN(expMs) || expMs <= Date.now());
+
+      if (isExpired) {
+        await sql.query(
+          `UPDATE users
+           SET status = 'EXPIRED',
+               active = 0,
+               is_active = 0,
+               subscription_status = 'EXPIRED',
+               updated_at = $1
+           WHERE id = $2`,
+          [nowIso, clientId]
+        );
+        return { ok: true, effectiveStatus: "EXPIRED", restoredAccess: false };
+      }
+
+      await sql.query(
         `UPDATE users
          SET status = 'ACTIVE',
              active = 1,
              is_active = 1,
              subscription_status = 'ACTIVE',
              updated_at = $1
-         WHERE id = $2 AND role != 'ADMIN'
-         RETURNING id`,
-        [new Date().toISOString(), clientId]
+         WHERE id = $2`,
+        [nowIso, clientId]
       );
-    } else {
-      res = await sql.query(
-        "UPDATE users SET status = $1, active = 0, is_active = 0, subscription_status = $1, updated_at = $2 WHERE id = $3 AND role != 'ADMIN' RETURNING id",
-        [validStatus, new Date().toISOString(), clientId]
-      );
+      return { ok: true, effectiveStatus: "ACTIVE", restoredAccess: true };
     }
-    return res.length > 0;
+
+    await sql.query(
+      `UPDATE users
+       SET status = $1,
+           active = 0,
+           is_active = 0,
+           subscription_status = $1,
+           updated_at = $2
+       WHERE id = $3`,
+      [validStatus, nowIso, clientId]
+    );
+    return { ok: true, effectiveStatus: validStatus, restoredAccess: false };
   } catch (e) {
     console.error("Neon updateNeonClientStatus error:", e);
-    return false;
+    return { ok: false, effectiveStatus: newStatus, restoredAccess: false };
   }
 }
 
@@ -1797,13 +1896,394 @@ export async function resetNeonClientPassword(clientId: number, passwordHash: st
   if (!sql) return false;
   try {
     const res = await sql.query(
-      "UPDATE users SET password_hash = $1, updated_at = $2 WHERE id = $3 AND role != 'ADMIN' RETURNING id",
+      `UPDATE users
+       SET password_hash = $1, must_change_password = TRUE, updated_at = $2
+       WHERE id = $3
+         AND role NOT IN ('ADMIN', 'SUPER_ADMIN')
+         AND (account_type IS NULL OR account_type != 'MASTER_OWNER')
+         AND (username IS NULL OR LOWER(username) != 'master_owner_usman')
+       RETURNING id`,
       [passwordHash, new Date().toISOString(), clientId]
     );
     return res.length > 0;
   } catch (e) {
     console.error("Neon resetNeonClientPassword error:", e);
     return false;
+  }
+}
+
+export async function permanentlyDeleteClientAccount(
+  clientId: number,
+  confirmUsername: string,
+  admin: { adminId?: number; adminEmail?: string }
+): Promise<{ ok: boolean; error?: string }> {
+  const sql = getNeonSql();
+  if (!sql) return { ok: false, error: "Database unavailable" };
+  try {
+    const rows = await sql.query(
+      `SELECT id, username, email, full_name, role, account_type, workspace_id, plan, status
+       FROM users
+       WHERE id = $1
+         AND role NOT IN ('ADMIN', 'SUPER_ADMIN')
+         AND (account_type IS NULL OR account_type != 'MASTER_OWNER')
+         AND (username IS NULL OR LOWER(username) != 'master_owner_usman')
+       LIMIT 1`,
+      [clientId]
+    );
+    if (!rows || rows.length === 0) {
+      return { ok: false, error: "Client not found or protected Master Owner cannot be deleted." };
+    }
+    const client = rows[0];
+    const expected = String(client.username || client.email || "").trim().toLowerCase();
+    if (!confirmUsername || confirmUsername.trim().toLowerCase() !== expected) {
+      return { ok: false, error: "Username confirmation mismatch." };
+    }
+
+    const wsId = Number(client.workspace_id);
+    // Log audit before removing child workspace records (preserving audit trail)
+    await logAccountAudit({
+      adminId: admin.adminId,
+      adminEmail: admin.adminEmail || "master_owner",
+      clientId: client.id,
+      clientEmail: client.email || client.username,
+      workspaceId: wsId || 1,
+      action: "PERMANENT_DELETE_CLIENT",
+      details: {
+        deleted_username: client.username,
+        deleted_email: client.email,
+        deleted_workspace_id: wsId,
+        previous_plan: client.plan,
+        previous_status: client.status,
+      },
+    });
+
+    if (wsId > 0) {
+      // Ensure no other non-target user shares this workspace before deleting workspace rows
+      const sharedUsers = await sql.query(
+        "SELECT id FROM users WHERE workspace_id = $1 AND id != $2 LIMIT 1",
+        [wsId, clientId]
+      );
+      if (!sharedUsers || sharedUsers.length === 0) {
+        const cleanupQueries = [
+          "DELETE FROM outreach_records WHERE workspace_id = $1",
+          "DELETE FROM export_history WHERE workspace_id = $1",
+          "DELETE FROM search_record_leads WHERE search_record_id IN (SELECT id FROM search_records WHERE workspace_id = $1)",
+          "DELETE FROM search_records WHERE workspace_id = $1",
+          "DELETE FROM leads WHERE workspace_id = $1",
+          "DELETE FROM email_accounts WHERE workspace_id = $1",
+          "DELETE FROM email_suppressions WHERE workspace_id = $1",
+          "DELETE FROM email_templates WHERE workspace_id = $1",
+          "DELETE FROM active_search_jobs WHERE workspace_id = $1",
+          "DELETE FROM whatsapp_activities WHERE workspace_id = $1",
+          "DELETE FROM whatsapp_companion_settings WHERE workspace_id = $1",
+          "DELETE FROM whatsapp_templates WHERE workspace_id = $1",
+          "DELETE FROM whatsapp_suppressions WHERE workspace_id = $1",
+          "DELETE FROM workspace_profiles WHERE workspace_id = $1",
+          "DELETE FROM chat_messages WHERE workspace_id = $1",
+          "DELETE FROM chat_conversations WHERE workspace_id = $1",
+          "DELETE FROM crm_deals WHERE workspace_id = $1",
+          "DELETE FROM email_campaigns WHERE workspace_id = $1",
+          "DELETE FROM campaigns WHERE workspace_id = $1",
+          "DELETE FROM system_notifications WHERE workspace_id = $1",
+        ];
+        for (const q of cleanupQueries) {
+          await sql.query(q, [wsId]).catch(() => {});
+        }
+      }
+    }
+
+    await sql.query("DELETE FROM users WHERE id = $1", [clientId]);
+    if (wsId > 0) {
+      const stillReferenced = await sql.query("SELECT id FROM users WHERE workspace_id = $1 LIMIT 1", [wsId]);
+      if (!stillReferenced || stillReferenced.length === 0) {
+        await sql.query("DELETE FROM workspaces WHERE id = $1", [wsId]).catch(() => {});
+      }
+    }
+    return { ok: true };
+  } catch (e: any) {
+    console.error("permanentlyDeleteClientAccount error:", e);
+    return { ok: false, error: e?.message || "Permanent deletion error" };
+  }
+}
+
+/**
+ * Full Owner-Only Client Activity & Account Intelligence profile.
+ * Returns ONLY real database records and never exposes password hashes or OAuth secrets.
+ */
+export async function getNeonClientFullProfile(clientId: number) {
+  const sql = getNeonSql();
+  if (!sql) return null;
+  try {
+    const userRows = await sql.query(
+      `SELECT u.id, u.username, u.email, u.full_name, u.company, u.role, u.account_type,
+              u.workspace_id, u.status, u.plan, u.plan_type, u.plan_label,
+              u.custom_duration_value, u.custom_duration_unit, u.custom_price_usd, u.suggested_price_usd,
+              u.daily_email_limit, u.google_maps_enabled, u.features_json,
+              u.subscription_status, u.subscription_start, u.subscription_expires_at,
+              u.subscription_notes, u.must_change_password, u.created_at, u.last_login,
+              u.last_activity_at, u.updated_at,
+              w.name AS workspace_name, w.created_at AS workspace_created_at
+       FROM users u
+       LEFT JOIN workspaces w ON u.workspace_id = w.id
+       WHERE u.id = $1
+         AND u.role NOT IN ('ADMIN', 'SUPER_ADMIN')
+         AND (u.account_type IS NULL OR u.account_type != 'MASTER_OWNER')
+         AND (u.username IS NULL OR LOWER(u.username) != 'master_owner_usman')
+       LIMIT 1`,
+      [clientId]
+    );
+    if (!userRows || userRows.length === 0) return null;
+    const u = userRows[0];
+    const wsId = Number(u.workspace_id) || 0;
+    const computed = computeAuthoritativeUserStatus(u);
+    const ent = resolveUserEntitlements(u);
+
+    const createdMs = u.created_at ? new Date(u.created_at).getTime() : NaN;
+    const daysActiveTotal = !Number.isNaN(createdMs)
+      ? Math.max(0, Math.floor((Date.now() - createdMs) / (1000 * 60 * 60 * 24)))
+      : 0;
+
+    // 1. Lead Generation Searches (Find Leads & Google Maps)
+    const searchRecords = wsId
+      ? await sql
+          .query(
+            `SELECT id, keyword, country, city, sources, requested_quantity, qualified_quantity,
+                    leads_with_phone, search_status, search_date, search_time, completion_time, created_at
+             FROM search_records
+             WHERE workspace_id = $1
+             ORDER BY created_at DESC LIMIT 100`,
+            [wsId]
+          )
+          .catch(() => [])
+      : [];
+
+    const activeJobs = wsId
+      ? await sql
+          .query(
+            `SELECT id, job_type, status, keyword, country, city, target_count, progress_count,
+                    progress_message, error_message, search_record_id, created_at, updated_at
+             FROM active_search_jobs
+             WHERE workspace_id = $1
+             ORDER BY created_at DESC LIMIT 50`,
+            [wsId]
+          )
+          .catch(() => [])
+      : [];
+
+    const findLeadsSearches = (searchRecords || []).filter(
+      (s: any) => !String(s.id || "").startsWith("SR-MAPS-")
+    );
+    const googleMapsSearches = (searchRecords || []).filter((s: any) =>
+      String(s.id || "").startsWith("SR-MAPS-")
+    );
+
+    // 2. Saved Leads summary (never exposes sensitive data, aggregates sources & contact breakdowns)
+    const leadAggRows = wsId
+      ? await sql
+          .query(
+            `SELECT
+               COUNT(*) AS total_saved_leads,
+               COUNT(*) FILTER (WHERE email IS NOT NULL AND email != '' AND email != 'Not Found' AND email LIKE '%@%') AS with_email,
+               COUNT(*) FILTER (WHERE phone IS NOT NULL AND phone != '' AND phone != 'Not Found' AND phone != 'Not Listed') AS with_phone,
+               COUNT(*) FILTER (
+                 WHERE (email IS NOT NULL AND email != '' AND email != 'Not Found' AND email LIKE '%@%')
+                   AND (phone IS NOT NULL AND phone != '' AND phone != 'Not Found' AND phone != 'Not Listed')
+               ) AS with_both,
+               COUNT(*) FILTER (WHERE UPPER(COALESCE(whatsapp_status, 'NOT_CHECKED')) = 'CONFIRMED') AS wa_confirmed,
+               MIN(created_at) AS first_lead_saved_at,
+               MAX(created_at) AS last_lead_saved_at
+             FROM leads
+             WHERE workspace_id = $1`,
+            [wsId]
+          )
+          .catch(() => [])
+      : [];
+    const leadSources = wsId
+      ? await sql
+          .query(
+            `SELECT COALESCE(NULLIF(TRIM(source), ''), 'Unknown Source') AS source, COUNT(*) AS count
+             FROM leads WHERE workspace_id = $1
+             GROUP BY COALESCE(NULLIF(TRIM(source), ''), 'Unknown Source')
+             ORDER BY count DESC`,
+            [wsId]
+          )
+          .catch(() => [])
+      : [];
+
+    // 3. Exports History
+    const exportLogs = wsId
+      ? await sql
+          .query(
+            `SELECT id, export_target, search_record_id, export_date_filter, format, record_count,
+                    export_date, export_time, created_at
+             FROM export_history
+             WHERE workspace_id = $1
+             ORDER BY id DESC LIMIT 50`,
+            [wsId]
+          )
+          .catch(() => [])
+      : [];
+
+    // 4. Gmail & Cold Email Activity (NEVER return oauth_token_json or password!)
+    const gmailAccounts = wsId
+      ? await sql
+          .query(
+            `SELECT id, sender_email, sender_name, account_name, is_active, health_status, last_error,
+                    last_refreshed_at, revoked_at, daily_limit, last_sent_at, created_at, updated_at
+             FROM email_accounts
+             WHERE workspace_id = $1
+             ORDER BY id DESC`,
+            [wsId]
+          )
+          .catch(() => [])
+      : [];
+
+    const outreachAggRows = wsId
+      ? await sql
+          .query(
+            `SELECT
+               COUNT(*) FILTER (WHERE outreach_status = 'EMAIL SENT') AS total_sent,
+               COUNT(*) FILTER (WHERE outreach_status = 'FAILED') AS total_failed,
+               COUNT(*) FILTER (
+                 WHERE outreach_status = 'EMAIL SENT'
+                   AND sent_at::timestamptz >= date_trunc('day', NOW() AT TIME ZONE 'UTC') AT TIME ZONE 'UTC'
+               ) AS sent_today_utc,
+               MAX(sent_at) AS last_send_attempt_at
+             FROM outreach_records
+             WHERE workspace_id = $1`,
+            [wsId]
+          )
+          .catch(() => [])
+      : [];
+
+    const recentOutreach = wsId
+      ? await sql
+          .query(
+            `SELECT id, recipient_email, recipient_name, sender_email, subject, outreach_status,
+                    followup_notes, sent_at, created_at
+             FROM outreach_records
+             WHERE workspace_id = $1
+             ORDER BY id DESC LIMIT 50`,
+            [wsId]
+          )
+          .catch(() => [])
+      : [];
+
+    // 5. Audit logs (both account_id match & workspace_id match)
+    const auditLogs = await sql
+      .query(
+        `SELECT id, workspace_id, actor, account_id, action, result, details, timestamp
+         FROM account_audit_logs
+         WHERE account_id = $1 OR ($2 > 0 AND workspace_id = $2)
+         ORDER BY id DESC LIMIT 250`,
+        [clientId, wsId]
+      )
+      .catch(() => []);
+
+    const subAuditLogs = (auditLogs || []).filter((l: any) =>
+      String(l.action || "").startsWith("SUBSCRIPTION_") ||
+      String(l.action || "").startsWith("STATUS_") ||
+      String(l.action || "").includes("CREATE_PAID_CLIENT")
+    );
+
+    const leadAgg = leadAggRows?.[0] || {};
+    const outreachAgg = outreachAggRows?.[0] || {};
+    const sentTodayUtc = parseInt(outreachAgg.sent_today_utc || "0", 10);
+
+    // Derive authoritative last_activity timestamp across activity tables
+    const timestamps = [
+      u.last_activity_at,
+      u.last_login,
+      searchRecords?.[0]?.created_at,
+      leadAgg.last_lead_saved_at,
+      outreachAgg.last_send_attempt_at,
+      exportLogs?.[0]?.created_at,
+      auditLogs?.[0]?.timestamp,
+    ]
+      .filter(Boolean)
+      .map((t: any) => new Date(t).getTime())
+      .filter((n: number) => !Number.isNaN(n));
+    const derivedLastActivity = timestamps.length > 0 ? new Date(Math.max(...timestamps)).toISOString() : null;
+
+    return {
+      account: {
+        id: u.id,
+        username: u.username || u.email,
+        email: u.email,
+        full_name: u.full_name,
+        company: u.company,
+        account_type: u.account_type || "PAID_CLIENT",
+        workspace_id: wsId,
+        workspace_name: u.workspace_name || `${u.full_name || u.username}'s Workspace`,
+        created_at: u.created_at,
+        last_login: u.last_login || null,
+        last_activity: derivedLastActivity,
+        days_active_total: daysActiveTotal,
+        status: computed.status,
+        raw_status: u.status,
+        is_suspended: ["SUSPENDED", "LOCKED", "REVOKED"].includes(computed.status),
+        is_expired: computed.isExpired,
+        must_change_password: Boolean(u.must_change_password),
+        plan: ent.planType,
+        plan_label: ent.planLabel,
+        custom_price_usd: u.custom_price_usd != null ? Number(u.custom_price_usd) : (ent.planType === "LIFETIME" ? 100 : ent.planType === "BASIC" ? 25 : null),
+        suggested_price_usd: u.suggested_price_usd != null ? Number(u.suggested_price_usd) : null,
+        custom_duration_value: u.custom_duration_value,
+        custom_duration_unit: u.custom_duration_unit,
+        subscription_start: u.subscription_start,
+        subscription_expires_at: ent.subscriptionExpiresAt,
+        remaining_detailed: computed.remainingDetailed,
+        google_maps_enabled: ent.googleMapsEnabled,
+        daily_email_limit: ent.dailyEmailLimit,
+        features: ent.features,
+        subscription_notes: u.subscription_notes || null,
+        subscription_history: subAuditLogs,
+      },
+      lead_generation: {
+        total_searches: (searchRecords || []).length,
+        find_leads_searches_count: findLeadsSearches.length,
+        google_maps_searches_count: googleMapsSearches.length,
+        total_leads_generated: (searchRecords || []).reduce(
+          (sum: number, r: any) => sum + (Number(r.qualified_quantity) || 0),
+          0
+        ),
+        searches: searchRecords || [],
+        maps_jobs: activeJobs || [],
+      },
+      saved_leads: {
+        total_saved: parseInt(leadAgg.total_saved_leads || "0", 10),
+        with_email: parseInt(leadAgg.with_email || "0", 10),
+        with_phone: parseInt(leadAgg.with_phone || "0", 10),
+        with_both: parseInt(leadAgg.with_both || "0", 10),
+        whatsapp_confirmed_manual: parseInt(leadAgg.wa_confirmed || "0", 10),
+        first_saved_at: leadAgg.first_lead_saved_at || null,
+        last_saved_at: leadAgg.last_lead_saved_at || null,
+        sources: (leadSources || []).map((s: any) => ({
+          source: String(s.source),
+          count: parseInt(s.count || "0", 10),
+        })),
+        exports: exportLogs || [],
+      },
+      gmail_outreach: {
+        connected: gmailAccounts.some((a: any) => a.is_active === 1 && a.health_status === "CONNECTED"),
+        accounts: gmailAccounts,
+        total_emails_sent: parseInt(outreachAgg.total_sent || "0", 10),
+        total_failed_emails: parseInt(outreachAgg.total_failed || "0", 10),
+        emails_sent_today_utc: sentTodayUtc,
+        daily_email_limit: ent.dailyEmailLimit,
+        remaining_today_utc: Math.max(0, ent.dailyEmailLimit - sentTodayUtc),
+        last_send_attempt_at: outreachAgg.last_send_attempt_at || null,
+        recent_records: recentOutreach || [],
+      },
+      audit_logs: auditLogs || [],
+      data_notes: {
+        audit_note:
+          "Audit entries reflect logged actions from database event capture. Historical events before audit instrumentation are noted only where source tables retain records.",
+      },
+    };
+  } catch (e) {
+    console.error("getNeonClientFullProfile error:", e);
+    return null;
   }
 }
 

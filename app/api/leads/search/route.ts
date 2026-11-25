@@ -12,6 +12,7 @@ import {
   getNeonWorkspaceLeadSignatures,
   acquireActiveSearchJob,
   completeActiveSearchJob,
+  logAccountAudit,
 } from "@/lib/neon-db";
 import { interpretSearchIntent, SearchIntentResult } from "@/lib/ai-search-parser";
 import { evaluateContactRequirement, calculateLeadQualityScore, ContactRequirement } from "@/lib/lead-quality-engine";
@@ -531,6 +532,26 @@ export async function POST(req: Request) {
     // Complete the active search job
     if (currentJobId) {
       await completeActiveSearchJob(currentJobId, "COMPLETED", qualifiedLeads.length, searchRecordId);
+    }
+
+    const searchUserId = Number(authCheck.userRecord?.id || currentUser.id) || 0;
+    if (searchUserId > 0) {
+      await logAccountAudit({
+        adminId: searchUserId,
+        adminEmail: authCheck.userRecord?.email || authCheck.userRecord?.username || "client",
+        clientId: searchUserId,
+        clientEmail: authCheck.userRecord?.email || authCheck.userRecord?.username || "",
+        workspaceId,
+        action: "FIND_LEADS_SEARCH",
+        details: {
+          keyword: effectiveKeyword,
+          country: effectiveCountry || "Global",
+          city: effectiveCity || "All Cities",
+          requested: targetCount,
+          qualified_count: qualifiedLeads.length,
+          search_record_id: searchRecordId,
+        },
+      }).catch(() => {});
     }
 
     const durationMs = Date.now() - startTime;

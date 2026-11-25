@@ -6,6 +6,7 @@ import { api } from "@/lib/api";
 import { useAuth } from "@/lib/auth-context";
 import { Lead } from "@/lib/types";
 import { normalizePhoneNumber, buildWhatsAppClickToChatUrl } from "@/lib/phone-utils";
+import { evaluateContactReadiness } from "@/lib/lead-quality-engine";
 import {
   Database, Search, Download, Trash2, ExternalLink,
   Mail, Phone, RefreshCw, CheckCircle2, AlertTriangle,
@@ -15,6 +16,7 @@ import {
 } from "lucide-react";
 import { AiLeadResearchModal } from "@/components/leads/AiLeadResearchModal";
 import { WhatsAppModal } from "@/components/leads/WhatsAppModal";
+import { LeadQualityBadge } from "@/components/leads/LeadQualityBadge";
 
 interface SearchRecord {
   id: string;
@@ -87,6 +89,7 @@ export default function SavedLeadsPage() {
   const [datePresetFilter, setDatePresetFilter] = useState<string>("all");
   const [dateFrom, setDateFrom] = useState<string>("");
   const [dateTo, setDateTo] = useState<string>("");
+  const [whatsappFilter, setWhatsappFilter] = useState<"ALL" | "CONFIRMED" | "NOT_CONFIRMED" | "NOT_CHECKED">("ALL");
   const [whatsAppLead, setWhatsAppLead] = useState<any | null>(null);
 
   // Selection
@@ -139,6 +142,7 @@ export default function SavedLeadsPage() {
         keyword: searchFilter || undefined,
         sources: selectedSources.length > 0 ? selectedSources.join("||") : undefined,
         contact_requirement: contactFilter !== "all" ? contactFilter : undefined,
+        whatsapp_status: whatsappFilter !== "ALL" ? whatsappFilter : undefined,
         date_preset: datePresetFilter !== "all" && datePresetFilter !== "custom" ? datePresetFilter : undefined,
         date_from: datePresetFilter === "custom" && dateFrom ? dateFrom : undefined,
         date_to: datePresetFilter === "custom" && dateTo ? dateTo : undefined,
@@ -205,7 +209,7 @@ export default function SavedLeadsPage() {
     if (user?.id) {
       fetchSavedLeads();
     }
-  }, [user?.id, page, pageSize, selectedSources, contactFilter, datePresetFilter, dateFrom, dateTo]);
+  }, [user?.id, page, pageSize, selectedSources, contactFilter, whatsappFilter, datePresetFilter, dateFrom, dateTo]);
 
   useEffect(() => {
     if (activeTab === "history") {
@@ -846,6 +850,22 @@ export default function SavedLeadsPage() {
                   <option value="EMAIL_OR_PHONE">Email OR Phone</option>
                 </select>
 
+                {/* Honest WhatsApp Status Filter */}
+                <select
+                  value={whatsappFilter}
+                  onChange={(e) => {
+                    setPage(1);
+                    setWhatsappFilter(e.target.value as any);
+                  }}
+                  className="rounded-xl border border-white/10 bg-[#0c1017] px-3 py-1.5 text-xs text-white focus:border-emerald-500 focus:outline-none"
+                  title="Filter by manual WhatsApp availability verification status"
+                >
+                  <option value="ALL">All Numbers (WhatsApp)</option>
+                  <option value="CONFIRMED">WhatsApp Confirmed</option>
+                  <option value="NOT_CONFIRMED">WhatsApp Not Confirmed</option>
+                  <option value="NOT_CHECKED">Not Checked</option>
+                </select>
+
                 {/* Outreach Stage Filter */}
                 <select
                   value={outreachStatusFilter}
@@ -1075,6 +1095,9 @@ export default function SavedLeadsPage() {
                                 <ExternalLink className="h-2.5 w-2.5" />
                               </a>
                             )}
+                            <div className="mt-1">
+                              <LeadQualityBadge lead={l} />
+                            </div>
                             {((l as any).linkedin || (l as any).instagram || (l as any).facebook || (l as any).youtube || (l as any).twitter) && (
                               <div className="flex items-center gap-1.5 mt-1 text-[10px]">
                                 {(l as any).linkedin && (
@@ -1134,38 +1157,55 @@ export default function SavedLeadsPage() {
                           </td>
                           <td className="py-3 px-3">
                             {l.phone && l.phone !== "Not Found" && l.phone !== "Not Listed" ? (
-                              <div className="flex flex-col gap-0.5">
-                                <div className="flex items-center gap-2">
+                              <div className="flex flex-col gap-1">
+                                <div className="flex items-center gap-1.5 flex-wrap">
                                   <a
                                     href={`tel:${l.phone}`}
                                     className="text-slate-200 hover:text-blue-400 font-mono text-[11px] flex items-center gap-1"
+                                    title={phoneRes.isValid ? `E.164: ${phoneRes.displayFormatted}` : l.phone}
                                   >
                                     <Phone className="h-3 w-3 text-slate-400" />
-                                    <span>{l.phone}</span>
+                                    <span>{phoneRes.isValid ? phoneRes.displayFormatted : l.phone}</span>
                                   </a>
-                                  {waUrl && (
-                                    <button
-                                      type="button"
-                                      onClick={() => setWhatsAppLead(l)}
-                                      className="text-emerald-400 hover:text-emerald-300 text-[10px] font-bold bg-emerald-500/10 hover:bg-emerald-500/20 px-1.5 py-0.5 rounded flex items-center gap-0.5 border border-emerald-500/20 cursor-pointer"
-                                      title="Safe WhatsApp Outreach"
+                                  <button
+                                    type="button"
+                                    onClick={() => setWhatsAppLead(l)}
+                                    className="text-emerald-400 hover:text-emerald-300 text-[10px] font-bold bg-emerald-500/10 hover:bg-emerald-500/20 px-1.5 py-0.5 rounded flex items-center gap-0.5 border border-emerald-500/20 cursor-pointer"
+                                    title="Open WhatsApp Click-to-Chat (wa.me)"
+                                  >
+                                    <MessageSquare className="h-2.5 w-2.5" />
+                                    <span>Open WA</span>
+                                  </button>
+                                </div>
+                                <div className="flex items-center gap-1.5 flex-wrap">
+                                  {(l as any).whatsapp_status === "CONFIRMED" ? (
+                                    <span className="text-[9px] font-bold px-1.5 py-0.2 rounded bg-emerald-500/15 text-emerald-300 border border-emerald-500/30">
+                                      WA Confirmed
+                                    </span>
+                                  ) : (l as any).whatsapp_status === "NOT_CONFIRMED" ? (
+                                    <span className="text-[9px] font-bold px-1.5 py-0.2 rounded bg-rose-500/15 text-rose-300 border border-rose-500/30">
+                                      Not on WA
+                                    </span>
+                                  ) : (
+                                    <span
+                                      className="text-[9px] font-mono px-1.5 py-0.2 rounded bg-white/[0.04] text-slate-400 border border-white/10"
+                                      title="WhatsApp registration cannot be checked automatically via official free APIs. Open WA to verify manually."
                                     >
-                                      <MessageSquare className="h-2.5 w-2.5" />
-                                      <span>WA</span>
-                                    </button>
+                                      WA: Not Checked
+                                    </span>
+                                  )}
+                                  {l.phone_source_url && (
+                                    <a
+                                      href={l.phone_source_url}
+                                      target="_blank"
+                                      rel="noreferrer"
+                                      className="text-[9px] text-slate-500 hover:text-blue-400 hover:underline inline-flex items-center gap-0.5 font-mono"
+                                    >
+                                      <span>Phone Source</span>
+                                      <ExternalLink className="h-2 w-2" />
+                                    </a>
                                   )}
                                 </div>
-                                {l.phone_source_url && (
-                                  <a
-                                    href={l.phone_source_url}
-                                    target="_blank"
-                                    rel="noreferrer"
-                                    className="text-[9px] text-slate-500 hover:text-blue-400 hover:underline inline-flex items-center gap-0.5 font-mono"
-                                  >
-                                    <span>Phone Source</span>
-                                    <ExternalLink className="h-2 w-2" />
-                                  </a>
-                                )}
                               </div>
                             ) : (
                               <span className="text-slate-500 text-[11px]">Not Listed</span>
@@ -2046,6 +2086,20 @@ export default function SavedLeadsPage() {
         isOpen={!!whatsAppLead}
         onClose={() => setWhatsAppLead(null)}
         lead={whatsAppLead}
+        onStatusUpdated={(leadId, nextStatus) => {
+          setLeads((prev) =>
+            prev.map((row: any) =>
+              row.id === leadId ? { ...row, whatsapp_status: nextStatus } : row
+            )
+          );
+          setToastMsg(
+            nextStatus === "CONFIRMED"
+              ? "Marked as WhatsApp Confirmed (manual check recorded)."
+              : nextStatus === "NOT_CONFIRMED"
+              ? "Marked as Not on WhatsApp (manual check recorded)."
+              : "WhatsApp status reset to Not Checked."
+          );
+        }}
       />
     </div>
   );

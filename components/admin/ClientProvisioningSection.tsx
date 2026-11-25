@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useState, useEffect } from "react";
+import Link from "next/link";
 import { api } from "@/lib/api";
 import { ClientAccount } from "@/lib/types";
 import {
@@ -171,6 +172,13 @@ export function ClientProvisioningSection() {
   const [oneTimeCreds, setOneTimeCreds] = useState<OneTimeCreds | null>(null);
   const [copied, setCopied] = useState(false);
   const [actionLoadingId, setActionLoadingId] = useState<number | null>(null);
+  const [deleteTarget, setDeleteTarget] = useState<{
+    id: number;
+    username: string;
+    workspace_id?: number;
+  } | null>(null);
+  const [deleteMode, setDeleteMode] = useState<"revoke" | "permanent">("revoke");
+  const [confirmDeleteUsername, setConfirmDeleteUsername] = useState("");
 
   // Tabs: "paid" | "preview" | "inquiries"
   const [activeTab, setActiveTab] = useState<"paid" | "preview" | "inquiries">("paid");
@@ -523,15 +531,19 @@ export function ClientProvisioningSection() {
     }
   };
 
-  // Toggle account suspension
+  // Toggle account suspension (Deactivate / Activate with authoritative expiry verification)
   const handleToggleStatus = async (clientId: number, currentStatus: string) => {
     const newStatus = currentStatus === "ACTIVE" ? "SUSPENDED" : "ACTIVE";
     setActionLoadingId(clientId);
     setError(null);
     try {
-      await api.post(`/admin/clients/${clientId}/status`, { status: newStatus });
-      setSuccessMsg(`Client #${clientId} status changed to ${newStatus}.`);
-      setTimeout(() => setSuccessMsg(null), 3000);
+      const res = await api.post<any>(`/admin/clients/${clientId}/status`, { status: newStatus });
+      if (res?.restored_access === false && res?.new_status === "EXPIRED") {
+        setError(res.message || `Client #${clientId} subscription has expired; access remains locked until renewed.`);
+      } else {
+        setSuccessMsg(res?.message || `Client #${clientId} status changed to ${res?.new_status || newStatus}.`);
+        setTimeout(() => setSuccessMsg(null), 3500);
+      }
       await fetchClients();
     } catch (err: any) {
       setError(err?.message || "Failed to change client status");
@@ -540,21 +552,39 @@ export function ClientProvisioningSection() {
     }
   };
 
-  // Revoke client seat
-  const handleRevokeClient = async (clientId: number, clientUsername: string) => {
-    if (!confirm(`Are you sure you want to revoke '${clientUsername}'? This will lock access immediately.`)) {
-      return;
-    }
+  // Open safe confirmation modal for Revoke (soft archive) or Permanent Delete
+  const handleRevokeClient = (clientId: number, clientUsername: string, workspaceId?: number) => {
+    setDeleteTarget({ id: clientId, username: clientUsername, workspace_id: workspaceId });
+    setDeleteMode("revoke");
+    setConfirmDeleteUsername("");
+  };
 
-    setActionLoadingId(clientId);
+  const executeDeleteClient = async () => {
+    if (!deleteTarget) return;
+    setActionLoadingId(deleteTarget.id);
     setError(null);
     try {
-      await api.delete(`/admin/clients/${clientId}`);
-      setSuccessMsg(`Client '${clientUsername}' access revoked.`);
-      setTimeout(() => setSuccessMsg(null), 3000);
+      if (deleteMode === "permanent") {
+        const expected = deleteTarget.username.trim().toLowerCase();
+        if (confirmDeleteUsername.trim().toLowerCase() !== expected) {
+          setError(`Please type '${deleteTarget.username}' exactly to confirm permanent deletion.`);
+          setActionLoadingId(null);
+          return;
+        }
+        const res = await api.delete<any>(
+          `/admin/clients/${deleteTarget.id}?mode=permanent&confirm_username=${encodeURIComponent(confirmDeleteUsername.trim())}`
+        );
+        setSuccessMsg(res?.message || `Client '${deleteTarget.username}' permanently deleted.`);
+      } else {
+        const res = await api.delete<any>(`/admin/clients/${deleteTarget.id}?mode=revoke`);
+        setSuccessMsg(res?.message || `Client '${deleteTarget.username}' access revoked.`);
+      }
+      setDeleteTarget(null);
+      setConfirmDeleteUsername("");
+      setTimeout(() => setSuccessMsg(null), 4000);
       await fetchClients();
     } catch (err: any) {
-      setError(err?.message || "Failed to revoke client");
+      setError(err?.message || "Failed to delete or revoke client");
     } finally {
       setActionLoadingId(null);
     }
@@ -857,7 +887,10 @@ export function ClientProvisioningSection() {
                     <div className="flex flex-wrap gap-1.5">
                       {[
                         { label: "1 Hour", v: 1, u: "hours" as DurationUnit },
+                        { label: "2 Hours", v: 2, u: "hours" as DurationUnit },
+                        { label: "6 Hours", v: 6, u: "hours" as DurationUnit },
                         { label: "12 Hours", v: 12, u: "hours" as DurationUnit },
+                        { label: "1 Day", v: 1, u: "days" as DurationUnit },
                         { label: "3 Days", v: 3, u: "days" as DurationUnit },
                         { label: "7 Days", v: 7, u: "days" as DurationUnit },
                         { label: "30 Days", v: 30, u: "days" as DurationUnit },
@@ -1284,7 +1317,14 @@ export function ClientProvisioningSection() {
                           {/* Username & Customer Name */}
                           <td className="py-3 px-3">
                             <div className="font-bold text-white flex items-center gap-1.5 flex-wrap">
-                              <span className="font-mono text-blue-400">{c.username || `client_${c.id}`}</span>
+                              <Link
+                                href={`/app/admin/clients/${c.id}`}
+                                className="font-mono text-blue-400 hover:text-blue-300 hover:underline flex items-center gap-1"
+                                title="View Complete Account Activity & Intelligence Profile"
+                              >
+                                <span>{c.username || `client_${c.id}`}</span>
+                                <ExternalLink className="h-3 w-3 opacity-70" />
+                              </Link>
                               {c.full_name && c.full_name !== c.username && (
                                 <span className="text-slate-300 text-xs">({c.full_name})</span>
                               )}
@@ -1472,27 +1512,40 @@ export function ClientProvisioningSection() {
                                 <span>Reset Pwd</span>
                               </button>
 
-                              {/* Suspend */}
+                              {/* Suspend / Activate / Deactivate */}
                               <button
                                 onClick={() => handleToggleStatus(c.id, c.status)}
                                 disabled={actionLoadingId === c.id}
-                                className="px-1.5 py-1 text-[10px] font-semibold text-rose-300 bg-rose-500/10 border border-rose-500/20 hover:bg-rose-500/20 rounded disabled:opacity-40 cursor-pointer"
-                                title="Toggle Suspension"
+                                className={`px-2 py-1 text-[10px] font-semibold rounded border disabled:opacity-40 cursor-pointer flex items-center gap-1 ${
+                                  isActive
+                                    ? "text-rose-300 bg-rose-500/10 border-rose-500/20 hover:bg-rose-500/20"
+                                    : "text-emerald-300 bg-emerald-500/10 border-emerald-500/20 hover:bg-emerald-500/20"
+                                }`}
+                                title={isActive ? "Deactivate / Suspend account" : "Activate account"}
                               >
                                 <Power className="h-2.5 w-2.5 inline" />
+                                <span>{isActive ? "Deactivate" : "Activate"}</span>
                               </button>
 
-                              {/* Revoke */}
-                              {!isRevoked && (
-                                <button
-                                  onClick={() => handleRevokeClient(c.id, c.username || c.full_name)}
-                                  disabled={actionLoadingId === c.id}
-                                  className="p-1 text-slate-500 hover:text-rose-400 transition-colors disabled:opacity-40 cursor-pointer"
-                                  title="Revoke access"
-                                >
-                                  <Trash2 className="h-3 w-3" />
-                                </button>
-                              )}
+                              {/* Owner Client Details Link */}
+                              <Link
+                                href={`/app/admin/clients/${c.id}`}
+                                className="px-2 py-1 text-[10px] font-semibold text-blue-300 bg-blue-500/10 border border-blue-500/20 hover:bg-blue-500/20 rounded"
+                                title="View full Client Details & Audit Logs"
+                              >
+                                Details
+                              </Link>
+
+                              {/* Delete / Revoke Modal */}
+                              <button
+                                onClick={() => handleRevokeClient(c.id, c.username || c.full_name, c.workspace_id)}
+                                disabled={actionLoadingId === c.id}
+                                className="px-1.5 py-1 text-[10px] font-semibold text-slate-400 hover:text-rose-400 bg-white/[0.03] hover:bg-rose-500/10 border border-white/10 rounded transition-colors disabled:opacity-40 cursor-pointer flex items-center gap-1"
+                                title="Delete or Revoke Client Account"
+                              >
+                                <Trash2 className="h-2.5 w-2.5" />
+                                <span>Delete</span>
+                              </button>
                             </div>
                           </td>
                         </tr>
@@ -1560,7 +1613,9 @@ export function ClientProvisioningSection() {
                   {filteredPreviewClients.map((p) => (
                     <tr key={p.id} className="hover:bg-white/[0.02]">
                       <td className="py-3 px-3">
-                        <div className="font-bold text-white">{p.full_name || "Google Visitor"}</div>
+                        <Link href={`/app/admin/clients/${p.id}`} className="font-bold text-white hover:text-blue-300 hover:underline">
+                          {p.full_name || "Google Visitor"}
+                        </Link>
                         <div className="text-[11px] text-purple-300 font-mono">{p.email}</div>
                       </td>
                       <td className="py-3 px-3 font-mono text-slate-400">#{p.id}</td>
@@ -1833,6 +1888,12 @@ export function ClientProvisioningSection() {
                 </span>
               </div>
               <div className="flex justify-between">
+                <span className="text-slate-400">Activation Time (UTC Now):</span>
+                <span className="font-mono text-emerald-300">
+                  {new Date().toUTCString()}
+                </span>
+              </div>
+              <div className="flex justify-between">
                 <span className="text-slate-400">Plan Duration:</span>
                 <span className="font-semibold text-purple-300">
                   {formatDurationLabel(createForm.durationValue, createForm.durationUnit)}
@@ -1847,7 +1908,7 @@ export function ClientProvisioningSection() {
               <div className="flex justify-between">
                 <span className="text-slate-400">Google Maps Generator:</span>
                 <span className={createForm.features.google_maps ? "text-emerald-400 font-bold" : "text-rose-400 font-bold"}>
-                  {createForm.features.google_maps ? "INCLUDED" : "EXCLUDED"}
+                  {createForm.features.google_maps ? "INCLUDED" : "NOT INCLUDED"}
                 </span>
               </div>
               <div className="flex justify-between">
@@ -1858,10 +1919,12 @@ export function ClientProvisioningSection() {
               </div>
               <div className="flex justify-between pt-2 border-t border-white/[0.06]">
                 <span className="text-slate-400">Suggested Formula Price:</span>
-                <span className="font-mono text-slate-300">${customPriceCalc.suggestedPriceUsd} USD</span>
+                <span className="font-mono text-slate-300">
+                  ${customPriceCalc.suggestedPriceUsd} USD (Base ${customPriceCalc.monthlyFeatureRateUsd}/mo × {customPriceCalc.durationMultiplier}x)
+                </span>
               </div>
               <div className="flex justify-between">
-                <span className="text-slate-300 font-bold">Final Billed Custom Price:</span>
+                <span className="text-slate-300 font-bold">Final Price Charged:</span>
                 <span className="font-mono text-emerald-400 font-extrabold text-sm">${finalCustomPriceUsd} USD</span>
               </div>
             </div>
@@ -2032,6 +2095,105 @@ export function ClientProvisioningSection() {
               </button>
             </div>
           </form>
+        </div>
+      )}
+
+      {/* ========================================================================= */}
+      {/* 10. SAFE CLIENT DELETE / REVOKE CONFIRMATION MODAL                         */}
+      {/* ========================================================================= */}
+      {deleteTarget && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/85 backdrop-blur-md px-4">
+          <div className="w-full max-w-md rounded-2xl border border-rose-500/40 bg-[#0c1017] p-6 shadow-2xl text-slate-100 space-y-4">
+            <div className="flex items-center justify-between border-b border-white/[0.08] pb-3">
+              <div className="flex items-center gap-2 text-rose-400">
+                <Trash2 className="h-5 w-5" />
+                <h3 className="text-base font-bold text-white">Remove Client Access</h3>
+              </div>
+              <button
+                type="button"
+                onClick={() => setDeleteTarget(null)}
+                className="text-slate-400 hover:text-white"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+
+            <div className="p-3 rounded-xl bg-white/[0.03] border border-white/10 text-xs space-y-1">
+              <div>Target Account: <strong className="font-mono text-white">{deleteTarget.username}</strong> (#{deleteTarget.id})</div>
+              {deleteTarget.workspace_id && (
+                <div className="text-slate-400 font-mono">Isolated Workspace: #{deleteTarget.workspace_id}</div>
+              )}
+            </div>
+
+            <div className="space-y-2 text-xs">
+              <label
+                onClick={() => setDeleteMode("revoke")}
+                className={`block p-3 rounded-xl border cursor-pointer ${
+                  deleteMode === "revoke" ? "border-amber-500 bg-amber-500/10" : "border-white/10 bg-white/[0.02]"
+                }`}
+              >
+                <div className="font-bold text-amber-300">Revoke / Archive Account (Recommended)</div>
+                <p className="text-[11px] text-slate-400 mt-0.5">
+                  Immediately revokes login &amp; API access and disconnects OAuth tokens, while preserving workspace leads, audit history, and invoices.
+                </p>
+              </label>
+
+              <label
+                onClick={() => setDeleteMode("permanent")}
+                className={`block p-3 rounded-xl border cursor-pointer ${
+                  deleteMode === "permanent" ? "border-rose-500 bg-rose-500/10" : "border-white/10 bg-white/[0.02]"
+                }`}
+              >
+                <div className="font-bold text-rose-400">Permanent Delete Client &amp; Workspace</div>
+                <p className="text-[11px] text-slate-400 mt-0.5">
+                  Permanently deletes this client user and its isolated workspace leads, searches, and messages (never affects Master Owner or other clients).
+                </p>
+              </label>
+            </div>
+
+            {deleteMode === "permanent" && (
+              <div className="space-y-1.5 text-xs">
+                <label className="block text-[11px] text-rose-300 font-semibold">
+                  Type <code className="bg-black/50 px-1.5 py-0.5 rounded font-mono text-white">{deleteTarget.username}</code> to confirm permanent deletion:
+                </label>
+                <input
+                  type="text"
+                  value={confirmDeleteUsername}
+                  onChange={(e) => setConfirmDeleteUsername(e.target.value)}
+                  placeholder={deleteTarget.username}
+                  className="w-full rounded-xl border border-rose-500/40 bg-[#121824] px-3 py-2 text-xs font-mono text-white focus:outline-none"
+                />
+              </div>
+            )}
+
+            <div className="flex justify-end gap-2 pt-2 border-t border-white/[0.08]">
+              <button
+                type="button"
+                onClick={() => setDeleteTarget(null)}
+                className="px-4 py-2 rounded-xl text-xs text-slate-300 bg-white/5 hover:bg-white/10 cursor-pointer"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={executeDeleteClient}
+                disabled={
+                  actionLoadingId === deleteTarget.id ||
+                  (deleteMode === "permanent" &&
+                    confirmDeleteUsername.trim().toLowerCase() !== deleteTarget.username.trim().toLowerCase())
+                }
+                className={`px-4 py-2 rounded-xl text-xs font-bold text-white cursor-pointer disabled:opacity-40 ${
+                  deleteMode === "permanent" ? "bg-rose-600 hover:bg-rose-500" : "bg-amber-600 hover:bg-amber-500"
+                }`}
+              >
+                {actionLoadingId === deleteTarget.id
+                  ? "Processing..."
+                  : deleteMode === "permanent"
+                  ? "Permanently Delete"
+                  : "Confirm Revoke Access"}
+              </button>
+            </div>
+          </div>
         </div>
       )}
     </div>

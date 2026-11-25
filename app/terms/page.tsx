@@ -40,14 +40,17 @@ export default function TermsPage() {
                 <span className="text-blue-400">1.</span> Platform Access & Subscriptions
               </h2>
               <p>
-                USMAN AI GTM is a proprietary B2B sales intelligence and outreach automation platform. Access is granted on a per-workspace basis under two primary subscription models:
+                USMAN AI GTM (Lead Scraper) is a proprietary B2B sales intelligence and outreach platform. Access is granted per isolated workspace under Admin-provisioned subscription tiers:
               </p>
               <ul className="list-disc list-inside space-y-1.5 text-slate-400 pl-2">
                 <li>
-                  <strong className="text-white">Starter Basic Plan ($25 / 30 Days):</strong> Grants full access to verified lead searching, exporting, Gemini AI personalization, and Gmail sending for 30 consecutive calendar days. Accounts automatically lock upon expiration until renewed.
+                  <strong className="text-white">Starter Basic Plan ($25 / 30 Days):</strong> Grants access to Find Leads, Saved Leads, Search History, XLSX/PDF exports, AI Assistant, and up to 10 cold emails per UTC day for 30 consecutive days (Google Maps excluded). Accounts lock automatically upon expiry until renewed.
                 </li>
                 <li>
-                  <strong className="text-white">Lifetime Access Plan ($100 One-time):</strong> Grants permanent, perpetual access to the platform features without recurring monthly subscription fees.
+                  <strong className="text-white">Lifetime Access Plan ($100 One-time):</strong> Grants permanent access to all platform modules including Google Maps Lead Generator and AI Lead Research (subject to fair Gmail daily safety caps of up to 500 emails/UTC day).
+                </li>
+                <li>
+                  <strong className="text-white">Custom Subscription Plans:</strong> Configurable duration, module entitlements, and daily email allowances agreed with the platform Owner.
                 </li>
               </ul>
               <p className="text-xs text-slate-400">

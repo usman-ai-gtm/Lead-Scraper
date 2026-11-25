@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { getNeonSql, isNeonConfigured, computeAuthoritativeUserStatus } from "@/lib/neon-db";
+import { getNeonSql, isNeonConfigured, computeAuthoritativeUserStatus, logAccountAudit } from "@/lib/neon-db";
 import { resolveUserEntitlements } from "@/lib/entitlements";
 import {
   verifyPassword,
@@ -81,6 +81,23 @@ export async function POST(request: Request) {
             }
 
             // Password verified and account active!
+            await sql`
+              UPDATE users
+              SET last_login = NOW(),
+                  last_activity_at = NOW(),
+                  must_change_password = COALESCE(must_change_password, FALSE)
+              WHERE id = ${user.id}
+            `.catch(() => {});
+            await logAccountAudit({
+              adminId: user.id,
+              adminEmail: user.username || user.email,
+              clientId: user.id,
+              clientEmail: user.email || user.username,
+              workspaceId: user.workspace_id || 1,
+              action: "USER_LOGIN",
+              details: { username: user.username, plan: user.plan_type || user.plan },
+            });
+
             const token = createJwtToken({
               sub: String(user.id),
               email: user.email,

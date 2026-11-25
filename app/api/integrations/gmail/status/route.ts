@@ -35,9 +35,10 @@ export async function GET(request: Request) {
     if (sql) {
       try {
         allAccounts = await sql.query(
-          `SELECT id, sender_email, sender_name, account_name, health_status, daily_limit, sent_today, created_at
+          `SELECT id, sender_email, sender_name, account_name, health_status, last_error,
+                  last_refreshed_at, last_sent_at, daily_limit, sent_today, is_active, created_at, updated_at
            FROM email_accounts
-           WHERE workspace_id = $1 AND is_active = 1
+           WHERE workspace_id = $1 AND COALESCE(health_status, 'NOT_CONNECTED') != 'DISCONNECTED' AND is_active = 1
            ORDER BY id ASC`,
           [workspaceId]
         );
@@ -53,11 +54,13 @@ export async function GET(request: Request) {
   }
 
   let statusCode: "CONNECTED" | "NOT_CONNECTED" | "CONFIGURATION_ERROR" | "RECONNECT_REQUIRED" = "NOT_CONNECTED";
+  const hasConnected = allAccounts.some((a: any) => a.health_status === "CONNECTED");
+  const hasReconnect = allAccounts.some((a: any) => a.health_status === "RECONNECT_REQUIRED" || a.health_status === "REVOKED");
   if (!isGoogleConfigured) {
     statusCode = "CONFIGURATION_ERROR";
-  } else if (account && account.is_active === 1 && account.health_status === "CONNECTED") {
+  } else if (hasConnected || (account && account.is_active === 1 && account.health_status === "CONNECTED")) {
     statusCode = "CONNECTED";
-  } else if (account && account.health_status === "RECONNECT_REQUIRED") {
+  } else if (hasReconnect || (account && (account.health_status === "RECONNECT_REQUIRED" || account.health_status === "REVOKED"))) {
     statusCode = "RECONNECT_REQUIRED";
   } else {
     statusCode = "NOT_CONNECTED";
@@ -67,7 +70,7 @@ export async function GET(request: Request) {
     configured: isGoogleConfigured,
     connected: statusCode === "CONNECTED",
     status_code: statusCode,
-    connected_count: allAccounts.length,
+    connected_count: allAccounts.filter((a: any) => a.health_status === "CONNECTED").length,
     accounts: allAccounts,
     account: account
       ? {
@@ -76,6 +79,7 @@ export async function GET(request: Request) {
           sender_name: account.sender_name,
           account_name: account.account_name,
           health_status: account.health_status,
+          last_error: account.last_error || null,
           daily_limit: planDailyLimit,
           sent_today: emailsSentTodayTotal,
           last_sent_at: account.last_sent_at,

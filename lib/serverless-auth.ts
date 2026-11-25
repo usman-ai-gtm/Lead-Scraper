@@ -111,6 +111,45 @@ export function createJwtToken(payload: {
   return `${header}.${body}.${signature}`;
 }
 
+/**
+ * Signs an OAuth CSRF state payload with HMAC-SHA256 so callback handlers can
+ * reject tampered workspace_id or user_id state parameters.
+ */
+export function signOAuthState(payload: Record<string, any>): string {
+  const body = Buffer.from(
+    JSON.stringify({
+      ...payload,
+      nonce: crypto.randomBytes(12).toString("hex"),
+      ts: Date.now(),
+    })
+  ).toString("base64url");
+  const sig = crypto.createHmac("sha256", JWT_SECRET).update(body).digest("base64url");
+  return `${body}.${sig}`;
+}
+
+export function verifyOAuthState(
+  token: string | null | undefined,
+  maxAgeMs = 30 * 60 * 1000
+): Record<string, any> | null {
+  if (!token || typeof token !== "string") return null;
+  try {
+    const dot = token.indexOf(".");
+    if (dot <= 0) return null;
+    const body = token.slice(0, dot);
+    const sig = token.slice(dot + 1);
+    const expectedSig = crypto.createHmac("sha256", JWT_SECRET).update(body).digest("base64url");
+    const a = Buffer.from(sig, "utf-8");
+    const b = Buffer.from(expectedSig, "utf-8");
+    if (a.length !== b.length || !crypto.timingSafeEqual(a, b)) return null;
+    const parsed = JSON.parse(Buffer.from(body, "base64url").toString("utf-8"));
+    if (!parsed || typeof parsed !== "object") return null;
+    if (parsed.ts && Date.now() - Number(parsed.ts) > maxAgeMs) return null;
+    return parsed;
+  } catch {
+    return null;
+  }
+}
+
 export function verifyJwtToken(token: string): any {
   try {
     const parts = token.split(".");
@@ -1002,6 +1041,14 @@ export async function verifyClientActiveSubscription(
             };
           }
         }
+
+        // Best-effort throttled activity heartbeat (non-blocking)
+        sql
+          .query(
+            "UPDATE users SET last_activity_at = NOW() WHERE id = $1 AND (last_activity_at IS NULL OR last_activity_at < NOW() - INTERVAL '60 seconds')",
+            [u.id]
+          )
+          .catch(() => {});
 
         return {
           allowed: true,

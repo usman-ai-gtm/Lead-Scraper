@@ -10,6 +10,7 @@ import {
   cancelActiveSearchJob,
   completeActiveSearchJob,
   getNeonActiveSearchJob,
+  logAccountAudit,
 } from "@/lib/neon-db";
 import {
   MapsJobPayload,
@@ -383,6 +384,21 @@ export async function POST(req: Request) {
           updatedPayload,
           finalMsg
         );
+        await logAccountAudit({
+          adminId: userId,
+          adminEmail: subCheck.userRecord?.email || subCheck.userRecord?.username || "client",
+          clientId: userId,
+          clientEmail: subCheck.userRecord?.email || subCheck.userRecord?.username || "",
+          workspaceId,
+          action: "GOOGLE_MAPS_SEARCH",
+          details: {
+            job_id: jobId,
+            keyword: jobRow.keyword,
+            countries: payload.countries,
+            requested: payload.requested_quantity,
+            qualified_count: newEligibleCount,
+          },
+        }).catch(() => {});
       } else {
         await updateActiveSearchJobProgress(jobId, workspaceId, {
           progressCount: newEligibleCount,

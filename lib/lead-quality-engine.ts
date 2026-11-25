@@ -235,3 +235,119 @@ export function calculateLeadQualityScore(lead: {
     reasons,
   };
 }
+
+export type ContactReadinessCategory =
+  | "Complete Contact"
+  | "Email Available"
+  | "Phone Available"
+  | "Website Available"
+  | "Incomplete Contact";
+
+export interface ContactReadinessResult {
+  category: ContactReadinessCategory;
+  score: number;
+  emailSyntaxValid: boolean;
+  emailVerificationNote: string;
+  phoneValid: boolean;
+  hasCountryCode: boolean;
+  normalizedPhone: string;
+  hasWebsite: boolean;
+  hasBusinessName: boolean;
+  hasSourceUrl: boolean;
+  factors: Array<{ label: string; met: boolean; points: number; detail: string }>;
+}
+
+/**
+ * Assesses Contact Readiness using strictly factual fields already on the lead record.
+ * Never claims mailbox deliverability is verified solely from email syntax.
+ */
+export function evaluateContactReadiness(lead: {
+  email?: string | null;
+  email_status?: string | null;
+  phone?: string | null;
+  website?: string | null;
+  domain?: string | null;
+  business_name?: string | null;
+  source_url?: string | null;
+  original_source_url?: string | null;
+  country?: string | null;
+  [key: string]: any;
+}): ContactReadinessResult {
+  const normEmail = normalizeEmail(lead.email);
+  const emailSyntaxValid = validateEmailSyntax(normEmail);
+  const emailVerificationNote = emailSyntaxValid
+    ? "Syntax valid (SMTP/mailbox delivery unverified)"
+    : "No valid business email syntax";
+
+  const phoneCheck = validateAndNormalizePhone(lead.phone, lead.country || undefined);
+  const phoneValid = phoneCheck.valid;
+  const hasCountryCode = phoneValid && phoneCheck.normalized.startsWith("+");
+
+  const websiteStr = String(lead.website || lead.domain || "").trim();
+  const hasWebsite = Boolean(websiteStr && websiteStr.toLowerCase() !== "not found" && websiteStr.includes("."));
+  const hasBusinessName = Boolean(lead.business_name && String(lead.business_name).trim().length >= 2);
+  const sourceLink = String(lead.original_source_url || lead.source_url || "").trim();
+  const hasSourceUrl = Boolean(sourceLink && sourceLink.startsWith("http"));
+
+  const factors = [
+    {
+      label: "Email Syntax",
+      met: emailSyntaxValid,
+      points: emailSyntaxValid ? 35 : 0,
+      detail: emailSyntaxValid ? `${normEmail} (${emailVerificationNote})` : "Missing or invalid email format",
+    },
+    {
+      label: "Phone & Country Code",
+      met: phoneValid,
+      points: phoneValid ? (hasCountryCode ? 30 : 25) : 0,
+      detail: phoneValid ? `${phoneCheck.normalized}${hasCountryCode ? " (E.164 code detected)" : ""}` : "Missing valid phone",
+    },
+    {
+      label: "Official Website",
+      met: hasWebsite,
+      points: hasWebsite ? 15 : 0,
+      detail: hasWebsite ? websiteStr : "No website/domain recorded",
+    },
+    {
+      label: "Business Identity",
+      met: hasBusinessName,
+      points: hasBusinessName ? 10 : 0,
+      detail: hasBusinessName ? String(lead.business_name).trim() : "Missing business name",
+    },
+    {
+      label: "Source Evidence URL",
+      met: hasSourceUrl,
+      points: hasSourceUrl ? 10 : 0,
+      detail: hasSourceUrl ? "Public source URL captured" : "No public source URL stored",
+    },
+  ];
+
+  const score = Math.min(100, factors.reduce((sum, f) => sum + f.points, 0));
+
+  let category: ContactReadinessCategory = "Incomplete Contact";
+  if (emailSyntaxValid && phoneValid && hasWebsite && hasBusinessName) {
+    category = "Complete Contact";
+  } else if (emailSyntaxValid && phoneValid) {
+    category = "Complete Contact";
+  } else if (emailSyntaxValid) {
+    category = "Email Available";
+  } else if (phoneValid) {
+    category = "Phone Available";
+  } else if (hasWebsite) {
+    category = "Website Available";
+  }
+
+  return {
+    category,
+    score,
+    emailSyntaxValid,
+    emailVerificationNote,
+    phoneValid,
+    hasCountryCode,
+    normalizedPhone: phoneCheck.normalized,
+    hasWebsite,
+    hasBusinessName,
+    hasSourceUrl,
+    factors,
+  };
+}

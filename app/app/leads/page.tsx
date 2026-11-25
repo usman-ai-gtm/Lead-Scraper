@@ -785,7 +785,7 @@ function LeadsSearchComponent() {
                 </tr>
               ) : (
                 qualifiedLeads.map((lead) => {
-                  const phoneRes = normalizePhoneNumber(lead.phone || "");
+                  const phoneRes = normalizePhoneNumber(lead.phone || "", lead.country);
                   const waUrl = phoneRes.isValid ? buildWhatsAppClickToChatUrl(phoneRes.normalized) : null;
                   const isSaving = savingIds[lead.id];
 
@@ -809,6 +809,7 @@ function LeadsSearchComponent() {
                         )}
                         <div className="mt-1 flex items-center gap-1.5 flex-wrap">
                           <LeadQualityBadge
+                            lead={lead}
                             score={lead.quality_score}
                             category={lead.quality_category}
                             reasons={lead.quality_reasons}

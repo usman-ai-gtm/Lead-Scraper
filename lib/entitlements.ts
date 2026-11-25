@@ -67,13 +67,13 @@ export const FEATURE_CATALOG: FeatureDefinition[] = [
     key: "google_maps",
     label: "Google Maps Leads",
     description: "Local Places discovery with live job tracking & website contact extraction",
-    monthlyWeightUsd: 22,
+    monthlyWeightUsd: 28,
   },
   {
     key: "multi_country_maps",
     label: "Multi-Country Google Maps",
     description: "Batch local Google Maps discovery across multiple countries/cities",
-    monthlyWeightUsd: 6,
+    monthlyWeightUsd: 7,
     requiresFeature: "google_maps",
   },
   {
@@ -219,8 +219,10 @@ export function formatDurationLabel(
 export interface CustomPriceResult {
   suggestedPriceUsd: number;
   monthlyFeatureRateUsd: number;
+  mapsPremiumMonthlyUsd: number;
   durationMultiplier: number;
   emailQuotaSurchargeUsd: number;
+  floorAppliedUsd: number;
   enabledFeatureCount: number;
 }
 
@@ -236,16 +238,22 @@ export function calculateSuggestedCustomPrice(input: {
     return {
       suggestedPriceUsd: 0,
       monthlyFeatureRateUsd: 0,
+      mapsPremiumMonthlyUsd: 0,
       durationMultiplier: 0,
       emailQuotaSurchargeUsd: 0,
+      floorAppliedUsd: 0,
       enabledFeatureCount: 0,
     };
   }
 
   let monthlyRate = 0;
+  let mapsPremiumMonthlyUsd = 0;
   for (const def of FEATURE_CATALOG) {
     if (normalized[def.key]) {
       monthlyRate += def.monthlyWeightUsd;
+      if (def.key === "google_maps" || def.key === "multi_country_maps") {
+        mapsPremiumMonthlyUsd += def.monthlyWeightUsd;
+      }
     }
   }
 
@@ -256,8 +264,8 @@ export function calculateSuggestedCustomPrice(input: {
 
   let emailQuotaSurchargeUsd = 0;
   if (normalized.cold_email) {
-    if (safeLimit > 200) emailQuotaSurchargeUsd = 14;
-    else if (safeLimit > 50) emailQuotaSurchargeUsd = 8;
+    if (safeLimit > 200) emailQuotaSurchargeUsd = 15;
+    else if (safeLimit > 50) emailQuotaSurchargeUsd = 9;
     else if (safeLimit > 10) emailQuotaSurchargeUsd = 4;
   }
   monthlyRate += emailQuotaSurchargeUsd;
@@ -266,9 +274,27 @@ export function calculateSuggestedCustomPrice(input: {
   const unit = input.durationUnit || "days";
 
   let durationMultiplier = 1;
+  let floorUsd = 1;
+
   if (unit === "lifetime") {
-    // Full bundle monthlyRate = $72 -> $100 one-time equivalent
-    durationMultiplier = 1.3889;
+    // Anchored cleanly to Lifetime $100 (all features + Maps) and $25/mo Basic reference
+    if (normalized.google_maps) {
+      const fullBundleRatio = Math.min(1, monthlyRate / 80);
+      durationMultiplier = 1.25;
+      floorUsd = monthlyRate >= 65 ? 100 : Math.max(49, Math.round(45 + 55 * fullBundleRatio));
+      const suggestedPriceUsd = monthlyRate >= 65 ? 100 : Math.max(floorUsd, Math.round(monthlyRate * durationMultiplier));
+      return {
+        suggestedPriceUsd,
+        monthlyFeatureRateUsd: Number(monthlyRate.toFixed(2)),
+        mapsPremiumMonthlyUsd,
+        durationMultiplier: Number(durationMultiplier.toFixed(3)),
+        emailQuotaSurchargeUsd,
+        floorAppliedUsd: floorUsd,
+        enabledFeatureCount: enabledCount,
+      };
+    }
+    durationMultiplier = 1.8;
+    floorUsd = 35;
   } else {
     const hoursPerUnit: Record<Exclude<DurationUnit, "lifetime">, number> = {
       hours: 1,
@@ -280,26 +306,50 @@ export function calculateSuggestedCustomPrice(input: {
     const totalHours = val * (hoursPerUnit[unit] || 24);
     const totalDays = totalHours / 24;
 
-    if (totalHours <= 24) {
-      // Micro durations: 1h ~ 0.085, 12h ~ 0.125, 24h ~ 0.16
-      durationMultiplier = 0.08 + 0.08 * (totalHours / 24);
+    if (totalHours <= 2) {
+      durationMultiplier = 0.14 + 0.03 * (totalHours - 1);
+    } else if (totalHours <= 12) {
+      durationMultiplier = 0.17 + 0.09 * ((totalHours - 2) / 10);
+    } else if (totalHours <= 24) {
+      durationMultiplier = 0.26 + 0.06 * ((totalHours - 12) / 12);
+    } else if (totalDays <= 3) {
+      durationMultiplier = 0.32 + 0.10 * ((totalDays - 1) / 2);
+    } else if (totalDays <= 7) {
+      durationMultiplier = 0.42 + 0.12 * ((totalDays - 3) / 4);
     } else if (totalDays <= 30) {
-      // Short-to-monthly: 3d ~ 0.22, 7d ~ 0.33, 30d = 1.00
-      durationMultiplier = 0.16 + 0.84 * ((totalDays - 1) / 29);
+      // Anchored so 30d = 1.00 (Basic preset = $25 exact)
+      durationMultiplier = 0.54 + 0.46 * ((totalDays - 7) / 23);
     } else {
       // Extended periods (> 30 days) with multi-month volume scaling
       durationMultiplier = 1 + 0.65 * Math.log2(totalDays / 30);
     }
+
+    if (normalized.google_maps) {
+      // Prevent inappropriate flat $5 pricing on Google Maps passes while keeping short access fair
+      if (totalHours <= 2) floorUsd = 9;
+      else if (totalHours <= 12) floorUsd = 12;
+      else if (totalDays <= 1) floorUsd = 15;
+      else if (totalDays <= 3) floorUsd = 22;
+      else if (totalDays <= 7) floorUsd = 29;
+      else floorUsd = 35;
+    } else {
+      if (totalHours <= 6) floorUsd = 3;
+      else if (totalHours <= 24) floorUsd = 5;
+      else if (totalDays <= 7) floorUsd = 8;
+      else floorUsd = 10;
+    }
   }
 
   const rawPrice = monthlyRate * durationMultiplier;
-  const suggestedPriceUsd = Math.max(1, Math.round(rawPrice));
+  const suggestedPriceUsd = Math.max(floorUsd, Math.round(rawPrice));
 
   return {
     suggestedPriceUsd,
     monthlyFeatureRateUsd: Number(monthlyRate.toFixed(2)),
+    mapsPremiumMonthlyUsd,
     durationMultiplier: Number(durationMultiplier.toFixed(3)),
     emailQuotaSurchargeUsd,
+    floorAppliedUsd: floorUsd,
     enabledFeatureCount: enabledCount,
   };
 }

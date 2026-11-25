@@ -23,7 +23,7 @@ function generateSecurePassword(): string {
   const chars = "ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnpqrstuvwxyz23456789";
   let pwd = "Paid@";
   for (let i = 0; i < 8; i++) {
-    pwd += chars.charAt(Math.floor(Math.random() * chars.length));
+    pwd += chars.charAt(crypto.randomInt(0, chars.length));
   }
   return pwd + "!";
 }

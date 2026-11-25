@@ -126,76 +126,13 @@ function WhatsAppCompanionContent() {
         const res = await api.get<any>("/whatsapp/leads", {
           keyword: leadsKeyword,
           status_filter: leadsFilter,
-          page_size: 50,
+          page_size: 100,
         });
-        if (res && res.leads && Array.isArray(res.leads) && res.leads.length > 0) {
+        if (res && res.leads && Array.isArray(res.leads)) {
           leads = res.leads;
         }
       } catch {
-        // Backend offline or serverless proxy fallback
-      }
-
-      // If backend returned zero leads, bridge directly with discovered leads & CRM
-      if (leads.length === 0 && typeof window !== "undefined") {
-        const storedLeads = localStorage.getItem("usman_saved_leads");
-        const storedCrm = localStorage.getItem("usman_crm_deals");
-        const map = new Map<string, any>();
-
-        if (storedLeads) {
-          try {
-            const parsed = JSON.parse(storedLeads);
-            if (Array.isArray(parsed)) {
-              parsed.forEach((l) => {
-                const phone = l.phone || l.contact_phone || "+923001234567";
-                const key = l.business_name || String(l.id);
-                map.set(key, {
-                  id: l.id || Date.now(),
-                  business_name: l.business_name || l.company_name || "Target Account",
-                  contact_name: l.contact_name || "Practice Owner",
-                  phone: phone,
-                  city: l.city || "Local",
-                  country: l.country || "Pakistan",
-                  industry: l.industry || l.category || "Commercial",
-                  website: l.website || l.source_url || "",
-                  lead_score: l.lead_score || 85,
-                  crm_stage: l.crm_stage || "New Lead",
-                  phone_validation: normalizePhoneNumber(phone, "92"),
-                  is_suppressed: false
-                });
-              });
-            }
-          } catch {}
-        }
-
-        if (storedCrm) {
-          try {
-            const parsedCrm = JSON.parse(storedCrm);
-            if (Array.isArray(parsedCrm)) {
-              parsedCrm.forEach((d) => {
-                const phone = d.contact_phone || d.phone || "+923219876543";
-                const key = d.company_name || String(d.id);
-                if (!map.has(key)) {
-                  map.set(key, {
-                    id: d.id,
-                    business_name: d.company_name,
-                    contact_name: d.contact_name || "Managing Director",
-                    phone: phone,
-                    city: "Local",
-                    country: "Pakistan",
-                    industry: "Commercial",
-                    website: d.website || "",
-                    lead_score: d.win_probability || 80,
-                    crm_stage: d.stage || "Qualified",
-                    phone_validation: normalizePhoneNumber(phone, "92"),
-                    is_suppressed: false
-                  });
-                }
-              });
-            }
-          } catch {}
-        }
-
-        leads = Array.from(map.values());
+        // Authoritative DB endpoint unavailable
       }
 
       setLeadsList(leads);
@@ -969,12 +906,23 @@ function WhatsAppCompanionContent() {
                 </div>
               </div>
 
-              {/* Safe outreach guarantee */}
-              <div className="p-3 rounded-xl bg-blue-500/5 border border-blue-500/20 text-[11px] text-slate-300 flex items-start gap-2.5">
-                <ShieldCheck className="h-4 w-4 text-blue-400 shrink-0 mt-0.5" />
-                <span>
-                  <strong>Anti-Spam & Ethics Safe:</strong> Follow-ups are internal CRM alerts only. The system will never automatically dispatch messages or contact opted-out prospects.
-                </span>
+              {/* Safe outreach guarantee & Official Cloud API Notice */}
+              <div className="space-y-2.5">
+                <div className="p-3 rounded-xl bg-blue-500/5 border border-blue-500/20 text-[11px] text-slate-300 flex items-start gap-2.5">
+                  <ShieldCheck className="h-4 w-4 text-blue-400 shrink-0 mt-0.5" />
+                  <span>
+                    <strong>Anti-Spam &amp; Ethics Safe:</strong> Follow-ups are internal CRM alerts only. The system never runs automated WhatsApp Web scraping, QR hijacking, or bulk bots.
+                  </span>
+                </div>
+                <div className="p-3 rounded-xl bg-amber-500/5 border border-amber-500/20 text-[11px] text-slate-300 flex items-start gap-2.5">
+                  <AlertTriangle className="h-4 w-4 text-amber-400 shrink-0 mt-0.5" />
+                  <div className="space-y-1">
+                    <div className="font-bold text-amber-200">Official WhatsApp Business Cloud API vs Click-to-Chat</div>
+                    <p className="text-slate-400 leading-relaxed">
+                      Personal WhatsApp accounts cannot be auto-connected through official Meta APIs without ban risk. Full API automation requires a verified Meta Business Account, Business Verification, a dedicated business phone number, pre-approved message templates, and Meta per-conversation charges. Meanwhile, <code className="text-emerald-300">wa.me</code> Click-to-Chat works free using your own signed-in WhatsApp session with manual number checking.
+                    </p>
+                  </div>
+                </div>
               </div>
             </div>
           </div>

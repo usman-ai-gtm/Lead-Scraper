@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { getNeonSql, isNeonConfigured } from "@/lib/neon-db";
+import { getNeonSql, isNeonConfigured, logAccountAudit } from "@/lib/neon-db";
 import { createJwtToken } from "@/lib/serverless-auth";
 
 export const dynamic = "force-dynamic";
@@ -156,6 +156,19 @@ export async function GET(request: Request) {
     }
 
     // 4. Generate signed session JWT token
+    await sql`
+      UPDATE users SET last_login = NOW(), last_activity_at = NOW() WHERE id = ${activeUser.id}
+    `.catch(() => {});
+    await logAccountAudit({
+      adminId: activeUser.id,
+      adminEmail: email,
+      clientId: activeUser.id,
+      clientEmail: email,
+      workspaceId: activeUser.workspace_id,
+      action: "USER_LOGIN_GOOGLE",
+      details: { email },
+    });
+
     const sessionToken = createJwtToken({
       sub: String(activeUser.id),
       email: activeUser.email,

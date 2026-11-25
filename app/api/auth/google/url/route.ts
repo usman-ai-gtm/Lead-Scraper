@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { signOAuthState } from "@/lib/serverless-auth";
 
 export const dynamic = "force-dynamic";
 
@@ -17,13 +18,10 @@ export async function GET(request: Request) {
 
   const isConfigured = Boolean(clientId && clientId.length > 0);
 
-  // Signed state token identifying this as an authentication login flow (not mailbox connection)
-  const statePayload = Buffer.from(
-    JSON.stringify({
-      action: "google_login",
-      ts: Date.now(),
-    })
-  ).toString("base64url");
+  // HMAC-signed state token identifying this as an authentication login flow (not mailbox connection)
+  const statePayload = signOAuthState({
+    action: "google_login",
+  });
 
   const scope = encodeURIComponent("openid email profile");
   const authUrl = isConfigured

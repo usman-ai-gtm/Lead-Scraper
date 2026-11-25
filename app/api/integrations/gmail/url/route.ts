@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { getCurrentUserFromRequest, verifyClientActiveSubscription } from "@/lib/serverless-auth";
+import { getCurrentUserFromRequest, verifyClientActiveSubscription, signOAuthState } from "@/lib/serverless-auth";
 
 function getExactRedirectUri(request: Request): string {
   if (process.env.GOOGLE_GMAIL_REDIRECT_URI) {
@@ -30,16 +30,14 @@ export async function GET(request: Request) {
 
   const redirectUri = getExactRedirectUri(request);
 
-  // Security state parameter containing workspace_id, user_id, and timestamp
-  const statePayload = Buffer.from(
-    JSON.stringify({
-      workspace_id: workspaceId,
-      user_id: userId,
-      ts: Date.now(),
-    })
-  ).toString("base64url");
+  // HMAC-SHA256 signed state parameter preventing workspace_id / CSRF tampering
+  const statePayload = signOAuthState({
+    action: "gmail_connect",
+    workspace_id: workspaceId,
+    user_id: userId,
+  });
 
-  // Official Scopes: Gmail sending & User email identity
+  // Least-privileged scopes strictly required for user-initiated Gmail sending + sender email identity
   const scopes = [
     "https://www.googleapis.com/auth/gmail.send",
     "https://www.googleapis.com/auth/userinfo.email",

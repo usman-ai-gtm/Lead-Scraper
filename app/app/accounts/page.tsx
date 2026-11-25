@@ -108,13 +108,20 @@ function EmailAccountsContent() {
     const oauthStatus = searchParams.get("status");
     const oauthEmail = searchParams.get("email");
     const oauthMsg = searchParams.get("message");
+    const oauthErrCode = searchParams.get("error_code");
 
     if (oauthStatus === "connected") {
       setToastType("success");
       setToastMsg(`Gmail account (${oauthEmail || "connected"}) authorized successfully!`);
     } else if (oauthStatus === "error") {
       setToastType("error");
-      setToastMsg(oauthMsg || "Google authorization was cancelled or failed.");
+      if (oauthErrCode === "access_denied" || String(oauthMsg || "").toLowerCase().includes("access_denied")) {
+        setToastMsg(
+          "Google blocked Gmail connection (Error 403: access_denied). Either consent was declined OR the OAuth app in Google Cloud Console (semiotic-tracer-466311-j4) is still in Testing / pending verification for gmail.send so non-tester accounts cannot connect yet."
+        );
+      } else {
+        setToastMsg(oauthMsg || "Google authorization was cancelled or failed.");
+      }
     }
   }, [searchParams]);
 
@@ -199,12 +206,15 @@ function EmailAccountsContent() {
       const data = await res.json();
       if (res.ok) {
         setToastType("success");
-        setToastMsg(`Test email sent successfully! Gmail Message ID: ${data.message_id || "OK"}`);
+        setToastMsg(`Test email sent successfully! Gmail Message ID: ${data.gmail_message_id || data.message_id || "OK"}`);
         setTestModalOpen(false);
         await fetchStatus();
       } else {
         setToastType("error");
         setToastMsg(data.error || data.detail || "Failed to send test email.");
+        if (data.reconnect_required) {
+          await fetchStatus();
+        }
       }
     } catch (err: any) {
       setToastType("error");
@@ -392,21 +402,36 @@ function EmailAccountsContent() {
         </div>
 
         {/* Multi-Account Mailbox Grid */}
-        {isConnected && statusData?.accounts && statusData.accounts.length > 0 ? (
+        {(isConnected || isReconnect) && statusData?.accounts && statusData.accounts.length > 0 ? (
           <div className="space-y-3">
             <div className="text-xs font-bold text-slate-300">
-              Active Sending Mailboxes ({statusData.accounts.length} connected)
+              Workspace Sending Mailboxes ({statusData.accounts.length})
             </div>
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
-              {statusData.accounts.map((acc: any) => (
-                <div key={acc.id} className="p-4 rounded-xl bg-white/[0.02] border border-white/[0.08] space-y-2">
+              {statusData.accounts.map((acc: any) => {
+                const needsReauth = acc.health_status === "RECONNECT_REQUIRED" || acc.health_status === "REVOKED";
+                return (
+                <div
+                  key={acc.id}
+                  className={`p-4 rounded-xl border space-y-2 ${
+                    needsReauth
+                      ? "bg-amber-500/[0.06] border-amber-500/30"
+                      : "bg-white/[0.02] border-white/[0.08]"
+                  }`}
+                >
                   <div className="flex items-center justify-between">
-                    <span className="text-[10px] font-bold uppercase tracking-wider text-emerald-400 bg-emerald-500/10 px-2 py-0.5 rounded border border-emerald-500/20">
-                      CONNECTED
+                    <span
+                      className={`text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded border ${
+                        needsReauth
+                          ? "text-amber-300 bg-amber-500/15 border-amber-500/30"
+                          : "text-emerald-400 bg-emerald-500/10 border-emerald-500/20"
+                      }`}
+                    >
+                      {acc.health_status || "CONNECTED"}
                     </span>
                     <button
                       onClick={() => handleDisconnect(acc.id)}
-                      className="text-[10px] text-rose-400 hover:text-rose-300 hover:underline"
+                      className="text-[10px] text-rose-400 hover:text-rose-300 hover:underline cursor-pointer"
                     >
                       Disconnect
                     </button>
@@ -417,12 +442,25 @@ function EmailAccountsContent() {
                   <div className="text-[11px] text-slate-400">
                     Sender: {acc.sender_name || "Sales Outreach"}
                   </div>
+                  {needsReauth && (
+                    <div className="p-2 rounded-lg bg-amber-500/10 border border-amber-500/20 text-[10px] text-amber-200 space-y-1.5">
+                      <div>{acc.last_error || "Google permissions were revoked or expired."}</div>
+                      <button
+                        type="button"
+                        onClick={handleConnectGmail}
+                        className="px-2 py-1 rounded bg-amber-500 text-black font-bold text-[10px] cursor-pointer"
+                      >
+                        Reconnect Gmail Now
+                      </button>
+                    </div>
+                  )}
                   <div className="text-[10px] text-slate-400 border-t border-white/[0.04] pt-2 flex justify-between">
                     <span>Sent Today (UTC): {acc.sent_today_utc ?? acc.sent_today ?? 0} / {statusData?.daily_quota ?? acc.daily_limit ?? 10}</span>
                     <span className="text-emerald-400 font-mono">AES-256</span>
                   </div>
                 </div>
-              ))}
+                );
+              })}
             </div>
           </div>
         ) : isConnected && statusData?.account ? (

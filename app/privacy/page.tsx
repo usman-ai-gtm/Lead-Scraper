@@ -38,16 +38,28 @@ export default function PrivacyPage() {
             <section className="p-6 rounded-2xl bg-[#0c1017] border border-white/[0.08] space-y-3">
               <h2 className="text-lg font-bold text-white flex items-center gap-2">
                 <Lock className="h-5 w-5 text-emerald-400" />
-                <span>1. Google OAuth & User Data Privacy</span>
+                <span>1. Google OAuth, Gmail API Data Usage &amp; Limited Use Compliance</span>
               </h2>
               <p>
-                USMAN AI GTM uses Google OAuth 2.0 to authenticate users and allow users to connect their own Gmail accounts for 1-to-1 cold business outreach.
+                USMAN AI GTM (Lead Scraper) uses Google OAuth 2.0 both for account sign-in (<code className="text-xs bg-white/10 px-1 py-0.5 rounded">openid</code>, <code className="text-xs bg-white/10 px-1 py-0.5 rounded">email</code>, <code className="text-xs bg-white/10 px-1 py-0.5 rounded">profile</code>) and to let authorized customers connect their own Gmail accounts for explicit 1-to-1 cold business outreach.
               </p>
+              <div className="p-3.5 rounded-xl bg-emerald-500/10 border border-emerald-500/25 text-xs text-emerald-200 leading-relaxed">
+                <strong>Google API Services User Data Policy — Limited Use Disclosure:</strong> USMAN AI GTM&apos;s use and transfer to any other app of information received from Google APIs will adhere to the{" "}
+                <a
+                  href="https://developers.google.com/terms/api-services-user-data-policy"
+                  target="_blank"
+                  rel="noreferrer"
+                  className="underline font-semibold text-white"
+                >
+                  Google API Services User Data Policy
+                </a>
+                , including the Limited Use requirements.
+              </div>
               <ul className="list-disc list-inside space-y-1.5 text-slate-400 pl-2">
-                <li><strong className="text-white">No Selling of Google Data:</strong> We never sell, rent, or monetize your Google account data or email contacts to third parties or advertising brokers.</li>
-                <li><strong className="text-white">Restricted Scope:</strong> We only request permissions necessary to send authorized outreach emails on your behalf (<code className="text-xs bg-white/10 px-1 py-0.5 rounded">https://www.googleapis.com/auth/gmail.send</code>).</li>
-                <li><strong className="text-white">Token Encryption:</strong> OAuth tokens are encrypted at rest using AES-256-GCM authenticated encryption before being saved in our database.</li>
-                <li><strong className="text-white">Strict Isolation:</strong> Your connected Gmail accounts are isolated strictly to your assigned workspace. No other client, user, or organization can send from or access your credentials.</li>
+                <li><strong className="text-white">Least-Privileged Sending Scope Only:</strong> When you connect a sending mailbox, we request only <code className="text-xs bg-white/10 px-1 py-0.5 rounded">https://www.googleapis.com/auth/gmail.send</code> and <code className="text-xs bg-white/10 px-1 py-0.5 rounded">https://www.googleapis.com/auth/userinfo.email</code>. We never request permissions to read, modify, index, or delete emails in your Gmail inbox.</li>
+                <li><strong className="text-white">Strictly User-Initiated Sending:</strong> The <code className="text-xs bg-white/10 px-1 py-0.5 rounded">gmail.send</code> permission is used solely to transmit emails you explicitly compose, review, and click to send from your workspace.</li>
+                <li><strong className="text-white">No AI Training or Ad Broker Sharing:</strong> We never use Google Workspace / Gmail API data or tokens to train generalized AI/ML models, and we never sell, rent, or transfer Google user data to third-party advertisers or data brokers.</li>
+                <li><strong className="text-white">Token Encryption &amp; Workspace Isolation:</strong> OAuth access and refresh tokens are encrypted at rest with AES-256-GCM authenticated encryption in PostgreSQL and isolated strictly to your authenticated workspace. Tokens are never exposed in frontend code or customer-facing APIs.</li>
               </ul>
             </section>
 
@@ -55,10 +67,10 @@ export default function PrivacyPage() {
             <section className="p-6 rounded-2xl bg-[#0c1017] border border-white/[0.08] space-y-3">
               <h2 className="text-lg font-bold text-white flex items-center gap-2">
                 <EyeOff className="h-5 w-5 text-blue-400" />
-                <span>2. B2B Public Directory Data</span>
+                <span>2. B2B Public Business Directory Data</span>
               </h2>
               <p>
-                Lead information surfaced by our search engine represents publicly available commercial business data (such as company names, official business domains, corporate phone numbers, and public email addresses). We do not collect or store private non-business consumer communications.
+                Lead records surfaced by Find Leads and Google Maps discovery contain publicly listed commercial business information (company names, official domains, business phone numbers, and public corporate contact addresses).
               </p>
             </section>
 
@@ -66,10 +78,23 @@ export default function PrivacyPage() {
             <section className="p-6 rounded-2xl bg-[#0c1017] border border-white/[0.08] space-y-3">
               <h2 className="text-lg font-bold text-white flex items-center gap-2">
                 <KeyRound className="h-5 w-5 text-purple-400" />
-                <span>3. Data Retention & Disconnection</span>
+                <span>3. Token Retention, Revocation &amp; Disconnection</span>
               </h2>
               <p>
-                You may disconnect your Google Gmail account at any time directly through the Settings dashboard. Upon disconnection, your OAuth tokens are permanently scrubbed from our active database. You may also request deletion of your entire workspace by messaging our data privacy team on WhatsApp (+923174383702).
+                You may disconnect any connected Gmail account at any time from <strong className="text-white">Gmail Connections</strong> inside your dashboard (which also revokes the token with Google OAuth and removes stored encrypted credentials from our database), or directly from your{" "}
+                <a
+                  href="https://myaccount.google.com/permissions"
+                  target="_blank"
+                  rel="noreferrer"
+                  className="text-blue-400 hover:underline"
+                >
+                  Google Account Third-Party Permissions
+                </a>
+                . For workspace data deletion requests, contact{" "}
+                <a href="mailto:telegramtiktokn1@gmail.com" className="text-blue-400 hover:underline">
+                  telegramtiktokn1@gmail.com
+                </a>{" "}
+                or WhatsApp (+923174383702).
               </p>
             </section>
           </div>

@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
+import crypto from "crypto";
 import { getCurrentUserFromRequest, hashPassword, isAuthorizedOwner } from "@/lib/serverless-auth";
-import { resetNeonClientPassword, isNeonConfigured } from "@/lib/neon-db";
+import { getNeonSql, isNeonConfigured, logAccountAudit } from "@/lib/neon-db";
 
 export const dynamic = "force-dynamic";
 
@@ -11,8 +12,8 @@ interface RouteParams {
 function generateSecureTempPassword(): string {
   const chars = "ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnpqrstuvwxyz23456789";
   let pwd = "Reset@";
-  for (let i = 0; i < 8; i++) {
-    pwd += chars.charAt(Math.floor(Math.random() * chars.length));
+  for (let i = 0; i < 10; i++) {
+    pwd += chars.charAt(crypto.randomInt(0, chars.length));
   }
   return pwd + "!";
 }
@@ -36,8 +37,33 @@ export async function POST(req: Request, { params }: RouteParams) {
     const passwordHash = hashPassword(tempPassword);
 
     if (isNeonConfigured()) {
-      const ok = await resetNeonClientPassword(clientId, passwordHash);
-      if (ok) {
+      const sql = getNeonSql();
+      if (!sql) {
+        return NextResponse.json({ detail: "Database connection failed" }, { status: 503 });
+      }
+      const res = await sql.query(
+        `UPDATE users
+         SET password_hash = $1,
+             must_change_password = TRUE,
+             updated_at = $2
+         WHERE id = $3
+           AND role NOT IN ('ADMIN', 'SUPER_ADMIN')
+           AND (account_type IS NULL OR account_type != 'MASTER_OWNER')
+           AND (username IS NULL OR LOWER(username) != 'master_owner_usman')
+         RETURNING id, username, email, workspace_id`,
+        [passwordHash, new Date().toISOString(), clientId]
+      );
+      if (res && res.length > 0) {
+        const target = res[0];
+        await logAccountAudit({
+          adminId: user.id,
+          adminEmail: user.email || user.username || "master_owner",
+          clientId: target.id,
+          clientEmail: target.email || target.username,
+          workspaceId: target.workspace_id || 1,
+          action: "ADMIN_RESET_PASSWORD",
+          details: { reset_by_owner: true, must_change_password: true },
+        });
         return NextResponse.json({
           status: "success",
           client_id: clientId,

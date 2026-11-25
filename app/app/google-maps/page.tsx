@@ -13,6 +13,7 @@ import { AiLeadResearchModal } from "@/components/leads/AiLeadResearchModal";
 import { MultiCountrySelector } from "@/components/leads/MultiCountrySelector";
 import { MultiCitySelector, SelectedCityTarget } from "@/components/leads/MultiCitySelector";
 import { WhatsAppModal } from "@/components/leads/WhatsAppModal";
+import { LeadQualityBadge } from "@/components/leads/LeadQualityBadge";
 
 function GoogleMapsLeadComponent() {
   const { user, isLocked } = useAuth();
@@ -659,6 +660,9 @@ function GoogleMapsLeadComponent() {
                           <span>{lead.domain || lead.website}</span>
                         </a>
                       )}
+                      <div className="mt-1">
+                        <LeadQualityBadge lead={lead} />
+                      </div>
                     </td>
 
                     <td className="py-3 px-3 text-[11px] text-slate-300">
