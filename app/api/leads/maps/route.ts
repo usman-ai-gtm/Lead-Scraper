@@ -7,125 +7,41 @@ import {
   acquireActiveSearchJob,
   completeActiveSearchJob,
 } from "@/lib/neon-db";
-import { cleanDomain, crawlWebsiteForContacts, querySerperForDomainContact } from "@/lib/search-intelligence";
 import {
-  evaluateContactRequirement,
-  calculateLeadQualityScore,
-  ContactRequirement,
-  validateAndNormalizePhone,
-} from "@/lib/lead-quality-engine";
-import { normalizeCountryName, isSupportedCountry } from "@/lib/countries";
+  resolveSerperKey,
+  parseContactRequirement,
+  parseMapsCountriesAndCities,
+  buildInitialMapsQueue,
+  processMapsBatchStep,
+  buildShortfallMessage,
+  MapsCountryStat,
+  MapsLeadItem,
+} from "@/lib/maps-extractor";
 
 export const dynamic = "force-dynamic";
-
-interface MapLead {
-  id?: number;
-  business_name: string;
-  website: string;
-  domain: string;
-  email: string;
-  email_source_url: string;
-  email_status: string;
-  phone: string;
-  phone_source_url: string;
-  phone_status: string;
-  country: string;
-  city: string;
-  address: string;
-  industry: string;
-  category: string;
-  rating?: number;
-  rating_count?: number;
-  place_id?: string;
-  source: string;
-  source_platform: string;
-  source_url: string;
-  quality_score?: number;
-  quality_category?: string;
-  quality_reasons?: string[];
-  contact_requirement?: string;
-}
+export const maxDuration = 60;
 
 export async function POST(req: Request) {
+  let currentJobId: string | undefined;
   try {
     const user = getCurrentUserFromRequest(req);
-    const subCheck = await verifyClientActiveSubscription(user);
+    const subCheck = await verifyClientActiveSubscription(user, "google_maps");
 
     if (!subCheck.allowed) {
-      return NextResponse.json(
-        { status: "error", message: subCheck.message || "Active subscription required." },
-        { status: subCheck.statusCode || 403 }
-      );
-    }
-
-    const emailLower = String(user.email || "").trim().toLowerCase();
-    const roleUpper = String(user.role || "").toUpperCase();
-    const accountTypeUpper = String(user.account_type || "").toUpperCase();
-    const isOwner =
-      roleUpper === "SUPER_ADMIN" ||
-      roleUpper === "ADMIN" ||
-      accountTypeUpper === "MASTER_OWNER" ||
-      [
-        "transaction000501@gmail.com",
-        "admin@usmanai.com",
-        "mu0602503@gmail.com",
-        "admin@usmangtm.com",
-        "selftest_founder_2026@usmanai.com",
-      ].includes(emailLower);
-
-    const userRecord = subCheck.userRecord || user;
-    const planUpper = String(userRecord.plan || "BASIC").toUpperCase();
-
-    // STRICT PLAN RESTRICTION: Google Maps Lead Generator is exclusive to Lifetime Plan ($100) and Master Owner
-    if (!isOwner && planUpper !== "LIFETIME") {
       return NextResponse.json(
         {
           status: "error",
           code: "UPGRADE_REQUIRED",
-          message:
-            "Google Maps Business Lead Generator is an exclusive feature of the $100 Lifetime Plan. Please upgrade to unlock unlimited Google Maps local business intelligence.",
+          message: subCheck.message || "Google Maps Lead Generator access is restricted for this plan.",
           upgrade_url:
             "https://wa.me/923174383702?text=Hi%20Usman%2C%20I%20want%20to%20upgrade%20to%20the%20%24100%20Lifetime%20Plan%20for%20Google%20Maps%20Lead%20Generator",
         },
-        { status: 403 }
+        { status: subCheck.statusCode || 403 }
       );
     }
 
     const body = await req.json().catch(() => ({}));
     const keyword = String(body.keyword || "").trim();
-
-    // Support both single country string or multi-country array
-    let selectedCountries: string[] = [];
-    if (Array.isArray(body.countries) && body.countries.length > 0) {
-      selectedCountries = body.countries
-        .map((c: string) => normalizeCountryName(c))
-        .filter((c: string) => isSupportedCountry(c));
-    } else if (body.country) {
-      const norm = normalizeCountryName(body.country);
-      if (isSupportedCountry(norm)) {
-        selectedCountries = [norm];
-      }
-    }
-    if (selectedCountries.length === 0) {
-      selectedCountries = ["United States"];
-    }
-
-    const city = String(body.city || "").trim();
-    const requestedQuantity = Math.min(Math.max(Number(body.requested_quantity) || 50, 10), 2000);
-
-    // Support contact_requirement or legacy contact_filter
-    let contactRequirement: ContactRequirement = "EMAIL_OR_PHONE";
-    const rawReq = String(body.contact_requirement || body.contact_filter || "").toUpperCase();
-    if (rawReq === "EMAIL_AND_PHONE" || rawReq === "BOTH") {
-      contactRequirement = "EMAIL_AND_PHONE";
-    } else if (rawReq === "EMAIL_ONLY") {
-      contactRequirement = "EMAIL_ONLY";
-    } else if (rawReq === "PHONE_ONLY") {
-      contactRequirement = "PHONE_ONLY";
-    } else {
-      contactRequirement = "EMAIL_OR_PHONE";
-    }
-
     if (!keyword) {
       return NextResponse.json(
         { status: "error", message: "Keyword is required for Google Maps lead generation." },
@@ -133,16 +49,51 @@ export async function POST(req: Request) {
       );
     }
 
-    const workspaceId = Number(user.workspace_id) || 1;
+    const geo = parseMapsCountriesAndCities(body);
+    if (geo.error) {
+      return NextResponse.json({ status: "error", message: geo.error }, { status: 400 });
+    }
 
-    // 1. One active search job per customer account lock
+    if (geo.countries.length > 1 && subCheck.entitlements && !subCheck.entitlements.features.multi_country_maps) {
+      return NextResponse.json(
+        {
+          status: "error",
+          code: "ENTITLEMENT_RESTRICTED",
+          message: `Multi-country Google Maps search is not enabled on your ${subCheck.entitlements.planLabel}.`,
+        },
+        { status: 403 }
+      );
+    }
+
+    const requestedQuantity = Math.min(Math.max(Number(body.requested_quantity) || 50, 1), 2000);
+    const contactRequirement = parseContactRequirement(body.contact_requirement || body.contact_filter);
+    const workspaceId = Number(subCheck.userRecord?.workspace_id || user.workspace_id) || 1;
+    const userId = Number(subCheck.userRecord?.id || user.id) || 1;
+
+    const serperKey = resolveSerperKey();
+    if (!serperKey) {
+      return NextResponse.json(
+        {
+          status: "error",
+          code: "PROVIDER_NOT_CONFIGURED",
+          message: "Search provider key (SERPER_API_KEY) is not configured on the server.",
+        },
+        { status: 503 }
+      );
+    }
+
+    const countrySummary = geo.countries.length > 5 ? `${geo.countries.length} Countries` : geo.countries.join(", ");
+    const citySummary = geo.specificCitiesEnabled
+      ? geo.cities.map((c) => c.city).slice(0, 5).join(", ")
+      : "";
+
     const jobLock = await acquireActiveSearchJob(
       workspaceId,
-      user.id || 1,
+      userId,
       "MAPS_SEARCH",
       keyword,
-      selectedCountries.join(", "),
-      city,
+      countrySummary,
+      citySummary,
       requestedQuantity
     );
 
@@ -151,210 +102,63 @@ export async function POST(req: Request) {
         {
           status: "error",
           code: "SEARCH_ALREADY_RUNNING",
-          message: jobLock.message || "A lead generation search is already in progress for your workspace. Please wait for it to complete.",
+          message: jobLock.message || "A lead generation search is already in progress for your workspace.",
           active_job_id: jobLock.jobId,
         },
         { status: 409 }
       );
     }
-    const currentJobId = jobLock.jobId;
+    currentJobId = jobLock.jobId;
 
-    // Verify Search Provider API Key (Serper with fallback)
-    const serperKey = (process.env.SERPER_API_KEY || "2baa9b7d5907ecc3fe3fceebb8c4b9b7e30e3297").trim();
-    if (!serperKey) {
-      if (currentJobId) await completeActiveSearchJob(currentJobId, "FAILED", 0, undefined, "Search provider not configured");
-      return NextResponse.json(
-        {
-          status: "error",
-          code: "PROVIDER_NOT_CONFIGURED",
-          message:
-            "Google Maps Search API is not configured. Please configure SERPER_API_KEY in Vercel environment variables or Admin Providers.",
-        },
-        { status: 503 }
-      );
-    }
-
-    // Preload permanent account-level leads for deduplication
-    const existingSignatures = isNeonConfigured()
+    const wsSignatures = isNeonConfigured()
       ? await getNeonWorkspaceLeadSignatures(workspaceId)
       : { domains: new Set<string>(), emails: new Set<string>(), phones: new Set<string>(), placeIds: new Set<string>() };
 
-    const qualifiedLeads: MapLead[] = [];
-    const seenDomains = new Set<string>(existingSignatures.domains);
-    const seenPlaceIds = new Set<string>(existingSignatures.placeIds);
-    const seenEmails = new Set<string>(existingSignatures.emails);
-    const seenPhones = new Set<string>(existingSignatures.phones);
+    const seenPlaceIds = new Set<string>(wsSignatures.placeIds);
+    const seenDomains = new Set<string>(wsSignatures.domains);
+    const seenEmails = new Set<string>(wsSignatures.emails);
+    const seenPhones = new Set<string>(wsSignatures.phones);
 
+    let queue = buildInitialMapsQueue(geo.countries, geo.specificCitiesEnabled, geo.cities);
+    let cursor = 0;
+    const countryStats: Record<string, MapsCountryStat> = {};
+    const qualifiedLeads: MapsLeadItem[] = [];
     let totalRawDiscovered = 0;
-    let excludedExistingDuplicates = 0;
+    let duplicatesSkipped = 0;
     let missingContactSkipped = 0;
+    let errorsCount = 0;
+    const providerErrors: string[] = [];
 
-    const countryStats: Record<string, { discovered: number; eligible: number; duplicates: number; missing_contact: number }> = {};
+    const overallStart = Date.now();
+    // Bounded synchronous budget (max 42s inside 60s function timeout)
+    while (cursor < queue.length && qualifiedLeads.length < requestedQuantity && Date.now() - overallStart < 42000) {
+      const step = await processMapsBatchStep({
+        serperKey,
+        keyword,
+        contactRequirement,
+        requestedQuantity,
+        queue,
+        cursor,
+        countryStats,
+        seenPlaceIds,
+        seenDomains,
+        seenEmails,
+        seenPhones,
+        existingEligibleCount: qualifiedLeads.length,
+        maxTasksPerStep: 3,
+        timeBudgetMs: 8000,
+      });
 
-    // Search across each selected country
-    for (const targetCountry of selectedCountries) {
-      if (qualifiedLeads.length >= requestedQuantity) break;
-
-      countryStats[targetCountry] = { discovered: 0, eligible: 0, duplicates: 0, missing_contact: 0 };
-
-      let locationStr = targetCountry;
-      if (city && city !== "ALL_CITIES") {
-        locationStr = `${city}, ${targetCountry}`;
-      }
-      const searchQuery = `${keyword} in ${locationStr}`;
-
-      const rawPlaces: any[] = [];
-      try {
-        const placesRes = await fetch("https://google.serper.dev/places", {
-          method: "POST",
-          headers: {
-            "X-API-KEY": serperKey,
-            "Content-Type": "application/json",
-          },
-          body: JSON.stringify({
-            q: searchQuery,
-            location: locationStr,
-            hl: "en",
-          }),
-        });
-
-        if (placesRes.ok) {
-          const placesData = await placesRes.json();
-          if (Array.isArray(placesData.places)) {
-            rawPlaces.push(...placesData.places);
-          }
-        }
-      } catch (err: any) {
-        console.warn(`[Google Maps API] Places query error for ${targetCountry}:`, err);
-      }
-
-      totalRawDiscovered += rawPlaces.length;
-      countryStats[targetCountry].discovered += rawPlaces.length;
-
-      for (const place of rawPlaces) {
-        if (qualifiedLeads.length >= requestedQuantity) break;
-
-        const placeId = place.placeId || place.cid || `place_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
-        if (seenPlaceIds.has(placeId)) {
-          excludedExistingDuplicates++;
-          countryStats[targetCountry].duplicates++;
-          continue;
-        }
-
-        const title = String(place.title || place.name || "").trim();
-        if (!title) continue;
-
-        const rawWebsite = String(place.website || "").trim();
-        const domain = rawWebsite ? cleanDomain(rawWebsite) : "";
-
-        if (domain && seenDomains.has(domain)) {
-          excludedExistingDuplicates++;
-          countryStats[targetCountry].duplicates++;
-          continue;
-        }
-
-        const rawPhone = String(place.phoneNumber || place.phone || "").trim();
-        const phoneNorm = validateAndNormalizePhone(rawPhone, targetCountry);
-        const phone = phoneNorm.valid ? phoneNorm.normalized : rawPhone;
-
-        if (phoneNorm.valid && seenPhones.has(phoneNorm.normalized)) {
-          excludedExistingDuplicates++;
-          countryStats[targetCountry].duplicates++;
-          continue;
-        }
-
-        let email = "";
-        let emailSourceUrl = "";
-        let emailStatus = "NOT FOUND";
-
-        // Discover email from website
-        if (domain && domain.length > 3) {
-          try {
-            const contact = await crawlWebsiteForContacts(domain, "", phone);
-            if (contact.email) {
-              email = contact.email;
-              emailSourceUrl = contact.emailSourceUrl || `https://${domain}`;
-              emailStatus = contact.emailStatus;
-            } else if (serperKey) {
-              const fallback = await querySerperForDomainContact(domain, serperKey);
-              if (fallback.email) {
-                email = fallback.email;
-                emailSourceUrl = fallback.emailSourceUrl || `https://${domain}`;
-                emailStatus = "VERIFIED IN SEARCH INDEX";
-              }
-            }
-          } catch {}
-        }
-
-        // Contact Requirement Evaluation
-        const contactValidation = evaluateContactRequirement(
-          { email, phone },
-          contactRequirement,
-          targetCountry
-        );
-
-        if (!contactValidation.eligible) {
-          missingContactSkipped++;
-          countryStats[targetCountry].missing_contact++;
-          continue;
-        }
-
-        // Check email deduplication if email exists
-        if (contactValidation.normalizedEmail && seenEmails.has(contactValidation.normalizedEmail)) {
-          excludedExistingDuplicates++;
-          countryStats[targetCountry].duplicates++;
-          continue;
-        }
-
-        // Quality Scoring
-        const qualityResult = calculateLeadQualityScore({
-          business_name: title,
-          website: rawWebsite || (domain ? `https://${domain}` : ""),
-          email: contactValidation.normalizedEmail || email,
-          phone: contactValidation.normalizedPhone || phone,
-          country: targetCountry,
-          address: String(place.address || "").trim(),
-        });
-
-        // Add to signatures
-        seenPlaceIds.add(placeId);
-        if (domain) seenDomains.add(domain);
-        if (contactValidation.normalizedEmail) seenEmails.add(contactValidation.normalizedEmail);
-        if (contactValidation.normalizedPhone) seenPhones.add(contactValidation.normalizedPhone);
-
-        const newLead: MapLead = {
-          business_name: title,
-          website: rawWebsite || (domain ? `https://${domain}` : ""),
-          domain,
-          email: contactValidation.normalizedEmail || email || "",
-          email_source_url: emailSourceUrl || (domain ? `https://${domain}` : ""),
-          email_status: email ? emailStatus : "NOT FOUND",
-          phone: contactValidation.normalizedPhone || phone || "",
-          phone_source_url: `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(title + " " + (place.address || locationStr))}`,
-          phone_status: phoneNorm.valid ? "LISTED ON GOOGLE MAPS" : "NOT LISTED",
-          country: targetCountry,
-          city: city !== "ALL_CITIES" ? city : "",
-          address: String(place.address || "").trim(),
-          industry: keyword,
-          category: String(place.category || keyword).trim(),
-          rating: place.rating ? Number(place.rating) : undefined,
-          rating_count: place.ratingCount ? Number(place.ratingCount) : undefined,
-          place_id: placeId,
-          source: "Google Maps Platform",
-          source_platform: "Google Places API",
-          source_url: `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(title + " " + (place.address || locationStr))}`,
-          quality_score: qualityResult.score,
-          quality_category: qualityResult.category,
-          quality_reasons: qualityResult.reasons,
-          contact_requirement: contactRequirement,
-        };
-
-        qualifiedLeads.push(newLead);
-        countryStats[targetCountry].eligible++;
-      }
+      queue = step.queue;
+      cursor = step.nextCursor;
+      qualifiedLeads.push(...step.newLeads);
+      totalRawDiscovered += step.candidatesDelta;
+      duplicatesSkipped += step.duplicatesDelta;
+      missingContactSkipped += step.missingContactDelta;
+      errorsCount += step.errorsDelta;
+      providerErrors.push(...step.providerErrors);
     }
 
-    // Persist to Authoritative Neon PostgreSQL Database
     const searchRecordId = `SR-MAPS-${Date.now()}`;
     if (isNeonConfigured() && qualifiedLeads.length > 0) {
       try {
@@ -362,9 +166,9 @@ export async function POST(req: Request) {
           workspaceId,
           {
             keyword,
-            country: selectedCountries.join(", "),
-            city: city !== "ALL_CITIES" ? city : "",
-            sources: ["Google Maps Platform", "Google Places API"],
+            country: countrySummary,
+            city: citySummary,
+            sources: ["Google Maps (Serper Places)"],
             requested_quantity: requestedQuantity,
             search_record_id: searchRecordId,
           },
@@ -375,8 +179,25 @@ export async function POST(req: Request) {
       }
     }
 
+    const shortfall = buildShortfallMessage({
+      keyword,
+      requestedQuantity,
+      eligibleCount: qualifiedLeads.length,
+      candidatesProcessed: totalRawDiscovered,
+      duplicatesSkipped,
+      missingContactSkipped,
+      errorsCount,
+      contactRequirement,
+    });
+
     if (currentJobId) {
-      await completeActiveSearchJob(currentJobId, "COMPLETED", qualifiedLeads.length, searchRecordId);
+      await completeActiveSearchJob(
+        currentJobId,
+        "COMPLETED",
+        qualifiedLeads.length,
+        searchRecordId,
+        providerErrors[0]
+      );
     }
 
     return NextResponse.json({
@@ -384,16 +205,27 @@ export async function POST(req: Request) {
       leads: qualifiedLeads,
       total_scraped: totalRawDiscovered,
       total_qualified: qualifiedLeads.length,
+      requested_quantity: requestedQuantity,
       contact_requirement: contactRequirement,
-      countries: selectedCountries,
+      countries: geo.countries,
+      specific_cities_enabled: geo.specificCitiesEnabled,
+      cities: geo.cities,
       country_stats: countryStats,
-      duplicates_skipped: excludedExistingDuplicates,
+      duplicates_skipped: duplicatesSkipped,
       missing_contact_skipped: missingContactSkipped,
-      source: "Google Maps Platform & Official Websites",
-      message: `Discovered and saved ${qualifiedLeads.length} unique qualified Google Maps leads for "${keyword}" across ${selectedCountries.length} countries. (${excludedExistingDuplicates} duplicates skipped, ${missingContactSkipped} skipped due to contact criteria).`,
+      errors_count: errorsCount,
+      provider_errors: Array.from(new Set(providerErrors)).slice(0, 10),
+      shortfall_reason: shortfall,
+      source: "Google Maps (Serper Places Engine) & Public Business Websites",
+      message:
+        shortfall ||
+        `Discovered and saved ${qualifiedLeads.length} unique qualified leads for "${keyword}".`,
     });
   } catch (err: any) {
     console.error("[Google Maps Lead Generator] Top-level error:", err);
+    if (currentJobId) {
+      await completeActiveSearchJob(currentJobId, "FAILED", 0, undefined, err?.message).catch(() => {});
+    }
     return NextResponse.json(
       { status: "error", message: err?.message || "Failed to generate Google Maps leads." },
       { status: 500 }

@@ -1,19 +1,33 @@
 import { NextResponse } from "next/server";
-import { getCurrentUserFromRequest } from "@/lib/serverless-auth";
+import { getCurrentUserFromRequest, verifyClientActiveSubscription } from "@/lib/serverless-auth";
 import {
   getNeonOutreachRecords,
   getNeonDueFollowups,
   updateNeonLeadOutreachStatus,
   getNeonSql,
+  isNeonConfigured,
 } from "@/lib/neon-db";
 
+export const dynamic = "force-dynamic";
+
 export async function GET(request: Request) {
+  const currentUser = getCurrentUserFromRequest(request);
+  if (!currentUser) {
+    return NextResponse.json({ error: "Authentication required" }, { status: 401 });
+  }
+
+  let workspaceId = Number(currentUser.workspace_id) || 1;
+  if (isNeonConfigured() && currentUser.id) {
+    const sql = getNeonSql();
+    if (sql) {
+      const u = await sql.query(`SELECT workspace_id FROM users WHERE id = $1 LIMIT 1`, [Number(currentUser.id)]).catch(() => []);
+      if (u[0]?.workspace_id) workspaceId = Number(u[0].workspace_id);
+    }
+  }
+
   const url = new URL(request.url);
   const statusFilter = url.searchParams.get("status") || "ALL";
   const dueOnly = url.searchParams.get("due_only") === "true";
-
-  const currentUser = getCurrentUserFromRequest(request);
-  const workspaceId = currentUser ? currentUser.workspace_id : 1;
 
   if (dueOnly) {
     const dueRecords = await getNeonDueFollowups(workspaceId);
@@ -26,7 +40,11 @@ export async function GET(request: Request) {
 
 export async function PATCH(request: Request) {
   const currentUser = getCurrentUserFromRequest(request);
-  const workspaceId = currentUser ? currentUser.workspace_id : 1;
+  const authCheck = await verifyClientActiveSubscription(currentUser, "cold_email");
+  if (!authCheck.allowed) {
+    return NextResponse.json({ error: authCheck.message }, { status: authCheck.statusCode || 403 });
+  }
+  const workspaceId = Number(authCheck.userRecord?.workspace_id || currentUser.workspace_id) || 1;
 
   let body: any = {};
   try {
@@ -41,6 +59,7 @@ export async function PATCH(request: Request) {
     "NEW",
     "DRAFT READY",
     "EMAIL SENT",
+    "FAILED",
     "REPLIED",
     "INTERESTED",
     "NOT INTERESTED",
@@ -57,7 +76,6 @@ export async function PATCH(request: Request) {
   const sql = getNeonSql();
   const nowIso = new Date().toISOString();
 
-  // Update outreach record if id provided
   if (outreach_id && sql) {
     try {
       await sql.query(
@@ -74,7 +92,6 @@ export async function PATCH(request: Request) {
     }
   }
 
-  // Update lead CRM stage if lead_id provided
   if (lead_id && status) {
     await updateNeonLeadOutreachStatus(workspaceId, Number(lead_id), status, followup_date || undefined);
   }

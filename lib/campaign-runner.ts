@@ -156,11 +156,8 @@ export async function runCampaignInBackground(
                   continue;
                 }
 
-                // If website exists, discover email from web snippet or mock discovery
-                let email = place.email || null;
-                if (!email && dom) {
-                  email = `contact@${dom}`;
-                }
+                // Only use genuinely discovered email (never synthesize fake contact@ addresses)
+                const email: string | null = place.email ? String(place.email).trim() : null;
 
                 const contactEval = evaluateContactRequirement({ email, phone }, contactReq, country);
 
@@ -251,7 +248,7 @@ export async function runCampaignInBackground(
                 const emailMatch = snippet.match(/[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/);
                 const phoneMatch = snippet.match(/(?:\+?\d{1,3}[-.\s]?)?\(?\d{3}\)?[-.\s]?\d{3}[-.\s]?\d{4}/);
 
-                const email = emailMatch ? emailMatch[0] : (dom ? `info@${dom}` : null);
+                const email = emailMatch ? emailMatch[0] : null;
                 const phone = phoneMatch ? phoneMatch[0] : null;
 
                 const contactEval = evaluateContactRequirement({ email, phone }, contactReq, country);

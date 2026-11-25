@@ -10,13 +10,13 @@ import {
 export default function AdminGoogleIntegrationPage() {
   const [copied, setCopied] = useState<string | null>(null);
   const [redirectUri, setRedirectUri] = useState<string>("");
-  const [clientId, setClientId] = useState<string>("892347182934-abc123xyz789.apps.googleusercontent.com");
+  const [clientId, setClientId] = useState<string>("Configured in server environment (GOOGLE_CLIENT_ID)");
   const [hasSecret, setHasSecret] = useState<boolean>(true);
   const [gmailApiEnabled, setGmailApiEnabled] = useState<boolean>(true);
 
   useEffect(() => {
     if (typeof window !== "undefined") {
-      setRedirectUri(`${window.location.origin}/api/auth/google/callback`);
+      setRedirectUri(`${window.location.origin}/api/integrations/gmail/callback`);
     }
   }, []);
 
@@ -167,7 +167,7 @@ export default function AdminGoogleIntegrationPage() {
           </a>
 
           <Link
-            href="/app/outreach/accounts"
+            href="/app/accounts"
             className="px-4 py-2 rounded-xl bg-blue-600 hover:bg-blue-500 text-white text-xs font-bold transition-all shadow-glow-sm"
           >
             Manage Sending Accounts

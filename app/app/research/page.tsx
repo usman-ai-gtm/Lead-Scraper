@@ -582,7 +582,7 @@ function ResearchContent() {
               <div className="pt-4 mt-4 border-t border-white/[0.06] flex items-center justify-between gap-3">
                 <span className="text-[11px] text-slate-500">1-Click Launch into Campaign</span>
                 <Link
-                  href={`/app/outreach/campaigns/new?company=${encodeURIComponent(result.company_name)}`}
+                  href={`/app/outreach?company=${encodeURIComponent(result.company_name)}`}
                   className="px-4 py-2 rounded-xl bg-purple-600 hover:bg-purple-500 text-white font-bold text-xs flex items-center gap-1.5 transition shadow-glow-sm"
                 >
                   <span>Launch in Outreach</span>

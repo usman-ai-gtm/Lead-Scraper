@@ -4,10 +4,23 @@ import React, { useState, useEffect } from "react";
 import { api } from "@/lib/api";
 import { ClientAccount } from "@/lib/types";
 import {
+  FEATURE_CATALOG,
+  BASIC_FEATURES,
+  ALL_FEATURES_ENABLED,
+  NO_FEATURES_ENABLED,
+  calculateSuggestedCustomPrice,
+  calculateCustomPlanExpiresAt,
+  formatDurationLabel,
+  normalizeFeatures,
+  DurationUnit,
+  FeatureKey,
+  FeatureMap,
+} from "@/lib/entitlements";
+import {
   Users, UserPlus, KeyRound, ShieldAlert, CheckCircle2,
   AlertTriangle, Copy, Check, RefreshCw, Lock, Unlock, Trash2, Power, Search,
   Sparkles, Key, ExternalLink, ShieldCheck, Clock, Eye, EyeOff, UserCheck, Globe,
-  Crown, AlertCircle
+  Crown, AlertCircle, Sliders, X, DollarSign
 } from "lucide-react";
 
 interface OneTimeCreds {
@@ -21,6 +34,11 @@ interface OneTimeCreds {
   password?: string;
   plan?: string;
   duration?: string;
+  expires_at?: string;
+  google_maps_enabled?: boolean;
+  daily_email_limit?: number;
+  custom_price_usd?: number | null;
+  suggested_price_usd?: number | null;
   login_url?: string;
   note?: string;
 }
@@ -54,7 +72,12 @@ function generateStrongPassword(): string {
 }
 
 function getLiveExpiryInfo(client: any, now: number) {
-  const isLifetime = (client.raw_plan || client.plan || "").toUpperCase().includes("LIFETIME");
+  const rawPlan = String(client.raw_plan || client.plan_type || client.plan || "").toUpperCase();
+  const isLifetime =
+    rawPlan === "LIFETIME" ||
+    rawPlan === "OWNER_LIFETIME" ||
+    (rawPlan === "CUSTOM" && String(client.custom_duration_unit || "").toLowerCase() === "lifetime") ||
+    (!client.plan_type && String(client.plan || "").toUpperCase().includes("LIFETIME") && !String(client.plan || "").toUpperCase().includes("CUSTOM"));
   const creationDateFormatted = client.created_at ? new Date(client.created_at).toLocaleString(undefined, {
     year: "numeric", month: "short", day: "numeric", hour: "2-digit", minute: "2-digit"
   }) : "N/A";
@@ -160,10 +183,61 @@ export function ClientProvisioningSection() {
     username: generateRandomUsername(),
     password: generateStrongPassword(),
     showPassword: true,
-    plan: "BASIC" as "BASIC" | "LIFETIME",
+    plan: "BASIC" as "BASIC" | "LIFETIME" | "CUSTOM",
     clientNotes: "",
+    durationValue: 7,
+    durationUnit: "days" as DurationUnit,
+    features: { ...BASIC_FEATURES } as FeatureMap,
+    dailyEmailLimit: 25,
+    customPriceOverride: "",
+    planLabel: "",
   });
+  const [reviewModalOpen, setReviewModalOpen] = useState(false);
   const [createLoading, setCreateLoading] = useState(false);
+
+  // Existing Client Custom Plan Edit Modal State
+  const [editingCustomClient, setEditingCustomClient] = useState<ClientAccount | null>(null);
+  const [editCustomForm, setEditCustomForm] = useState({
+    durationValue: 30,
+    durationUnit: "days" as DurationUnit,
+    features: { ...BASIC_FEATURES } as FeatureMap,
+    dailyEmailLimit: 25,
+    customPriceOverride: "",
+    actionMode: "ACTIVATE_CUSTOM" as "ACTIVATE_CUSTOM" | "EXTEND_CUSTOM",
+  });
+
+  const customPriceCalc = React.useMemo(
+    () =>
+      calculateSuggestedCustomPrice({
+        features: createForm.features,
+        durationValue: createForm.durationValue,
+        durationUnit: createForm.durationUnit,
+        dailyEmailLimit: createForm.dailyEmailLimit,
+      }),
+    [createForm.features, createForm.durationValue, createForm.durationUnit, createForm.dailyEmailLimit]
+  );
+
+  const editCustomPriceCalc = React.useMemo(
+    () =>
+      calculateSuggestedCustomPrice({
+        features: editCustomForm.features,
+        durationValue: editCustomForm.durationValue,
+        durationUnit: editCustomForm.durationUnit,
+        dailyEmailLimit: editCustomForm.dailyEmailLimit,
+      }),
+    [editCustomForm.features, editCustomForm.durationValue, editCustomForm.durationUnit, editCustomForm.dailyEmailLimit]
+  );
+
+  const finalCustomPriceUsd =
+    createForm.customPriceOverride.trim() !== "" && !Number.isNaN(Number(createForm.customPriceOverride))
+      ? Math.max(0, Number(createForm.customPriceOverride))
+      : customPriceCalc.suggestedPriceUsd;
+
+  const customExpiryPreviewDate = React.useMemo(
+    () =>
+      calculateCustomPlanExpiresAt(new Date(), createForm.durationValue, createForm.durationUnit),
+    [createForm.durationValue, createForm.durationUnit, reviewModalOpen]
+  );
 
   const fetchClients = async () => {
     setLoading(true);
@@ -205,8 +279,9 @@ export function ClientProvisioningSection() {
   const activePaid = clients.filter((c) => c.status === "ACTIVE").length;
   const lockedPaid = clients.filter((c) => c.status === "LOCKED" || c.status === "SUSPENDED").length;
   const expiredPaid = clients.filter((c) => c.status === "EXPIRED").length;
-  const lifetimePaid = clients.filter((c) => (c.raw_plan || c.plan || "").toUpperCase().includes("LIFETIME")).length;
-  const basicPaid = clients.filter((c) => (c.raw_plan || c.plan || "").toUpperCase().includes("BASIC")).length;
+  const lifetimePaid = clients.filter((c) => String(c.raw_plan || c.plan_type || "").toUpperCase() === "LIFETIME").length;
+  const basicPaid = clients.filter((c) => String(c.raw_plan || c.plan_type || "").toUpperCase() === "BASIC").length;
+  const customPaid = clients.filter((c) => String(c.raw_plan || c.plan_type || "").toUpperCase() === "CUSTOM").length;
   const totalPreview = previewClients.length;
 
   // Filter clients by search query (Username, customer name, internal ID, email, status, or plan)
@@ -234,7 +309,23 @@ export function ClientProvisioningSection() {
     );
   });
 
-  // Handle Form Submit for Creating Paid Client Account
+  const toggleFeatureKey = (key: FeatureKey, isEdit = false) => {
+    const updater = (prevFeatures: FeatureMap): FeatureMap => {
+      const next = { ...prevFeatures, [key]: !prevFeatures[key] };
+      if (!next.google_maps) next.multi_country_maps = false;
+      if (next.multi_country_maps) next.google_maps = true;
+      if (!next.find_leads) next.multi_country_search = false;
+      if (next.multi_country_search) next.find_leads = true;
+      return next;
+    };
+    if (isEdit) {
+      setEditCustomForm((prev) => ({ ...prev, features: updater(prev.features) }));
+    } else {
+      setCreateForm((prev) => ({ ...prev, features: updater(prev.features) }));
+    }
+  };
+
+  // Validate form & either create directly or open Review Modal for Custom plans
   const handleCreatePaidAccount = async (e: React.FormEvent) => {
     e.preventDefault();
     setError(null);
@@ -249,22 +340,54 @@ export function ClientProvisioningSection() {
       setError("Password must be at least 6 characters long.");
       return;
     }
+    if (createForm.plan === "CUSTOM") {
+      if (Object.values(createForm.features).filter(Boolean).length === 0) {
+        setError("Select at least 1 feature module for a Custom Subscription Plan.");
+        return;
+      }
+      setReviewModalOpen(true);
+      return;
+    }
 
+    await executeCreateAccount();
+  };
+
+  const executeCreateAccount = async () => {
+    setReviewModalOpen(false);
     setCreateLoading(true);
+    setError(null);
+    const cleanUsername = createForm.username.trim().toLowerCase().replace(/[^a-z0-9_-]/g, "");
+
     try {
+      const payload: any = {
+        customer_name: createForm.customerName.trim() || undefined,
+        username: cleanUsername,
+        password: createForm.password.trim(),
+        plan: createForm.plan,
+        client_notes: createForm.clientNotes.trim() || undefined,
+      };
+
+      if (createForm.plan === "CUSTOM") {
+        payload.duration_value = createForm.durationUnit === "lifetime" ? null : createForm.durationValue;
+        payload.duration_unit = createForm.durationUnit;
+        payload.features = createForm.features;
+        payload.google_maps_enabled = Boolean(createForm.features.google_maps);
+        payload.daily_email_limit = createForm.features.cold_email ? createForm.dailyEmailLimit : 0;
+        if (createForm.customPriceOverride.trim() !== "") {
+          payload.custom_price_usd = Number(createForm.customPriceOverride);
+        }
+        if (createForm.planLabel.trim()) {
+          payload.plan_label = createForm.planLabel.trim();
+        }
+      }
+
       const res = await api.post<{
         status: string;
         message: string;
         client: any;
         credentials: any;
         temporary_password?: string;
-      }>("/admin/clients", {
-        customer_name: createForm.customerName.trim() || undefined,
-        username: cleanUsername,
-        password: createForm.password.trim(),
-        plan: createForm.plan,
-        client_notes: createForm.clientNotes.trim() || undefined,
-      });
+      }>("/admin/clients", payload);
 
       const creds = res.credentials || {};
       const client = res.client || {};
@@ -274,8 +397,13 @@ export function ClientProvisioningSection() {
         full_name: creds.customer_name || client.full_name || createForm.customerName || cleanUsername,
         username: creds.username || cleanUsername,
         password: creds.password || createForm.password.trim(),
-        plan: creds.plan || (createForm.plan === "LIFETIME" ? "LIFETIME ($100 One-Time)" : "BASIC ($25 / 30 Days)"),
-        duration: creds.duration || (createForm.plan === "LIFETIME" ? "Permanent Access — No Expiry" : "30 Days from Creation"),
+        plan: creds.plan || client.plan_label || createForm.plan,
+        duration: creds.duration || client.remaining_days,
+        expires_at: creds.expires_at || client.subscription_expires_at || "Never (Permanent)",
+        google_maps_enabled: creds.google_maps_enabled ?? client.google_maps_enabled,
+        daily_email_limit: creds.daily_email_limit ?? client.daily_email_limit,
+        custom_price_usd: creds.custom_price_usd ?? client.custom_price_usd,
+        suggested_price_usd: creds.suggested_price_usd ?? client.suggested_price_usd,
         workspace_id: client.workspace_id,
         workspace_name: client.workspace_name || "Client Workspace",
         login_url: creds.login_url || "https://lead-scraper-mxs5.vercel.app/login",
@@ -283,7 +411,6 @@ export function ClientProvisioningSection() {
       });
 
       setSuccessMsg(`Paid ${createForm.plan} account created successfully for '${cleanUsername}'!`);
-      // Reset form with fresh random values for next account creation
       setCreateForm({
         customerName: "",
         username: generateRandomUsername(),
@@ -291,6 +418,12 @@ export function ClientProvisioningSection() {
         showPassword: true,
         plan: "BASIC",
         clientNotes: "",
+        durationValue: 7,
+        durationUnit: "days",
+        features: { ...BASIC_FEATURES },
+        dailyEmailLimit: 25,
+        customPriceOverride: "",
+        planLabel: "",
       });
 
       await fetchClients();
@@ -298,6 +431,56 @@ export function ClientProvisioningSection() {
       setError(err?.message || "Failed to create paid client account");
     } finally {
       setCreateLoading(false);
+    }
+  };
+
+  const openEditCustomModal = (c: ClientAccount) => {
+    const norm = normalizeFeatures(c.features || BASIC_FEATURES, c.google_maps_enabled);
+    setEditingCustomClient(c);
+    setEditCustomForm({
+      durationValue: c.custom_duration_value || 30,
+      durationUnit: (c.custom_duration_unit as DurationUnit) || "days",
+      features: norm,
+      dailyEmailLimit: c.daily_email_limit ?? 10,
+      customPriceOverride: c.custom_price_usd != null ? String(c.custom_price_usd) : "",
+      actionMode: "ACTIVATE_CUSTOM",
+    });
+  };
+
+  const handleApplyEditCustomPlan = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!editingCustomClient) return;
+    if (Object.values(editCustomForm.features).filter(Boolean).length === 0) {
+      setError("Select at least 1 feature.");
+      return;
+    }
+
+    setActionLoadingId(editingCustomClient.id);
+    setError(null);
+    try {
+      const res = await api.post<any>(`/admin/clients/${editingCustomClient.id}/subscription`, {
+        action: editCustomForm.actionMode,
+        duration_value: editCustomForm.durationUnit === "lifetime" ? null : editCustomForm.durationValue,
+        duration_unit: editCustomForm.durationUnit,
+        features: editCustomForm.features,
+        google_maps_enabled: Boolean(editCustomForm.features.google_maps),
+        daily_email_limit: editCustomForm.features.cold_email ? editCustomForm.dailyEmailLimit : 0,
+        custom_price_usd:
+          editCustomForm.customPriceOverride.trim() !== ""
+            ? Number(editCustomForm.customPriceOverride)
+            : editCustomPriceCalc.suggestedPriceUsd,
+      });
+      if (res?.status === "success") {
+        setSuccessMsg(`Custom subscription applied to ${editingCustomClient.username}!`);
+        setEditingCustomClient(null);
+        await fetchClients();
+      } else {
+        throw new Error(res?.detail || "Failed to update custom subscription.");
+      }
+    } catch (err: any) {
+      setError(err?.message || "Failed to save custom plan");
+    } finally {
+      setActionLoadingId(null);
     }
   };
 
@@ -548,12 +731,12 @@ export function ClientProvisioningSection() {
               </div>
             </div>
 
-            {/* Subscription Type Selector (Basic 30 Days $25 vs Lifetime Permanent $100) */}
+            {/* Subscription Type Selector (Basic $25 / Lifetime $100 / Custom Plan) */}
             <div>
               <label className="block text-xs font-semibold text-slate-300 mb-2">
-                Subscription Plan * <span className="text-slate-500 font-normal">(Select access duration and features)</span>
+                Subscription Plan * <span className="text-slate-500 font-normal">(Fixed presets or build a fully Custom Plan)</span>
               </label>
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
                 {/* Option 1: Basic */}
                 <div
                   onClick={() => setCreateForm({ ...createForm, plan: "BASIC" })}
@@ -571,14 +754,12 @@ export function ClientProvisioningSection() {
                     className="mt-0.5 text-blue-600 focus:ring-blue-500"
                   />
                   <div className="space-y-0.5">
-                    <div className="text-xs font-bold text-white flex items-center gap-2">
+                    <div className="text-xs font-bold text-white flex items-center gap-2 flex-wrap">
                       <span>BASIC — 30 DAYS — $25</span>
-                      <span className="text-[10px] font-mono text-blue-400 bg-blue-500/20 px-1.5 py-0.2 rounded">
-                        Standard
-                      </span>
+                      <span className="text-[10px] font-mono text-blue-400 bg-blue-500/20 px-1.5 rounded">Standard</span>
                     </div>
                     <p className="text-[11px] text-slate-400">
-                      Active for exactly 30 days from creation timestamp. Automatically locks upon expiry until renewed.
+                      30 days access, 10 cold emails/day, Google Maps excluded. Auto-locks upon expiry.
                     </p>
                   </div>
                 </div>
@@ -600,24 +781,287 @@ export function ClientProvisioningSection() {
                     className="mt-0.5 text-amber-500 focus:ring-amber-400"
                   />
                   <div className="space-y-0.5">
-                    <div className="text-xs font-bold text-white flex items-center gap-2">
-                      <span className="text-amber-300">LIFETIME — PERMANENT — $100</span>
-                      <span className="text-[10px] font-mono text-amber-400 bg-amber-500/20 px-1.5 py-0.2 rounded font-bold">
-                        Google Maps Unlocked
+                    <div className="text-xs font-bold text-white flex items-center gap-2 flex-wrap">
+                      <span className="text-amber-300">LIFETIME — $100</span>
+                      <span className="text-[10px] font-mono text-amber-400 bg-amber-500/20 px-1.5 rounded font-bold">
+                        Maps Included
                       </span>
                     </div>
                     <p className="text-[11px] text-slate-400">
-                      Permanent access with no expiration. Unlocks Google Maps Lead Generator and all premium features permanently.
+                      Permanent access, Google Maps + AI Research unlocked, Gmail cap 500/day.
+                    </p>
+                  </div>
+                </div>
+
+                {/* Option 3: Custom Plan */}
+                <div
+                  onClick={() => setCreateForm({ ...createForm, plan: "CUSTOM" })}
+                  className={`p-3.5 rounded-xl border cursor-pointer transition-all flex items-start gap-3 ${
+                    createForm.plan === "CUSTOM"
+                      ? "border-purple-500 bg-purple-500/10 shadow-glow-sm"
+                      : "border-white/10 bg-white/[0.02] hover:bg-white/[0.04]"
+                  }`}
+                >
+                  <input
+                    type="radio"
+                    name="plan"
+                    checked={createForm.plan === "CUSTOM"}
+                    onChange={() => setCreateForm({ ...createForm, plan: "CUSTOM" })}
+                    className="mt-0.5 text-purple-500 focus:ring-purple-400"
+                  />
+                  <div className="space-y-0.5">
+                    <div className="text-xs font-bold text-white flex items-center gap-2 flex-wrap">
+                      <span className="text-purple-300">CUSTOM PLAN</span>
+                      <span className="text-[10px] font-mono text-purple-300 bg-purple-500/20 px-1.5 rounded font-bold">
+                        Flexible
+                      </span>
+                    </div>
+                    <p className="text-[11px] text-slate-400">
+                      Choose exact hours/days/months/lifetime, individual modules, email cap, Maps access &amp; custom price.
                     </p>
                   </div>
                 </div>
               </div>
             </div>
 
+            {/* CUSTOM PLAN CONFIGURATION BUILDER */}
+            {createForm.plan === "CUSTOM" && (
+              <div className="rounded-2xl border border-purple-500/30 bg-[#090d16] p-5 space-y-5">
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-white/[0.06] pb-3">
+                  <div className="flex items-center gap-2">
+                    <Sliders className="h-4 w-4 text-purple-400" />
+                    <h3 className="text-xs font-bold text-white uppercase tracking-wider">
+                      Custom Plan Configuration
+                    </h3>
+                  </div>
+                  <div className="flex items-center gap-2 text-[11px]">
+                    <span className="text-slate-400">Google Maps Status:</span>
+                    <span
+                      className={`px-2 py-0.5 rounded font-bold border ${
+                        createForm.features.google_maps
+                          ? "bg-emerald-500/15 text-emerald-300 border-emerald-500/30"
+                          : "bg-slate-800 text-slate-400 border-white/10"
+                      }`}
+                    >
+                      {createForm.features.google_maps ? "INCLUDED" : "EXCLUDED"}
+                    </span>
+                  </div>
+                </div>
+
+                {/* 1. Custom Duration & Presets */}
+                <div className="grid grid-cols-1 lg:grid-cols-12 gap-4">
+                  <div className="lg:col-span-6 space-y-2">
+                    <label className="block text-[11px] font-semibold text-slate-300">
+                      Access Duration *
+                    </label>
+                    <div className="flex flex-wrap gap-1.5">
+                      {[
+                        { label: "1 Hour", v: 1, u: "hours" as DurationUnit },
+                        { label: "12 Hours", v: 12, u: "hours" as DurationUnit },
+                        { label: "3 Days", v: 3, u: "days" as DurationUnit },
+                        { label: "7 Days", v: 7, u: "days" as DurationUnit },
+                        { label: "30 Days", v: 30, u: "days" as DurationUnit },
+                        { label: "1 Year", v: 1, u: "years" as DurationUnit },
+                        { label: "Lifetime", v: 1, u: "lifetime" as DurationUnit },
+                      ].map((p) => {
+                        const active =
+                          createForm.durationUnit === p.u &&
+                          (p.u === "lifetime" || createForm.durationValue === p.v);
+                        return (
+                          <button
+                            key={p.label}
+                            type="button"
+                            onClick={() =>
+                              setCreateForm({
+                                ...createForm,
+                                durationValue: p.v,
+                                durationUnit: p.u,
+                              })
+                            }
+                            className={`px-2.5 py-1 rounded-lg text-[11px] font-bold transition-all cursor-pointer ${
+                              active
+                                ? "bg-purple-600 text-white"
+                                : "bg-white/[0.04] text-slate-300 hover:bg-white/[0.08]"
+                            }`}
+                          >
+                            {p.label}
+                          </button>
+                        );
+                      })}
+                    </div>
+
+                    <div className="grid grid-cols-2 gap-2 pt-1">
+                      <input
+                        type="number"
+                        min={1}
+                        disabled={createForm.durationUnit === "lifetime"}
+                        value={createForm.durationValue}
+                        onChange={(e) =>
+                          setCreateForm({
+                            ...createForm,
+                            durationValue: Math.max(1, parseInt(e.target.value, 10) || 1),
+                          })
+                        }
+                        className="rounded-xl border border-white/10 bg-[#121824] px-3 py-2 text-xs text-white font-mono disabled:opacity-40"
+                        placeholder="Duration number"
+                      />
+                      <select
+                        value={createForm.durationUnit}
+                        onChange={(e) =>
+                          setCreateForm({
+                            ...createForm,
+                            durationUnit: e.target.value as DurationUnit,
+                          })
+                        }
+                        className="rounded-xl border border-white/10 bg-[#121824] px-3 py-2 text-xs text-white"
+                      >
+                        <option value="hours">Hours</option>
+                        <option value="days">Days</option>
+                        <option value="weeks">Weeks</option>
+                        <option value="months">Months (30d)</option>
+                        <option value="years">Years (365d)</option>
+                        <option value="lifetime">Lifetime (No Expiry)</option>
+                      </select>
+                    </div>
+                    <div className="text-[10px] font-mono text-slate-400">
+                      Exact Expiry (UTC):{" "}
+                      <span className="text-purple-300">
+                        {customExpiryPreviewDate
+                          ? customExpiryPreviewDate.toUTCString()
+                          : "Never / Permanent"}
+                      </span>
+                    </div>
+                  </div>
+
+                  {/* 2. Daily Email Quota & Price Override */}
+                  <div className="lg:col-span-6 grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    <div className="space-y-1.5">
+                      <label className="block text-[11px] font-semibold text-slate-300">
+                        Daily Email Limit (UTC/day, max 500)
+                      </label>
+                      <input
+                        type="number"
+                        min={0}
+                        max={500}
+                        disabled={!createForm.features.cold_email}
+                        value={createForm.features.cold_email ? createForm.dailyEmailLimit : 0}
+                        onChange={(e) =>
+                          setCreateForm({
+                            ...createForm,
+                            dailyEmailLimit: Math.max(0, Math.min(500, parseInt(e.target.value, 10) || 0)),
+                          })
+                        }
+                        className="w-full rounded-xl border border-white/10 bg-[#121824] px-3 py-2 text-xs text-white font-mono disabled:opacity-40"
+                      />
+                      <p className="text-[10px] text-slate-500">
+                        {createForm.features.cold_email
+                          ? "Enforced authoritatively per UTC day."
+                          : "Enable Cold Email below to set quota."}
+                      </p>
+                    </div>
+
+                    <div className="space-y-1.5">
+                      <label className="block text-[11px] font-semibold text-slate-300 flex items-center justify-between">
+                        <span>Manual Price Override ($ USD)</span>
+                        <span className="text-[10px] text-emerald-400 font-mono">
+                          Suggested: ${customPriceCalc.suggestedPriceUsd}
+                        </span>
+                      </label>
+                      <input
+                        type="number"
+                        min={0}
+                        step="0.01"
+                        value={createForm.customPriceOverride}
+                        onChange={(e) =>
+                          setCreateForm({ ...createForm, customPriceOverride: e.target.value })
+                        }
+                        placeholder={`Auto: $${customPriceCalc.suggestedPriceUsd}`}
+                        className="w-full rounded-xl border border-white/10 bg-[#121824] px-3 py-2 text-xs text-white font-mono"
+                      />
+                      <p className="text-[10px] text-slate-400">
+                        Final Billed Price:{" "}
+                        <strong className="text-emerald-400 font-mono">${finalCustomPriceUsd} USD</strong>
+                      </p>
+                    </div>
+                  </div>
+                </div>
+
+                {/* 3. Feature Entitlement Checkboxes */}
+                <div className="space-y-2">
+                  <div className="flex items-center justify-between flex-wrap gap-2">
+                    <label className="text-[11px] font-semibold text-slate-300">
+                      Enabled Modules &amp; Feature Checkboxes *
+                    </label>
+                    <div className="flex items-center gap-2 text-[10px]">
+                      <button
+                        type="button"
+                        onClick={() => setCreateForm({ ...createForm, features: { ...BASIC_FEATURES }, dailyEmailLimit: 10 })}
+                        className="px-2 py-0.5 rounded bg-blue-500/15 text-blue-300 border border-blue-500/30 cursor-pointer"
+                      >
+                        Basic Preset
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setCreateForm({ ...createForm, features: { ...ALL_FEATURES_ENABLED }, dailyEmailLimit: 500 })}
+                        className="px-2 py-0.5 rounded bg-amber-500/15 text-amber-300 border border-amber-500/30 cursor-pointer"
+                      >
+                        Select All (+Maps)
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setCreateForm({ ...createForm, features: { ...NO_FEATURES_ENABLED } })}
+                        className="px-2 py-0.5 rounded bg-white/5 text-slate-400 border border-white/10 cursor-pointer"
+                      >
+                        Clear All
+                      </button>
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2">
+                    {FEATURE_CATALOG.map((feat) => {
+                      const checked = Boolean(createForm.features[feat.key]);
+                      return (
+                        <label
+                          key={feat.key}
+                          className={`p-2.5 rounded-xl border text-xs flex items-start gap-2.5 cursor-pointer transition-all ${
+                            checked
+                              ? feat.key === "google_maps" || feat.key === "multi_country_maps"
+                                ? "border-amber-500/40 bg-amber-500/10"
+                                : "border-purple-500/40 bg-purple-500/10"
+                              : "border-white/[0.06] bg-white/[0.02] hover:bg-white/[0.04]"
+                          }`}
+                        >
+                          <input
+                            type="checkbox"
+                            checked={checked}
+                            onChange={() => toggleFeatureKey(feat.key, false)}
+                            className="mt-0.5 rounded border-white/20"
+                          />
+                          <div className="min-w-0">
+                            <div className="font-bold text-white flex items-center justify-between gap-1">
+                              <span className="truncate">{feat.label}</span>
+                              <span className="text-[9px] font-mono text-slate-400 shrink-0">
+                                +${feat.monthlyWeightUsd}/mo
+                              </span>
+                            </div>
+                            <p className="text-[10px] text-slate-400 leading-snug mt-0.5">
+                              {feat.description}
+                            </p>
+                          </div>
+                        </label>
+                      );
+                    })}
+                  </div>
+                </div>
+              </div>
+            )}
+
             {/* Action Row */}
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pt-2">
               <span className="text-[11px] text-slate-400">
-                Credentials will be securely hashed and displayed to you once for direct delivery to the customer.
+                {createForm.plan === "CUSTOM"
+                  ? "Custom Plan shows a full Pre-Creation Summary before writing to the database."
+                  : "Credentials will be securely hashed and displayed to you once for direct delivery to the customer."}
               </span>
 
               <button
@@ -633,7 +1077,7 @@ export function ClientProvisioningSection() {
                 ) : (
                   <>
                     <UserPlus className="h-4 w-4" />
-                    <span>CREATE ACCOUNT</span>
+                    <span>{createForm.plan === "CUSTOM" ? "REVIEW & CREATE CUSTOM ACCOUNT" : "CREATE ACCOUNT"}</span>
                   </>
                 )}
               </button>
@@ -665,7 +1109,7 @@ export function ClientProvisioningSection() {
       {/* ========================================================================= */}
       {/* 2. DYNAMIC METRICS STRIP                                                  */}
       {/* ========================================================================= */}
-      <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-7 gap-2.5">
+      <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-8 gap-2.5">
         <div className="p-3 rounded-xl bg-[#0c1017] border border-white/10">
           <div className="text-[10px] uppercase font-semibold text-slate-400">Paid Clients</div>
           <div className="text-lg font-extrabold text-white font-mono">{totalPaid}</div>
@@ -674,7 +1118,7 @@ export function ClientProvisioningSection() {
         <div className="p-3 rounded-xl bg-emerald-500/10 border border-emerald-500/20">
           <div className="text-[10px] uppercase font-semibold text-emerald-400">Active Paid</div>
           <div className="text-lg font-extrabold text-emerald-400 font-mono">{activePaid}</div>
-          <div className="text-[9px] text-emerald-500/80">Full software access</div>
+          <div className="text-[9px] text-emerald-500/80">Active access</div>
         </div>
         <div className="p-3 rounded-xl bg-blue-500/10 border border-blue-500/20">
           <div className="text-[10px] uppercase font-semibold text-blue-400">Basic ($25)</div>
@@ -685,6 +1129,11 @@ export function ClientProvisioningSection() {
           <div className="text-[10px] uppercase font-semibold text-amber-300">Lifetime ($100)</div>
           <div className="text-lg font-extrabold text-amber-300 font-mono">{lifetimePaid}</div>
           <div className="text-[9px] text-amber-400/80">Permanent + Maps</div>
+        </div>
+        <div className="p-3 rounded-xl bg-purple-500/10 border border-purple-500/20">
+          <div className="text-[10px] uppercase font-semibold text-purple-300">Custom Plans</div>
+          <div className="text-lg font-extrabold text-purple-300 font-mono">{customPaid}</div>
+          <div className="text-[9px] text-purple-400/80">Tailored tier</div>
         </div>
         <div className="p-3 rounded-xl bg-rose-500/10 border border-rose-500/20">
           <div className="text-[10px] uppercase font-semibold text-rose-400">Expired</div>
@@ -827,7 +1276,8 @@ export function ClientProvisioningSection() {
                       const isSuspended = c.status === "SUSPENDED";
                       const isRevoked = c.status === "REVOKED";
                       const isActive = !isExpired && !isLocked && !isSuspended && !isRevoked && c.status === "ACTIVE";
-                      const isLifetime = (c.raw_plan || c.plan || "").toUpperCase().includes("LIFETIME");
+                      const isLifetime = expiryInfo.isLifetime;
+                      const isCustom = String(c.raw_plan || c.plan_type || "").toUpperCase() === "CUSTOM";
 
                       return (
                         <tr key={c.id} className="hover:bg-white/[0.02]">
@@ -850,17 +1300,37 @@ export function ClientProvisioningSection() {
                             <div className="text-slate-500 text-[10px]">WS: #{c.workspace_id}</div>
                           </td>
 
-                          {/* Plan */}
-                          <td className="py-3 px-3">
+                          {/* Plan & Entitlements */}
+                          <td className="py-3 px-3 space-y-1">
                             <span
-                              className={`text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded border ${
-                                isLifetime
+                              className={`inline-block text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded border ${
+                                isLifetime && !isCustom
                                   ? "text-amber-300 bg-amber-500/15 border-amber-500/30"
+                                  : isCustom
+                                  ? "text-purple-300 bg-purple-500/15 border-purple-500/30"
                                   : "text-blue-400 bg-blue-500/10 border-blue-500/20"
                               }`}
                             >
-                              {isLifetime ? "Lifetime ($100)" : "Basic ($25/30d)"}
+                              {isCustom
+                                ? c.plan_label || "Custom Plan"
+                                : isLifetime
+                                ? "Lifetime ($100)"
+                                : "Basic ($25/30d)"}
                             </span>
+                            <div className="flex items-center gap-1 flex-wrap text-[9px] font-mono">
+                              <span
+                                className={`px-1.5 py-0.2 rounded border ${
+                                  c.google_maps_enabled
+                                    ? "bg-emerald-500/10 text-emerald-300 border-emerald-500/25"
+                                    : "bg-slate-800 text-slate-400 border-white/10"
+                                }`}
+                              >
+                                Maps: {c.google_maps_enabled ? "ON" : "OFF"}
+                              </span>
+                              <span className="px-1.5 py-0.2 rounded bg-white/[0.04] text-slate-300 border border-white/10">
+                                {c.daily_email_limit ?? (isLifetime ? 500 : 10)} emails/d
+                              </span>
+                            </div>
                           </td>
 
                           {/* Creation & Activation Date */}
@@ -958,6 +1428,16 @@ export function ClientProvisioningSection() {
                                 title="Upgrade to Lifetime Plan ($100 Permanent Access)"
                               >
                                 $100 Lifetime
+                              </button>
+
+                              {/* Custom Plan Configurator */}
+                              <button
+                                onClick={() => openEditCustomModal(c)}
+                                disabled={actionLoadingId === c.id}
+                                className="px-2 py-1 text-[10px] font-bold text-purple-200 bg-purple-600/30 hover:bg-purple-600/50 border border-purple-500/40 rounded shadow-sm disabled:opacity-40 cursor-pointer"
+                                title="Configure or Extend Custom Plan"
+                              >
+                                Custom Plan
                               </button>
 
                               {/* Lock / Unlock */}
@@ -1276,6 +1756,28 @@ export function ClientProvisioningSection() {
                 <span className="text-slate-500">Access Duration:</span>
                 <span className="text-emerald-300 font-semibold">{oneTimeCreds.duration}</span>
               </div>
+              {oneTimeCreds.expires_at && (
+                <div className="flex justify-between">
+                  <span className="text-slate-500">Expires At (UTC):</span>
+                  <span className="text-slate-300">{oneTimeCreds.expires_at}</span>
+                </div>
+              )}
+              <div className="flex justify-between">
+                <span className="text-slate-500">Google Maps Entitlement:</span>
+                <span className={oneTimeCreds.google_maps_enabled ? "text-emerald-400 font-bold" : "text-slate-400"}>
+                  {oneTimeCreds.google_maps_enabled ? "INCLUDED" : "EXCLUDED"}
+                </span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-slate-500">Daily Cold Email Limit:</span>
+                <span className="text-slate-200">{oneTimeCreds.daily_email_limit ?? 10} / UTC day</span>
+              </div>
+              {oneTimeCreds.custom_price_usd != null && (
+                <div className="flex justify-between">
+                  <span className="text-slate-500">Final Plan Price:</span>
+                  <span className="text-emerald-300 font-bold">${oneTimeCreds.custom_price_usd} USD</span>
+                </div>
+              )}
             </div>
 
             <div className="flex items-center justify-between pt-2">
@@ -1304,6 +1806,232 @@ export function ClientProvisioningSection() {
               </button>
             </div>
           </div>
+        </div>
+      )}
+
+      {/* ========================================================================= */}
+      {/* 8. PRE-CREATION CUSTOM PLAN SUMMARY REVIEW MODAL                          */}
+      {/* ========================================================================= */}
+      {reviewModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/85 backdrop-blur-md px-4">
+          <div className="w-full max-w-lg rounded-2xl border border-purple-500/40 bg-[#0c1017] p-6 shadow-2xl text-slate-100 space-y-4">
+            <div className="flex items-center justify-between pb-3 border-b border-white/[0.08]">
+              <div className="flex items-center gap-2">
+                <Sliders className="h-5 w-5 text-purple-400" />
+                <h3 className="text-base font-bold text-white">Review Custom Account Summary</h3>
+              </div>
+              <button onClick={() => setReviewModalOpen(false)} className="text-slate-400 hover:text-white">
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+
+            <div className="space-y-2 p-4 rounded-xl bg-white/[0.02] border border-white/[0.08] text-xs">
+              <div className="flex justify-between">
+                <span className="text-slate-400">Username / Customer:</span>
+                <span className="font-mono font-bold text-white">
+                  {createForm.username.trim().toLowerCase()} ({createForm.customerName.trim() || createForm.username})
+                </span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-slate-400">Plan Duration:</span>
+                <span className="font-semibold text-purple-300">
+                  {formatDurationLabel(createForm.durationValue, createForm.durationUnit)}
+                </span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-slate-400">Calculated UTC Expiry:</span>
+                <span className="font-mono text-slate-200">
+                  {customExpiryPreviewDate ? customExpiryPreviewDate.toUTCString() : "Never (Lifetime)"}
+                </span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-slate-400">Google Maps Generator:</span>
+                <span className={createForm.features.google_maps ? "text-emerald-400 font-bold" : "text-rose-400 font-bold"}>
+                  {createForm.features.google_maps ? "INCLUDED" : "EXCLUDED"}
+                </span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-slate-400">Daily Cold Email Limit:</span>
+                <span className="font-mono text-white">
+                  {createForm.features.cold_email ? `${createForm.dailyEmailLimit} / UTC day` : "Disabled"}
+                </span>
+              </div>
+              <div className="flex justify-between pt-2 border-t border-white/[0.06]">
+                <span className="text-slate-400">Suggested Formula Price:</span>
+                <span className="font-mono text-slate-300">${customPriceCalc.suggestedPriceUsd} USD</span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-slate-300 font-bold">Final Billed Custom Price:</span>
+                <span className="font-mono text-emerald-400 font-extrabold text-sm">${finalCustomPriceUsd} USD</span>
+              </div>
+            </div>
+
+            <div className="space-y-1 text-[11px]">
+              <div className="font-semibold text-emerald-300">Included Modules:</div>
+              <div className="flex flex-wrap gap-1">
+                {FEATURE_CATALOG.filter((f) => createForm.features[f.key]).map((f) => (
+                  <span key={f.key} className="px-2 py-0.5 rounded bg-emerald-500/15 text-emerald-300 border border-emerald-500/25">
+                    {f.label}
+                  </span>
+                ))}
+              </div>
+              {FEATURE_CATALOG.some((f) => !createForm.features[f.key]) && (
+                <>
+                  <div className="font-semibold text-slate-400 pt-1">Excluded Modules:</div>
+                  <div className="flex flex-wrap gap-1">
+                    {FEATURE_CATALOG.filter((f) => !createForm.features[f.key]).map((f) => (
+                      <span key={f.key} className="px-2 py-0.5 rounded bg-white/[0.04] text-slate-400 border border-white/10">
+                        {f.label}
+                      </span>
+                    ))}
+                  </div>
+                </>
+              )}
+            </div>
+
+            <div className="flex items-center justify-end gap-2 pt-2">
+              <button
+                type="button"
+                onClick={() => setReviewModalOpen(false)}
+                className="px-4 py-2 rounded-xl text-xs text-slate-300 bg-white/5 hover:bg-white/10 cursor-pointer"
+              >
+                Edit Plan
+              </button>
+              <button
+                type="button"
+                onClick={executeCreateAccount}
+                disabled={createLoading}
+                className="px-5 py-2 rounded-xl text-xs font-extrabold text-white bg-purple-600 hover:bg-purple-500 shadow-glow-sm cursor-pointer disabled:opacity-50"
+              >
+                Confirm &amp; Create Account
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ========================================================================= */}
+      {/* 9. EDIT / UPGRADE EXISTING CLIENT CUSTOM PLAN MODAL                       */}
+      {/* ========================================================================= */}
+      {editingCustomClient && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/85 backdrop-blur-md px-4 overflow-y-auto py-6">
+          <form
+            onSubmit={handleApplyEditCustomPlan}
+            className="w-full max-w-2xl rounded-2xl border border-purple-500/40 bg-[#0c1017] p-6 shadow-2xl text-slate-100 space-y-4"
+          >
+            <div className="flex items-center justify-between pb-3 border-b border-white/[0.08]">
+              <div>
+                <h3 className="text-base font-bold text-white">
+                  Configure Custom Plan — {editingCustomClient.username} (#{editingCustomClient.id})
+                </h3>
+                <p className="text-[11px] text-slate-400">
+                  Update duration, modules, Google Maps access, email allowance, and custom pricing.
+                </p>
+              </div>
+              <button type="button" onClick={() => setEditingCustomClient(null)} className="text-slate-400 hover:text-white">
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 text-xs">
+              <div>
+                <label className="block text-[11px] text-slate-300 mb-1">Apply Mode</label>
+                <select
+                  value={editCustomForm.actionMode}
+                  onChange={(e) => setEditCustomForm({ ...editCustomForm, actionMode: e.target.value as any })}
+                  className="w-full rounded-xl border border-white/10 bg-[#121824] px-3 py-2 text-xs text-white"
+                >
+                  <option value="ACTIVATE_CUSTOM">Reset From Now</option>
+                  <option value="EXTEND_CUSTOM">Extend From Current Expiry</option>
+                </select>
+              </div>
+              <div>
+                <label className="block text-[11px] text-slate-300 mb-1">Duration Value</label>
+                <input
+                  type="number"
+                  min={1}
+                  disabled={editCustomForm.durationUnit === "lifetime"}
+                  value={editCustomForm.durationValue}
+                  onChange={(e) => setEditCustomForm({ ...editCustomForm, durationValue: Math.max(1, parseInt(e.target.value, 10) || 1) })}
+                  className="w-full rounded-xl border border-white/10 bg-[#121824] px-3 py-2 text-xs text-white font-mono disabled:opacity-40"
+                />
+              </div>
+              <div>
+                <label className="block text-[11px] text-slate-300 mb-1">Unit</label>
+                <select
+                  value={editCustomForm.durationUnit}
+                  onChange={(e) => setEditCustomForm({ ...editCustomForm, durationUnit: e.target.value as DurationUnit })}
+                  className="w-full rounded-xl border border-white/10 bg-[#121824] px-3 py-2 text-xs text-white"
+                >
+                  <option value="hours">Hours</option>
+                  <option value="days">Days</option>
+                  <option value="weeks">Weeks</option>
+                  <option value="months">Months</option>
+                  <option value="years">Years</option>
+                  <option value="lifetime">Lifetime</option>
+                </select>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs">
+              <div>
+                <label className="block text-[11px] text-slate-300 mb-1">Daily Email Limit (0–500)</label>
+                <input
+                  type="number"
+                  min={0}
+                  max={500}
+                  disabled={!editCustomForm.features.cold_email}
+                  value={editCustomForm.features.cold_email ? editCustomForm.dailyEmailLimit : 0}
+                  onChange={(e) => setEditCustomForm({ ...editCustomForm, dailyEmailLimit: Math.max(0, Math.min(500, parseInt(e.target.value, 10) || 0)) })}
+                  className="w-full rounded-xl border border-white/10 bg-[#121824] px-3 py-2 text-xs text-white font-mono disabled:opacity-40"
+                />
+              </div>
+              <div>
+                <label className="block text-[11px] text-slate-300 mb-1">
+                  Price ($ USD • Suggested: ${editCustomPriceCalc.suggestedPriceUsd})
+                </label>
+                <input
+                  type="number"
+                  min={0}
+                  step="0.01"
+                  value={editCustomForm.customPriceOverride}
+                  onChange={(e) => setEditCustomForm({ ...editCustomForm, customPriceOverride: e.target.value })}
+                  placeholder={`$${editCustomPriceCalc.suggestedPriceUsd}`}
+                  className="w-full rounded-xl border border-white/10 bg-[#121824] px-3 py-2 text-xs text-white font-mono"
+                />
+              </div>
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2 max-h-56 overflow-y-auto pr-1">
+              {FEATURE_CATALOG.map((feat) => (
+                <label key={feat.key} className="p-2 rounded-lg border border-white/10 bg-white/[0.02] text-xs flex items-center gap-2 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={Boolean(editCustomForm.features[feat.key])}
+                    onChange={() => toggleFeatureKey(feat.key, true)}
+                  />
+                  <span className="truncate">{feat.label}</span>
+                </label>
+              ))}
+            </div>
+
+            <div className="flex justify-end gap-2 pt-2 border-t border-white/[0.08]">
+              <button
+                type="button"
+                onClick={() => setEditingCustomClient(null)}
+                className="px-4 py-2 rounded-xl text-xs text-slate-300 bg-white/5 hover:bg-white/10"
+              >
+                Cancel
+              </button>
+              <button
+                type="submit"
+                disabled={actionLoadingId === editingCustomClient.id}
+                className="px-5 py-2 rounded-xl text-xs font-bold text-white bg-purple-600 hover:bg-purple-500 cursor-pointer disabled:opacity-50"
+              >
+                Apply Custom Plan
+              </button>
+            </div>
+          </form>
         </div>
       )}
     </div>

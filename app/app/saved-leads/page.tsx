@@ -5,18 +5,16 @@ import Link from "next/link";
 import { api } from "@/lib/api";
 import { useAuth } from "@/lib/auth-context";
 import { Lead } from "@/lib/types";
-import { ALL_193_COUNTRIES } from "@/lib/countries";
 import { normalizePhoneNumber, buildWhatsAppClickToChatUrl } from "@/lib/phone-utils";
 import {
   Database, Search, Download, Trash2, ExternalLink,
   Mail, Phone, RefreshCw, CheckCircle2, AlertTriangle,
   Globe, MessageSquare, Filter, ChevronLeft, ChevronRight,
   History, Calendar, Clock, FileSpreadsheet, FileText, X,
-  Layers, Eye, Check, Sparkles, Send, ShieldCheck, User
+  Layers, Eye, Check, Sparkles, Send, ShieldCheck, User, ChevronDown
 } from "lucide-react";
 import { AiLeadResearchModal } from "@/components/leads/AiLeadResearchModal";
 import { WhatsAppModal } from "@/components/leads/WhatsAppModal";
-import { LeadQualityBadge } from "@/components/leads/LeadQualityBadge";
 
 interface SearchRecord {
   id: string;
@@ -61,12 +59,12 @@ function getSavedLeadsAuthHeaders() {
   const token = typeof window !== "undefined" ? localStorage.getItem("usman_gtm_token") : null;
   return {
     "Content-Type": "application/json",
-    ...(token ? { Authorization: `Bearer ${token}` } : {}),
+    ...(token && token !== "null" && token !== "undefined" ? { Authorization: `Bearer ${token}` } : {}),
   };
 }
 
 export default function SavedLeadsPage() {
-  const { user, isLocked, refreshUser } = useAuth();
+  const { user, isLocked } = useAuth();
 
   // Tab State: "leads" | "history" | "export_history"
   const [activeTab, setActiveTab] = useState<"leads" | "history" | "export_history">("leads");
@@ -81,18 +79,14 @@ export default function SavedLeadsPage() {
 
   // Filters for Saved Leads
   const [searchFilter, setSearchFilter] = useState("");
-  const [countryFilter, setCountryFilter] = useState("Any");
-  const [contactFilter, setContactFilter] = useState<"all" | "email" | "phone">("all");
-  const [sourceFilter, setSourceFilter] = useState("All");
+  const [contactFilter, setContactFilter] = useState<"all" | "EMAIL_AND_PHONE" | "EMAIL_ONLY" | "PHONE_ONLY" | "EMAIL_OR_PHONE">("all");
+  const [selectedSources, setSelectedSources] = useState<string[]>([]);
+  const [availableSources, setAvailableSources] = useState<Array<{ source: string; count: number }>>([]);
+  const [sourceMenuOpen, setSourceMenuOpen] = useState(false);
+  const [sourceSearchQuery, setSourceSearchQuery] = useState("");
   const [datePresetFilter, setDatePresetFilter] = useState<string>("all");
   const [dateFrom, setDateFrom] = useState<string>("");
   const [dateTo, setDateTo] = useState<string>("");
-
-  // Advanced Platform, Quality, and Enrichment State
-  const [selectedPlatforms, setSelectedPlatforms] = useState<string[]>([]);
-  const [platformMode, setPlatformMode] = useState<"ANY" | "ALL">("ANY");
-  const [qualityCategoryFilter, setQualityCategoryFilter] = useState<string>("all");
-  const [enrichingId, setEnrichingId] = useState<number | null>(null);
   const [whatsAppLead, setWhatsAppLead] = useState<any | null>(null);
 
   // Selection
@@ -143,14 +137,11 @@ export default function SavedLeadsPage() {
     try {
       const res = await api.get<any>("/leads", {
         keyword: searchFilter || undefined,
-        country: countryFilter !== "Any" ? countryFilter : undefined,
-        source: sourceFilter !== "All" ? sourceFilter : undefined,
+        sources: selectedSources.length > 0 ? selectedSources.join("||") : undefined,
+        contact_requirement: contactFilter !== "all" ? contactFilter : undefined,
         date_preset: datePresetFilter !== "all" && datePresetFilter !== "custom" ? datePresetFilter : undefined,
         date_from: datePresetFilter === "custom" && dateFrom ? dateFrom : undefined,
         date_to: datePresetFilter === "custom" && dateTo ? dateTo : undefined,
-        platforms: selectedPlatforms.length > 0 ? selectedPlatforms.join(",") : undefined,
-        platform_mode: selectedPlatforms.length > 0 ? platformMode : undefined,
-        quality_category: qualityCategoryFilter !== "all" ? qualityCategoryFilter : undefined,
         page,
         page_size: pageSize,
       });
@@ -158,6 +149,9 @@ export default function SavedLeadsPage() {
       const list = res?.leads || (Array.isArray(res) ? res : []);
       setLeads(list);
       setTotal(res?.total !== undefined ? res.total : list.length);
+      if (Array.isArray(res?.available_sources)) {
+        setAvailableSources(res.available_sources);
+      }
     } catch (err) {
       console.warn("Failed to load saved leads", err);
     } finally {
@@ -208,8 +202,10 @@ export default function SavedLeadsPage() {
   };
 
   useEffect(() => {
-    fetchSavedLeads();
-  }, [page, pageSize, countryFilter, sourceFilter, datePresetFilter, dateFrom, dateTo, selectedPlatforms, platformMode, qualityCategoryFilter]);
+    if (user?.id) {
+      fetchSavedLeads();
+    }
+  }, [user?.id, page, pageSize, selectedSources, contactFilter, datePresetFilter, dateFrom, dateTo]);
 
   useEffect(() => {
     if (activeTab === "history") {
@@ -238,31 +234,7 @@ export default function SavedLeadsPage() {
     }
   };
 
-  // Lead Enrichment Action
-  const handleEnrichLead = async (leadId: number) => {
-    setEnrichingId(leadId);
-    try {
-      const token = typeof window !== "undefined" ? localStorage.getItem("usman_gtm_token") : null;
-      const res = await fetch(`/api/leads/${leadId}/enrich`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          ...(token ? { Authorization: `Bearer ${token}` } : {}),
-        },
-      });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error || "Enrichment failed");
-      setToastMsg(`Successfully enriched "${data.lead?.business_name || "lead"}" with verified social & contact profiles!`);
-      // Update local state in place
-      setLeads((prev) => prev.map((l) => (l.id === leadId ? { ...l, ...data.lead } : l)));
-    } catch (err: any) {
-      setToastMsg(`Enrichment notice: ${err?.message || "Could not enrich lead"}`);
-    } finally {
-      setEnrichingId(null);
-    }
-  };
-
-  // Filtered Leads (Client-side view filter on top of fetched page)
+  // Filtered Leads (Keyword & Outreach Status view refinements on loaded records)
   const filteredLeads = useMemo(() => {
     return leads.filter((l) => {
       if (searchFilter) {
@@ -274,15 +246,13 @@ export default function SavedLeadsPage() {
           (l.email || "").toLowerCase().includes(q);
         if (!matchesQ) return false;
       }
-      if (contactFilter === "email" && (!l.email || l.email === "Not Found")) return false;
-      if (contactFilter === "phone" && (!l.phone || l.phone === "Not Found")) return false;
       if (outreachStatusFilter !== "all") {
         const stage = l.crm_stage || "NEW";
         if (stage !== outreachStatusFilter) return false;
       }
       return true;
     });
-  }, [leads, searchFilter, contactFilter, outreachStatusFilter]);
+  }, [leads, searchFilter, outreachStatusFilter]);
 
   // Outreach badge renderer
   const renderOutreachBadge = (status?: string) => {
@@ -721,173 +691,190 @@ export default function SavedLeadsPage() {
       {/* ============================================================== */}
       {activeTab === "leads" && (
         <div className="space-y-4">
-          {/* ADVANCED ONLINE PLATFORM FILTERS */}
-          <div className="p-3.5 rounded-2xl border border-white/[0.08] bg-[#0c1017] space-y-2">
-            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
-              <span className="text-xs font-bold text-slate-300 flex items-center gap-1.5">
-                <Globe className="h-3.5 w-3.5 text-blue-400" />
-                <span>Filter Leads by Available Online Platforms:</span>
-              </span>
-              <div className="flex items-center gap-2">
-                <span className="text-[11px] text-slate-400">Match Mode:</span>
-                <button
-                  type="button"
-                  onClick={() => setPlatformMode(platformMode === "ANY" ? "ALL" : "ANY")}
-                  className="px-2 py-0.5 rounded text-[10px] font-mono font-bold bg-blue-500/20 text-blue-300 border border-blue-500/30 hover:bg-blue-500/30 transition-all cursor-pointer"
+          {/* Filter & Export Controls Bar */}
+          <div className="p-4 rounded-2xl border border-white/[0.08] bg-[#0c1017] space-y-3">
+            <div className="flex flex-col md:flex-row gap-3 items-stretch md:items-center justify-between">
+              <div className="flex items-center gap-2.5 w-full md:w-auto flex-1 flex-wrap">
+                {/* Text search */}
+                <div className="relative flex-1 min-w-[200px] max-w-xs">
+                  <Search className="h-3.5 w-3.5 text-slate-500 absolute left-3 top-2.5" />
+                  <input
+                    type="text"
+                    value={searchFilter}
+                    onChange={(e) => setSearchFilter(e.target.value)}
+                    placeholder="Search name, industry, city, email..."
+                    className="w-full rounded-xl border border-white/10 bg-white/[0.03] pl-9 pr-3 py-1.5 text-xs text-white placeholder-slate-500 focus:border-blue-500 focus:outline-none"
+                  />
+                </div>
+
+                {/* Dynamic Lead Source Selector (derived from actual workspace DB records) */}
+                <div className="relative">
+                  <button
+                    type="button"
+                    onClick={() => setSourceMenuOpen(!sourceMenuOpen)}
+                    className="flex items-center justify-between gap-2 rounded-xl border border-white/10 bg-white/[0.03] px-3 py-1.5 text-xs text-white hover:border-blue-500/50 transition-all cursor-pointer min-w-[180px]"
+                  >
+                    <span className="truncate">
+                      {selectedSources.length === 0
+                        ? `All Sources (${availableSources.length})`
+                        : selectedSources.length === 1
+                        ? selectedSources[0]
+                        : `${selectedSources.length} Sources Selected`}
+                    </span>
+                    <ChevronDown className={`h-3.5 w-3.5 text-slate-400 transition-transform ${sourceMenuOpen ? "rotate-180" : ""}`} />
+                  </button>
+
+                  {sourceMenuOpen && (
+                    <div className="absolute left-0 top-full mt-1.5 z-50 w-72 rounded-xl border border-white/10 bg-[#0f1420] p-3 shadow-2xl space-y-2">
+                      <div className="relative">
+                        <Search className="h-3.5 w-3.5 text-slate-500 absolute left-2.5 top-2" />
+                        <input
+                          type="text"
+                          value={sourceSearchQuery}
+                          onChange={(e) => setSourceSearchQuery(e.target.value)}
+                          placeholder="Filter available sources..."
+                          className="w-full rounded-lg border border-white/10 bg-white/[0.04] pl-8 pr-2.5 py-1 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-blue-500"
+                        />
+                      </div>
+
+                      <div className="flex items-center justify-between text-[11px] pb-1 border-b border-white/[0.06]">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setPage(1);
+                            setSelectedSources(availableSources.map((s) => s.source));
+                          }}
+                          className="text-blue-400 hover:text-blue-300 font-semibold cursor-pointer"
+                        >
+                          Select All ({availableSources.length})
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setPage(1);
+                            setSelectedSources([]);
+                          }}
+                          className="text-slate-400 hover:text-white cursor-pointer"
+                        >
+                          Clear Filter
+                        </button>
+                      </div>
+
+                      <div className="max-h-44 overflow-y-auto space-y-1">
+                        {availableSources
+                          .filter((s) =>
+                            !sourceSearchQuery.trim() ||
+                            s.source.toLowerCase().includes(sourceSearchQuery.toLowerCase().trim())
+                          )
+                          .map((srcItem) => {
+                            const active = selectedSources.includes(srcItem.source);
+                            return (
+                              <button
+                                key={srcItem.source}
+                                type="button"
+                                onClick={() => {
+                                  setPage(1);
+                                  setSelectedSources((prev) =>
+                                    active
+                                      ? prev.filter((x) => x !== srcItem.source)
+                                      : [...prev, srcItem.source]
+                                  );
+                                }}
+                                className={`w-full flex items-center justify-between px-2.5 py-1.5 rounded-lg text-xs transition-colors cursor-pointer ${
+                                  active
+                                    ? "bg-blue-600/20 text-blue-200 font-semibold"
+                                    : "hover:bg-white/[0.04] text-slate-300"
+                                }`}
+                              >
+                                <span className="truncate">{srcItem.source}</span>
+                                <span className="text-[10px] font-mono text-slate-400 ml-2 shrink-0">
+                                  ({srcItem.count})
+                                </span>
+                              </button>
+                            );
+                          })}
+                        {availableSources.length === 0 && (
+                          <div className="py-3 text-center text-[11px] text-slate-500">
+                            No saved sources in workspace yet.
+                          </div>
+                        )}
+                      </div>
+
+                      <div className="pt-1 border-t border-white/[0.06] flex justify-end">
+                        <button
+                          type="button"
+                          onClick={() => setSourceMenuOpen(false)}
+                          className="px-2.5 py-1 rounded bg-white/10 text-xs text-white font-medium cursor-pointer"
+                        >
+                          Done
+                        </button>
+                      </div>
+                    </div>
+                  )}
+                </div>
+
+                {/* Dates Filter */}
+                <select
+                  value={datePresetFilter}
+                  onChange={(e) => {
+                    setPage(1);
+                    setDatePresetFilter(e.target.value);
+                  }}
+                  className="rounded-xl border border-white/10 bg-[#0c1017] px-3 py-1.5 text-xs text-white focus:border-blue-500 focus:outline-none"
                 >
-                  {platformMode === "ANY" ? "ANY Selected Platform" : "ALL Selected Platforms"}
+                  <option value="all">All Dates</option>
+                  <option value="today">Today</option>
+                  <option value="yesterday">Yesterday</option>
+                  <option value="last_7_days">Last 7 Days</option>
+                  <option value="last_30_days">Last 30 Days</option>
+                  <option value="custom">Custom Date Range</option>
+                </select>
+
+                {/* Contact Availability Filter */}
+                <select
+                  value={contactFilter}
+                  onChange={(e) => {
+                    setPage(1);
+                    setContactFilter(e.target.value as any);
+                  }}
+                  className="rounded-xl border border-white/10 bg-[#0c1017] px-3 py-1.5 text-xs text-white focus:border-blue-500 focus:outline-none"
+                >
+                  <option value="all">All Contacts</option>
+                  <option value="EMAIL_AND_PHONE">Email AND Phone</option>
+                  <option value="EMAIL_ONLY">Email Only</option>
+                  <option value="PHONE_ONLY">Phone Only</option>
+                  <option value="EMAIL_OR_PHONE">Email OR Phone</option>
+                </select>
+
+                {/* Outreach Stage Filter */}
+                <select
+                  value={outreachStatusFilter}
+                  onChange={(e) => setOutreachStatusFilter(e.target.value)}
+                  className="rounded-xl border border-white/10 bg-[#0c1017] px-3 py-1.5 text-xs text-white focus:border-blue-500 focus:outline-none"
+                >
+                  <option value="all">All Outreach Statuses</option>
+                  <option value="NEW">NEW</option>
+                  <option value="DRAFT READY">DRAFT READY</option>
+                  <option value="EMAIL SENT">EMAIL SENT</option>
+                  <option value="REPLIED">REPLIED</option>
+                  <option value="INTERESTED">INTERESTED</option>
+                  <option value="NOT INTERESTED">NOT INTERESTED</option>
+                  <option value="DO NOT CONTACT">DO NOT CONTACT</option>
+                </select>
+
+                <button
+                  onClick={fetchSavedLeads}
+                  disabled={refreshing}
+                  className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold text-slate-300 bg-white/[0.04] hover:bg-white/[0.08] border border-white/10 rounded-xl transition-all cursor-pointer"
+                  title="Refresh saved leads"
+                >
+                  <RefreshCw className={`h-3.5 w-3.5 ${refreshing ? "animate-spin text-blue-400" : ""}`} />
+                  <span>Refresh</span>
                 </button>
               </div>
-            </div>
 
-            <div className="flex items-center gap-1.5 flex-wrap">
-              <button
-                type="button"
-                onClick={() => setSelectedPlatforms([])}
-                className={`px-3 py-1 rounded-xl text-xs font-semibold transition-all cursor-pointer ${
-                  selectedPlatforms.length === 0
-                    ? "bg-blue-600 text-white shadow-sm"
-                    : "bg-white/[0.04] text-slate-400 hover:text-white hover:bg-white/[0.08]"
-                }`}
-              >
-                All Platforms
-              </button>
-
-              {[
-                { id: "website", label: "Official Website" },
-                { id: "linkedin", label: "LinkedIn" },
-                { id: "instagram", label: "Instagram" },
-                { id: "facebook", label: "Facebook" },
-                { id: "youtube", label: "YouTube" },
-                { id: "tiktok", label: "TikTok" },
-                { id: "twitter", label: "X / Twitter" },
-              ].map((p) => {
-                const active = selectedPlatforms.includes(p.id);
-                return (
-                  <button
-                    key={p.id}
-                    type="button"
-                    onClick={() => {
-                      if (active) {
-                        setSelectedPlatforms(selectedPlatforms.filter((item) => item !== p.id));
-                      } else {
-                        setSelectedPlatforms([...selectedPlatforms, p.id]);
-                      }
-                    }}
-                    className={`px-3 py-1 rounded-xl text-xs font-semibold transition-all cursor-pointer flex items-center gap-1 ${
-                      active
-                        ? "bg-purple-600 text-white shadow-sm"
-                        : "bg-white/[0.04] text-slate-400 hover:text-white hover:bg-white/[0.08]"
-                    }`}
-                  >
-                    <span>{p.label}</span>
-                    {active && <Check className="h-3 w-3" />}
-                  </button>
-                );
-              })}
-            </div>
-          </div>
-
-          {/* Filter & Export Controls Bar */}
-          <div className="p-4 rounded-2xl border border-white/[0.08] bg-[#0c1017] flex flex-col md:flex-row gap-3 items-center justify-between">
-            <div className="flex items-center gap-3 w-full md:w-auto flex-1 flex-wrap">
-              <div className="relative flex-1 min-w-[220px] max-w-sm">
-                <Search className="h-3.5 w-3.5 text-slate-500 absolute left-3 top-2.5" />
-                <input
-                  type="text"
-                  value={searchFilter}
-                  onChange={(e) => setSearchFilter(e.target.value)}
-                  placeholder="Filter by name, industry, city, email..."
-                  className="w-full rounded-xl border border-white/10 bg-white/[0.03] pl-9 pr-3 py-1.5 text-xs text-white placeholder-slate-500 focus:border-blue-500 focus:outline-none"
-                />
-              </div>
-
-              <select
-                value={countryFilter}
-                onChange={(e) => setCountryFilter(e.target.value)}
-                className="rounded-xl border border-white/10 bg-white/[0.03] px-3 py-1.5 text-xs text-white focus:border-blue-500 focus:outline-none"
-              >
-                <option value="Any" className="bg-[#0c1017]">All Countries</option>
-                {ALL_193_COUNTRIES.map((c) => (
-                  <option key={c} value={c} className="bg-[#0c1017]">{c}</option>
-                ))}
-              </select>
-
-              <select
-                value={datePresetFilter}
-                onChange={(e) => setDatePresetFilter(e.target.value)}
-                className="rounded-xl border border-white/10 bg-white/[0.03] px-3 py-1.5 text-xs text-white focus:border-blue-500 focus:outline-none"
-              >
-                <option value="all" className="bg-[#0c1017]">All Dates</option>
-                <option value="today" className="bg-[#0c1017]">Today&apos;s Leads</option>
-                <option value="yesterday" className="bg-[#0c1017]">Yesterday&apos;s Leads</option>
-                <option value="last_7_days" className="bg-[#0c1017]">Last 7 Days</option>
-                <option value="last_30_days" className="bg-[#0c1017]">Last 30 Days</option>
-              </select>
-
-              <select
-                value={sourceFilter}
-                onChange={(e) => setSourceFilter(e.target.value)}
-                className="rounded-xl border border-white/10 bg-white/[0.03] px-3 py-1.5 text-xs text-white focus:border-blue-500 focus:outline-none"
-              >
-                <option value="All" className="bg-[#0c1017]">All Sources</option>
-                <option value="Google Organic" className="bg-[#0c1017]">Google Web Search</option>
-                <option value="Google Maps" className="bg-[#0c1017]">Google Maps</option>
-                <option value="Official Business" className="bg-[#0c1017]">Official Websites</option>
-                <option value="LinkedIn" className="bg-[#0c1017]">LinkedIn</option>
-                <option value="Directories" className="bg-[#0c1017]">Commercial Directories</option>
-              </select>
-
-              <select
-                value={contactFilter}
-                onChange={(e) => setContactFilter(e.target.value as any)}
-                className="rounded-xl border border-white/10 bg-white/[0.03] px-3 py-1.5 text-xs text-white focus:border-blue-500 focus:outline-none"
-              >
-                <option value="all" className="bg-[#0c1017]">All Contacts</option>
-                <option value="email" className="bg-[#0c1017]">Has Email</option>
-                <option value="phone" className="bg-[#0c1017]">Has Phone</option>
-              </select>
-
-              <select
-                value={qualityCategoryFilter}
-                onChange={(e) => setQualityCategoryFilter(e.target.value)}
-                className="rounded-xl border border-white/10 bg-white/[0.03] px-3 py-1.5 text-xs text-white focus:border-blue-500 focus:outline-none"
-              >
-                <option value="all" className="bg-[#0c1017]">All Quality Scores</option>
-                <option value="Excellent" className="bg-[#0c1017]">Excellent (80-100)</option>
-                <option value="Good" className="bg-[#0c1017]">Good (60-79)</option>
-                <option value="Fair" className="bg-[#0c1017]">Fair (40-59)</option>
-                <option value="Basic" className="bg-[#0c1017]">Basic (&lt;40)</option>
-              </select>
-
-              <select
-                value={outreachStatusFilter}
-                onChange={(e) => setOutreachStatusFilter(e.target.value)}
-                className="rounded-xl border border-white/10 bg-white/[0.03] px-3 py-1.5 text-xs text-white focus:border-blue-500 focus:outline-none"
-              >
-                <option value="all" className="bg-[#0c1017]">All Outreach Statuses</option>
-                <option value="NEW" className="bg-[#0c1017]">NEW</option>
-                <option value="DRAFT READY" className="bg-[#0c1017]">DRAFT READY</option>
-                <option value="EMAIL SENT" className="bg-[#0c1017]">EMAIL SENT</option>
-                <option value="REPLIED" className="bg-[#0c1017]">REPLIED</option>
-                <option value="INTERESTED" className="bg-[#0c1017]">INTERESTED</option>
-                <option value="NOT INTERESTED" className="bg-[#0c1017]">NOT INTERESTED</option>
-                <option value="DO NOT CONTACT" className="bg-[#0c1017]">DO NOT CONTACT</option>
-              </select>
-
-              <button
-                onClick={fetchSavedLeads}
-                disabled={refreshing}
-                className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold text-slate-300 bg-white/[0.04] hover:bg-white/[0.08] border border-white/10 rounded-xl transition-all"
-                title="Refresh saved leads"
-              >
-                <RefreshCw className={`h-3.5 w-3.5 ${refreshing ? "animate-spin text-blue-400" : ""}`} />
-                <span>Refresh</span>
-              </button>
-            </div>
-
-            {/* Bulk Actions & Master Export (XLSX & PDF ONLY) */}
-            <div className="flex items-center gap-2 w-full md:w-auto justify-end flex-wrap">
+              {/* Bulk Actions & Master Export (XLSX & PDF ONLY) */}
+              <div className="flex items-center gap-2 w-full md:w-auto justify-end flex-wrap">
               {selectedIds.length > 0 ? (
                 <div className="flex items-center gap-2 bg-blue-500/10 border border-blue-500/30 px-3 py-1.5 rounded-xl">
                   <span className="text-xs font-bold text-blue-400 font-mono">
@@ -959,7 +946,54 @@ export default function SavedLeadsPage() {
                   </button>
                 </div>
               )}
+              </div>
             </div>
+
+            {/* Custom Calendar Date Range Inputs (Shown when datePresetFilter === "custom") */}
+            {datePresetFilter === "custom" && (
+              <div className="flex flex-wrap items-center gap-3 pt-2 border-t border-white/[0.06] text-xs">
+                <span className="text-[11px] font-semibold text-slate-300 flex items-center gap-1.5">
+                  <Calendar className="h-3.5 w-3.5 text-blue-400" />
+                  <span>Custom Date Range (UTC):</span>
+                </span>
+                <label className="flex items-center gap-1.5 text-[11px] text-slate-400">
+                  <span>Start Date:</span>
+                  <input
+                    type="date"
+                    value={dateFrom}
+                    onChange={(e) => {
+                      setPage(1);
+                      setDateFrom(e.target.value);
+                    }}
+                    className="rounded-lg border border-white/10 bg-[#121824] px-2.5 py-1 text-xs text-white focus:border-blue-500 focus:outline-none"
+                  />
+                </label>
+                <label className="flex items-center gap-1.5 text-[11px] text-slate-400">
+                  <span>End Date:</span>
+                  <input
+                    type="date"
+                    value={dateTo}
+                    onChange={(e) => {
+                      setPage(1);
+                      setDateTo(e.target.value);
+                    }}
+                    className="rounded-lg border border-white/10 bg-[#121824] px-2.5 py-1 text-xs text-white focus:border-blue-500 focus:outline-none"
+                  />
+                </label>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setDateFrom("");
+                    setDateTo("");
+                    setDatePresetFilter("all");
+                    setPage(1);
+                  }}
+                  className="text-[11px] text-rose-400 hover:text-rose-300 underline cursor-pointer"
+                >
+                  Clear Date Range
+                </button>
+              </div>
+            )}
           </div>
 
           {/* Master Leads Table */}
@@ -1001,11 +1035,11 @@ export default function SavedLeadsPage() {
                       <th className="py-3 px-3">Business Name & Website</th>
                       <th className="py-3 px-3">Location</th>
                       <th className="py-3 px-3">Industry / Keyword</th>
-                      <th className="py-3 px-3">Email & Verification</th>
+                      <th className="py-3 px-3">Email (Syntax Checked)</th>
                       <th className="py-3 px-3">Phone & WhatsApp</th>
                       <th className="py-3 px-3">Source Evidence</th>
                       <th className="py-3 px-3">Outreach Status</th>
-                      <th className="py-3 px-3">Saved (PKT)</th>
+                      <th className="py-3 px-3">Saved Date</th>
                       <th className="py-3 px-3 text-right">Actions</th>
                     </tr>
                   </thead>
@@ -1041,18 +1075,6 @@ export default function SavedLeadsPage() {
                                 <ExternalLink className="h-2.5 w-2.5" />
                               </a>
                             )}
-                            <div className="mt-1 flex items-center gap-1.5 flex-wrap">
-                              <LeadQualityBadge
-                                score={(l as any).quality_score}
-                                category={(l as any).quality_category}
-                                reasons={(l as any).quality_reasons}
-                              />
-                              {(l as any).is_enriched && (
-                                <span className="px-1.5 py-0.5 rounded text-[9px] font-bold bg-purple-500/20 text-purple-300 border border-purple-500/30">
-                                  Enriched
-                                </span>
-                              )}
-                            </div>
                             {((l as any).linkedin || (l as any).instagram || (l as any).facebook || (l as any).youtube || (l as any).twitter) && (
                               <div className="flex items-center gap-1.5 mt-1 text-[10px]">
                                 {(l as any).linkedin && (
@@ -1092,7 +1114,7 @@ export default function SavedLeadsPage() {
                               <div className="flex flex-col gap-0.5">
                                 <span className="text-emerald-400 font-mono text-[11px] font-semibold">{l.email}</span>
                                 <span className="text-[9px] font-bold text-emerald-400 uppercase tracking-wider">
-                                  {l.email_status || "VERIFIED"}
+                                  {l.email_status || "SYNTAX CHECKED"}
                                 </span>
                                 {l.email_source_url && (
                                   <a
@@ -1150,7 +1172,7 @@ export default function SavedLeadsPage() {
                             )}
                           </td>
                           <td className="py-3 px-3">
-                            <div className="text-[11px] text-slate-300">{l.source_platform || l.source || "Web Search"}</div>
+                            <div className="text-[11px] text-slate-300">{l.source || "Web Search"}</div>
                             {(l.original_source_url || l.source_url) && (
                               <a
                                 href={l.original_source_url || l.source_url}
@@ -1180,18 +1202,6 @@ export default function SavedLeadsPage() {
                           </td>
                           <td className="py-3 px-3 text-right">
                             <div className="flex items-center justify-end gap-1.5">
-                              <button
-                                onClick={() => handleEnrichLead(l.id)}
-                                disabled={enrichingId === l.id}
-                                className="p-1.5 rounded-lg text-purple-400 hover:text-purple-300 hover:bg-purple-500/10 transition-colors cursor-pointer disabled:opacity-50"
-                                title="Enrich Lead (Social Profiles, Contact Discovery & Quality Score)"
-                              >
-                                {enrichingId === l.id ? (
-                                  <RefreshCw className="h-3.5 w-3.5 animate-spin text-purple-400" />
-                                ) : (
-                                  <Sparkles className="h-3.5 w-3.5" />
-                                )}
-                              </button>
                               <button
                                 onClick={() => {
                                   setSelectedResearchLead(l);

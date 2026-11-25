@@ -13,7 +13,7 @@ export async function GET(req: Request) {
     );
   }
 
-  const subCheck = await verifyClientActiveSubscription(currentUser);
+  const subCheck = await verifyClientActiveSubscription(currentUser, "saved_leads");
   if (!subCheck.allowed) {
     return NextResponse.json(
       { detail: subCheck.message, error: subCheck.message },
@@ -21,7 +21,7 @@ export async function GET(req: Request) {
     );
   }
 
-  const workspaceId = currentUser.workspace_id || 1;
+  const workspaceId = Number(subCheck.userRecord?.workspace_id || currentUser.workspace_id) || 1;
   const url = new URL(req.url);
   const keyword = url.searchParams.get("keyword") || "";
   const country = url.searchParams.get("country") || "Any";
@@ -29,6 +29,10 @@ export async function GET(req: Request) {
   const searchName = url.searchParams.get("company") || url.searchParams.get("name") || url.searchParams.get("search_name") || "";
   const searchEmail = url.searchParams.get("email") || url.searchParams.get("search_email") || "";
   const source = url.searchParams.get("source") || "";
+  const sourcesParam = url.searchParams.get("sources") || "";
+  const sources = sourcesParam
+    ? sourcesParam.split("||").map((s) => s.trim()).filter(Boolean)
+    : [];
   const datePreset = url.searchParams.get("date_preset") || "";
   const dateFrom = url.searchParams.get("date_from") || "";
   const dateTo = url.searchParams.get("date_to") || "";
@@ -59,6 +63,7 @@ export async function GET(req: Request) {
       search_name: searchName,
       search_email: searchEmail,
       source,
+      sources,
       date_preset: datePreset,
       date_from: dateFrom,
       date_to: dateTo,

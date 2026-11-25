@@ -4,7 +4,7 @@ import {
   addNeonChatMessage,
   createNeonChatConversation,
 } from "@/lib/neon-db";
-import { getCurrentUserFromRequest } from "@/lib/serverless-auth";
+import { getCurrentUserFromRequest, verifyClientActiveSubscription } from "@/lib/serverless-auth";
 
 export const dynamic = "force-dynamic";
 
@@ -161,17 +161,23 @@ function getFallbackReply(message: string, langCode: string): { reply: string; s
   };
 }
 
-function getAuth(req: Request) {
+async function getVerifiedAuth(req: Request) {
   const currentUser = getCurrentUserFromRequest(req);
-  const wsHeader = req.headers.get("X-Workspace-Id");
-  const workspaceId = wsHeader ? parseInt(wsHeader, 10) : (currentUser?.workspace_id || 1);
-  const userId = currentUser?.id || currentUser?.user_id || 1;
-  return { userId, workspaceId };
+  const subCheck = await verifyClientActiveSubscription(currentUser, "ai_assistant");
+  return { currentUser, subCheck };
 }
 
 export async function POST(req: Request) {
   try {
-    const { userId, workspaceId } = getAuth(req);
+    const { currentUser, subCheck } = await getVerifiedAuth(req);
+    if (!subCheck.allowed) {
+      return NextResponse.json(
+        { error: subCheck.message || "AI Assistant access restricted." },
+        { status: subCheck.statusCode || 403 }
+      );
+    }
+    const workspaceId = Number(subCheck.userRecord?.workspace_id || currentUser.workspace_id) || 1;
+    const userId = Number(subCheck.userRecord?.id || currentUser.id) || 1;
     const body = await req.json().catch(() => ({}));
     const message = String(body.message || "").trim();
     let conversationId = body.conversation_id ? String(body.conversation_id).trim() : null;

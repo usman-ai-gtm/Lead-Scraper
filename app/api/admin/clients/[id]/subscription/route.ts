@@ -1,6 +1,18 @@
 import { NextResponse } from "next/server";
 import { getCurrentUserFromRequest, isAuthorizedOwner } from "@/lib/serverless-auth";
 import { getNeonSql, isNeonConfigured, logAccountAudit, computeAuthoritativeUserStatus } from "@/lib/neon-db";
+import {
+  BASIC_FEATURES,
+  ALL_FEATURES_ENABLED,
+  BASIC_DAILY_EMAIL_LIMIT,
+  LIFETIME_GMAIL_DAILY_SAFE_CAP,
+  MAX_GMAIL_DAILY_SAFE_CAP,
+  DurationUnit,
+  normalizeFeatures,
+  calculateCustomPlanExpiresAt,
+  calculateSuggestedCustomPrice,
+  formatDurationLabel,
+} from "@/lib/entitlements";
 
 export const dynamic = "force-dynamic";
 
@@ -35,8 +47,9 @@ export async function POST(req: Request, { params }: RouteParams) {
 
     // Fetch current client (strict RBAC: cannot modify admin or Master Owner accounts)
     const existing = await sql`
-      SELECT id, email, full_name, role, account_type, status, plan, active, is_active,
-             subscription_start, subscription_expires_at, subscription_status
+      SELECT id, email, full_name, role, account_type, status, plan, plan_type, plan_label,
+             custom_duration_value, custom_duration_unit, daily_email_limit, google_maps_enabled,
+             features_json, active, is_active, subscription_start, subscription_expires_at, subscription_status
       FROM users
       WHERE id = ${clientId} AND role != 'ADMIN' AND role != 'SUPER_ADMIN' AND (account_type IS NULL OR account_type != 'MASTER_OWNER')
       LIMIT 1
@@ -51,40 +64,149 @@ export async function POST(req: Request, { params }: RouteParams) {
 
     switch (action) {
       case "ACTIVATE_BASIC": {
-        // Basic: $25 / 30 Days (auto-locks after 30 days)
+        // Basic: $25 / 30 Days (auto-locks after 30 days, Maps OFF, 10 emails/day)
+        const basicFeaturesStr = JSON.stringify(BASIC_FEATURES);
         updated = await sql`
           UPDATE users
           SET status = 'ACTIVE',
               active = 1,
               is_active = 1,
               plan = 'BASIC',
+              plan_type = 'BASIC',
+              plan_label = 'Basic Plan ($25 / 30 Days)',
+              custom_duration_value = 30,
+              custom_duration_unit = 'days',
+              custom_price_usd = 25,
+              suggested_price_usd = 25,
+              daily_email_limit = ${BASIC_DAILY_EMAIL_LIMIT},
+              google_maps_enabled = FALSE,
+              features_json = ${basicFeaturesStr}::jsonb,
               subscription_status = 'ACTIVE',
               subscription_start = NOW(),
               subscription_expires_at = NOW() + INTERVAL '30 days',
               subscription_notes = COALESCE(${notes}, subscription_notes),
               updated_at = NOW()
           WHERE id = ${clientId}
-          RETURNING id, email, full_name, role, status, plan, active, is_active,
+          RETURNING id, email, full_name, role, status, plan, plan_type, plan_label, google_maps_enabled,
+                    daily_email_limit, features_json, custom_duration_value, custom_duration_unit,
+                    custom_price_usd, suggested_price_usd, active, is_active,
                     subscription_start, subscription_expires_at, subscription_status
         `;
         break;
       }
 
       case "ACTIVATE_LIFETIME": {
-        // Lifetime: $100 One-Time (permanent access, no expiry)
+        // Lifetime: $100 One-Time (permanent access, no expiry, Maps ON, 500 emails/day cap)
+        const allFeaturesStr = JSON.stringify(ALL_FEATURES_ENABLED);
         updated = await sql`
           UPDATE users
           SET status = 'ACTIVE',
               active = 1,
               is_active = 1,
               plan = 'LIFETIME',
+              plan_type = 'LIFETIME',
+              plan_label = 'Lifetime Plan ($100 One-Time)',
+              custom_duration_value = NULL,
+              custom_duration_unit = 'lifetime',
+              custom_price_usd = 100,
+              suggested_price_usd = 100,
+              daily_email_limit = ${LIFETIME_GMAIL_DAILY_SAFE_CAP},
+              google_maps_enabled = TRUE,
+              features_json = ${allFeaturesStr}::jsonb,
               subscription_status = 'ACTIVE',
               subscription_start = NOW(),
               subscription_expires_at = NULL,
               subscription_notes = COALESCE(${notes}, subscription_notes),
               updated_at = NOW()
           WHERE id = ${clientId}
-          RETURNING id, email, full_name, role, status, plan, active, is_active,
+          RETURNING id, email, full_name, role, status, plan, plan_type, plan_label, google_maps_enabled,
+                    daily_email_limit, features_json, custom_duration_value, custom_duration_unit,
+                    custom_price_usd, suggested_price_usd, active, is_active,
+                    subscription_start, subscription_expires_at, subscription_status
+        `;
+        break;
+      }
+
+      case "ACTIVATE_CUSTOM":
+      case "EXTEND_CUSTOM": {
+        const validUnits: DurationUnit[] = ["hours", "days", "weeks", "months", "years", "lifetime"];
+        const durationUnit = String(body.duration_unit || client.custom_duration_unit || "days").toLowerCase() as DurationUnit;
+        if (!validUnits.includes(durationUnit)) {
+          return NextResponse.json({ detail: "Invalid custom duration_unit." }, { status: 400 });
+        }
+        const durationValue =
+          durationUnit === "lifetime"
+            ? null
+            : Math.max(1, Math.floor(Number(body.duration_value ?? client.custom_duration_value) || 1));
+
+        const normalizedFeatures = normalizeFeatures(
+          body.features ?? client.features_json ?? BASIC_FEATURES,
+          body.google_maps_enabled !== undefined ? Boolean(body.google_maps_enabled) : undefined
+        );
+        if (Object.values(normalizedFeatures).filter(Boolean).length === 0) {
+          return NextResponse.json({ detail: "Enable at least 1 feature for a Custom Plan." }, { status: 400 });
+        }
+
+        const googleMapsEnabled = Boolean(normalizedFeatures.google_maps && body.google_maps_enabled !== false);
+        if (!googleMapsEnabled) {
+          normalizedFeatures.google_maps = false;
+          normalizedFeatures.multi_country_maps = false;
+        }
+        const dailyEmailLimit = normalizedFeatures.cold_email
+          ? Math.max(1, Math.min(MAX_GMAIL_DAILY_SAFE_CAP, Math.floor(Number(body.daily_email_limit ?? client.daily_email_limit ?? 10))))
+          : 0;
+
+        const priceCalc = calculateSuggestedCustomPrice({
+          features: normalizedFeatures,
+          durationValue,
+          durationUnit,
+          dailyEmailLimit,
+        });
+        const suggestedPriceUsd = priceCalc.suggestedPriceUsd;
+        const customPriceUsd =
+          body.custom_price_usd !== undefined && body.custom_price_usd !== null && body.custom_price_usd !== ""
+            ? Number(Number(body.custom_price_usd).toFixed(2))
+            : suggestedPriceUsd;
+
+        const baseDate =
+          action === "EXTEND_CUSTOM" &&
+          client.subscription_expires_at &&
+          new Date(client.subscription_expires_at).getTime() > Date.now()
+            ? new Date(client.subscription_expires_at)
+            : new Date();
+        const expiryDate = calculateCustomPlanExpiresAt(baseDate, durationValue, durationUnit);
+        const expiryIso = expiryDate ? expiryDate.toISOString() : null;
+        const durLabel = formatDurationLabel(durationValue, durationUnit);
+        const planLabel =
+          body.plan_label && String(body.plan_label).trim()
+            ? String(body.plan_label).trim()
+            : `Custom (${durLabel} • $${customPriceUsd})`;
+        const featJsonStr = JSON.stringify(normalizedFeatures);
+
+        updated = await sql`
+          UPDATE users
+          SET status = 'ACTIVE',
+              active = 1,
+              is_active = 1,
+              plan = 'CUSTOM',
+              plan_type = 'CUSTOM',
+              plan_label = ${planLabel},
+              custom_duration_value = ${durationValue},
+              custom_duration_unit = ${durationUnit},
+              custom_price_usd = ${customPriceUsd},
+              suggested_price_usd = ${suggestedPriceUsd},
+              daily_email_limit = ${dailyEmailLimit},
+              google_maps_enabled = ${googleMapsEnabled},
+              features_json = ${featJsonStr}::jsonb,
+              subscription_status = 'ACTIVE',
+              subscription_start = CASE WHEN ${action === "ACTIVATE_CUSTOM"} THEN NOW() ELSE COALESCE(subscription_start, NOW()) END,
+              subscription_expires_at = ${expiryIso}::timestamptz,
+              subscription_notes = COALESCE(${notes}, subscription_notes),
+              updated_at = NOW()
+          WHERE id = ${clientId}
+          RETURNING id, email, full_name, role, status, plan, plan_type, plan_label, google_maps_enabled,
+                    daily_email_limit, features_json, custom_duration_value, custom_duration_unit,
+                    custom_price_usd, suggested_price_usd, active, is_active,
                     subscription_start, subscription_expires_at, subscription_status
         `;
         break;

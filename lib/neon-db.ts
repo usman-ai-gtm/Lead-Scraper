@@ -1,5 +1,18 @@
 import { neon } from "@neondatabase/serverless";
 import { encryptToken, decryptToken } from "@/lib/token-crypto";
+import {
+  resolveUserEntitlements,
+  calculateCustomPlanExpiresAt,
+  normalizeFeatures,
+  formatDurationLabel,
+  BASIC_FEATURES,
+  ALL_FEATURES_ENABLED,
+  BASIC_DAILY_EMAIL_LIMIT,
+  LIFETIME_GMAIL_DAILY_SAFE_CAP,
+  MAX_GMAIL_DAILY_SAFE_CAP,
+  DurationUnit,
+  FeatureMap,
+} from "@/lib/entitlements";
 
 function getConnectionString(): string | null {
   let dbUrl = process.env.DATABASE_URL || process.env.POSTGRES_URL;
@@ -211,11 +224,12 @@ export async function saveNeonSearchRecordAndLeads(
     for (const lead of leads) {
       const bName = String(lead.business_name || lead.name || "").trim();
       const email = String(lead.email || "").trim();
-      if (!bName || !email || !email.includes("@") || !email.includes(".")) continue;
-
       const phone = String(lead.phone || "").trim();
-      const hasPhone = phone && !["Not Listed", "Not Found", ""].includes(phone);
-      if (hasPhone) phoneCount++;
+      const hasValidEmail = Boolean(email && email.includes("@") && email.includes("."));
+      const hasValidPhone = Boolean(phone && !["Not Listed", "Not Found", ""].includes(phone));
+      if (!bName || (!hasValidEmail && !hasValidPhone)) continue;
+
+      if (hasValidPhone) phoneCount++;
       qualifiedLeads.push(lead);
     }
 
@@ -227,7 +241,11 @@ export async function saveNeonSearchRecordAndLeads(
         requested_quantity, qualified_quantity, leads_with_phone,
         search_status, search_date, search_time, completion_time, created_at
       ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)
-      ON CONFLICT (id) DO NOTHING`,
+      ON CONFLICT (id) DO UPDATE SET
+        qualified_quantity = search_records.qualified_quantity + EXCLUDED.qualified_quantity,
+        leads_with_phone = search_records.leads_with_phone + EXCLUDED.leads_with_phone,
+        search_status = EXCLUDED.search_status,
+        completion_time = EXCLUDED.completion_time`,
       [
         recordId,
         workspaceId,
@@ -252,93 +270,93 @@ export async function saveNeonSearchRecordAndLeads(
       const email = String(lead.email || "").trim();
       const website = String(lead.website || "").trim();
       const phone = String(lead.phone || "").trim();
+      const dom = String(lead.domain || "").trim().toLowerCase();
+      const city = String(lead.city || searchMeta.city || "").trim();
+      const country = String(lead.country || searchMeta.country || "").trim();
+      const address = String(lead.address || "").trim();
+      const emailStatus = String(lead.email_status || (email ? "EXTRACTED • SYNTAX CHECKED" : "NOT FOUND")).trim();
+      const phoneStatus = String(lead.phone_status || (phone ? "FORMAT CHECKED" : "NOT LISTED")).trim();
 
-      const existing = await sql.query(
-        "SELECT id FROM leads WHERE workspace_id = $1 AND email = $2 LIMIT 1",
-        [workspaceId, email]
-      );
+      const normEmail = email.includes("@") ? email.toLowerCase().trim() : "";
+      const normDom = dom.replace(/^https?:\/\//i, "").replace(/^www\./i, "").split("/")[0].toLowerCase().trim();
+      const normPhone = phone ? phone.replace(/[^0-9+]/g, "") : "";
+      const placeId = String(lead.place_id || "").trim();
 
-      let leadId = existing.length > 0 ? existing[0].id : null;
+      let leadId: number | null = null;
+      if (normEmail || normDom || placeId || normPhone) {
+        const existingCheck = await sql.query(
+          `SELECT id FROM leads 
+           WHERE workspace_id = $1 
+             AND (
+               (normalized_email = $2 AND $2 != '')
+               OR (normalized_domain = $3 AND $3 != '')
+               OR (place_id = $4 AND $4 != '')
+               OR (normalized_phone = $5 AND $5 != '')
+             )
+           LIMIT 1`,
+          [workspaceId, normEmail, normDom, placeId, normPhone]
+        );
+        if (existingCheck.length > 0) {
+          leadId = existingCheck[0].id;
+        }
+      }
+
       if (leadId) {
         if (phone) {
           try {
             await sql.query(
               "UPDATE leads SET phone = $1, phone_status = $2, updated_at = $3 WHERE id = $4 AND (phone IS NULL OR phone = '' OR phone = 'Not Listed')",
-              [phone, lead.phone_status || "FOUND IN SOURCE EVIDENCE", nowIso, leadId]
+              [phone, phoneStatus, nowIso, leadId]
             );
           } catch {}
         }
       } else {
-        const dom = String(lead.domain || "").trim().toLowerCase();
-        const city = String(lead.city || searchMeta.city || "").trim();
-        const country = String(lead.country || searchMeta.country || "").trim();
-        const address = String(lead.address || "").trim();
-        const emailStatus = String(lead.email_status || "FOUND IN SOURCE EVIDENCE").trim();
-        const phoneStatus = String(lead.phone_status || (phone ? "FOUND IN SOURCE EVIDENCE" : "NOT LISTED")).trim();
-
-        const normEmail = email.toLowerCase().trim();
-        const normDom = dom.replace(/^https?:\/\//i, "").replace(/^www\./i, "").split("/")[0].toLowerCase().trim();
-        const normPhone = phone ? phone.replace(/[^0-9+]/g, "") : "";
-        const placeId = String(lead.place_id || "").trim();
-
-        // Check if matching domain, email, or place_id already exists in workspace
-        const existingCheck = await sql.query(
-          `SELECT id FROM leads 
-           WHERE workspace_id = $1 
-             AND (
-               (normalized_email = $2 AND normalized_email != '')
-               OR (normalized_domain = $3 AND normalized_domain != '')
-               OR (place_id = $4 AND place_id != '')
-             )
-           LIMIT 1`,
-          [workspaceId, normEmail, normDom, placeId]
+        const ins = await sql.query(
+          `INSERT INTO leads (
+            workspace_id, business_name, email, phone, website,
+            source, source_url, search_keyword, search_location,
+            lead_score, fit_score, lead_temperature, crm_stage,
+            date_discovered, created_at, updated_at,
+            domain, city, country, address, email_status, phone_status,
+            normalized_domain, normalized_email, normalized_phone, place_id,
+            rating, review_count, industry, category
+          ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27, $28, $29, $30)
+          ON CONFLICT DO NOTHING
+          RETURNING id`,
+          [
+            workspaceId,
+            bName,
+            email,
+            phone,
+            website,
+            lead.source || lead.source_platform || "Google Organic Web Search",
+            lead.original_source_url || lead.source_url || website,
+            searchMeta.keyword,
+            city || country,
+            lead.quality_score || lead.lead_score || 50,
+            lead.fit_score || 50,
+            "HOT",
+            "Lead Discovered",
+            pkt.date,
+            nowIso,
+            nowIso,
+            dom,
+            city,
+            country,
+            address,
+            emailStatus,
+            phoneStatus,
+            normDom,
+            normEmail,
+            normPhone,
+            placeId,
+            lead.rating != null ? Number(lead.rating) : null,
+            lead.rating_count != null ? Number(lead.rating_count) : null,
+            lead.industry || searchMeta.keyword || "General",
+            lead.category || lead.industry || "General",
+          ]
         );
-
-        if (existingCheck.length > 0) {
-          leadId = existingCheck[0].id;
-        } else {
-          const ins = await sql.query(
-            `INSERT INTO leads (
-              workspace_id, business_name, email, phone, website,
-              source, source_url, search_keyword, search_location,
-              lead_score, fit_score, lead_temperature, crm_stage,
-              date_discovered, created_at, updated_at,
-              domain, city, country, address, email_status, phone_status,
-              normalized_domain, normalized_email, normalized_phone, place_id
-            ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26)
-            ON CONFLICT DO NOTHING
-            RETURNING id`,
-            [
-              workspaceId,
-              bName,
-              email,
-              phone,
-              website,
-              lead.source_platform || lead.source || "Google Organic Web Search",
-              lead.original_source_url || lead.source_url || website,
-              searchMeta.keyword,
-              city || country,
-              lead.lead_score || 50,
-              lead.fit_score || 50,
-              "HOT",
-              "Lead Discovered",
-              pkt.date,
-              nowIso,
-              nowIso,
-              dom,
-              city,
-              country,
-              address,
-              emailStatus,
-              phoneStatus,
-              normDom,
-              normEmail,
-              normPhone,
-              placeId,
-            ]
-          );
-          leadId = ins[0]?.id;
-        }
+        leadId = ins[0]?.id || null;
       }
 
       if (leadId) {
@@ -440,6 +458,7 @@ export async function getNeonLeads(
     date_preset?: string;
     date_from?: string;
     date_to?: string;
+    sources?: string[];
     page?: number;
     page_size?: number;
     platform?: string;
@@ -471,9 +490,12 @@ export async function getNeonLeads(
       params.push(`%${options.search_email}%`);
       whereClause += ` AND email ILIKE $${params.length}`;
     }
-    if (options?.source && options.source !== "All" && options.source !== "ALL" && options.source !== "Any") {
+    if (Array.isArray(options?.sources) && options!.sources.length > 0) {
+      params.push(options!.sources);
+      whereClause += ` AND COALESCE(NULLIF(TRIM(source), ''), 'Unknown Source') = ANY($${params.length}::text[])`;
+    } else if (options?.source && options.source !== "All" && options.source !== "ALL" && options.source !== "Any") {
       params.push(`%${options.source}%`);
-      whereClause += ` AND (source ILIKE $${params.length} OR source_platform ILIKE $${params.length})`;
+      whereClause += ` AND source ILIKE $${params.length}`;
     }
     if (options?.country && options.country !== "Any" && options.country !== "ALL" && options.country !== "Global") {
       params.push(`%${options.country}%`);
@@ -543,26 +565,43 @@ export async function getNeonLeads(
       whereClause += ` AND ((email IS NOT NULL AND email != '' AND email != 'Not Found' AND email LIKE '%@%') OR (phone IS NOT NULL AND phone != '' AND phone != 'Not Found' AND phone != 'Not Listed'))`;
     }
 
-    // Date filtering (UTC timestamps)
+    // Date filtering (UTC day/range comparisons)
     if (options?.date_preset === "today") {
-      whereClause += ` AND (created_at::timestamptz >= CURRENT_DATE)`;
+      whereClause += ` AND (created_at::timestamptz >= date_trunc('day', NOW() AT TIME ZONE 'UTC') AT TIME ZONE 'UTC')`;
     } else if (options?.date_preset === "yesterday") {
-      whereClause += ` AND (created_at::timestamptz >= CURRENT_DATE - INTERVAL '1 day' AND created_at::timestamptz < CURRENT_DATE)`;
+      whereClause += ` AND (created_at::timestamptz >= (date_trunc('day', NOW() AT TIME ZONE 'UTC') - INTERVAL '1 day') AT TIME ZONE 'UTC' AND created_at::timestamptz < date_trunc('day', NOW() AT TIME ZONE 'UTC') AT TIME ZONE 'UTC')`;
     } else if (options?.date_preset === "last_7_days") {
-      whereClause += ` AND (created_at::timestamptz >= CURRENT_DATE - INTERVAL '7 days')`;
+      whereClause += ` AND (created_at::timestamptz >= (date_trunc('day', NOW() AT TIME ZONE 'UTC') - INTERVAL '6 days') AT TIME ZONE 'UTC')`;
     } else if (options?.date_preset === "last_30_days") {
-      whereClause += ` AND (created_at::timestamptz >= CURRENT_DATE - INTERVAL '30 days')`;
+      whereClause += ` AND (created_at::timestamptz >= (date_trunc('day', NOW() AT TIME ZONE 'UTC') - INTERVAL '29 days') AT TIME ZONE 'UTC')`;
     } else if (options?.date_from && options?.date_to) {
-      params.push(options.date_from);
-      params.push(options.date_to);
+      const fromIso = options.date_from.includes("T") ? options.date_from : `${options.date_from}T00:00:00.000Z`;
+      const toIso = options.date_to.includes("T") ? options.date_to : `${options.date_to}T23:59:59.999Z`;
+      params.push(fromIso);
+      params.push(toIso);
       whereClause += ` AND (created_at::timestamptz >= $${params.length - 1}::timestamptz AND created_at::timestamptz <= $${params.length}::timestamptz)`;
     } else if (options?.date_from) {
-      params.push(options.date_from);
+      const fromIso = options.date_from.includes("T") ? options.date_from : `${options.date_from}T00:00:00.000Z`;
+      params.push(fromIso);
       whereClause += ` AND (created_at::timestamptz >= $${params.length}::timestamptz)`;
+    } else if (options?.date_to) {
+      const toIso = options.date_to.includes("T") ? options.date_to : `${options.date_to}T23:59:59.999Z`;
+      params.push(toIso);
+      whereClause += ` AND (created_at::timestamptz <= $${params.length}::timestamptz)`;
     }
 
     const countRes = await sql.query(`SELECT COUNT(*) as cnt FROM leads ${whereClause}`, params);
     const total = parseInt(countRes[0]?.cnt || "0", 10);
+
+    // Distinct non-empty sources across the workspace's saved leads
+    const sourceRows = await sql.query(
+      `SELECT COALESCE(NULLIF(TRIM(source), ''), 'Unknown Source') AS source_name, COUNT(*) AS cnt
+       FROM leads
+       WHERE workspace_id = $1
+       GROUP BY COALESCE(NULLIF(TRIM(source), ''), 'Unknown Source')
+       ORDER BY cnt DESC, source_name ASC`,
+      [workspaceId]
+    ).catch(() => []);
 
     const page = options?.page || 1;
     const pageSize = options?.page_size || 50;
@@ -577,6 +616,10 @@ export async function getNeonLeads(
     return {
       total,
       leads: rows,
+      available_sources: (sourceRows || []).map((r: any) => ({
+        source: String(r.source_name),
+        count: parseInt(r.cnt || "0", 10),
+      })),
       page,
       page_size: pageSize,
       total_pages: Math.ceil(total / pageSize) || 1,
@@ -997,8 +1040,10 @@ export async function saveNeonOutreachRecord(data: {
       ]
     );
 
-    // Update lead in leads table
-    if (data.leadId) {
+    const isSuccessSend = (data.outreachStatus || "EMAIL SENT") === "EMAIL SENT";
+
+    // Update lead in leads table only on successful send (or explicit status change)
+    if (data.leadId && isSuccessSend) {
       await sql.query(
         `UPDATE leads SET
           crm_stage = $1,
@@ -1007,7 +1052,7 @@ export async function saveNeonOutreachRecord(data: {
           updated_at = $4
         WHERE workspace_id = $5 AND id = $6`,
         [
-          data.outreachStatus || "EMAIL SENT",
+          "EMAIL SENT",
           nowIso,
           data.followupDate || null,
           nowIso,
@@ -1017,20 +1062,55 @@ export async function saveNeonOutreachRecord(data: {
       );
     }
 
-    // Increment sent count in email_accounts
-    await sql.query(
-      `UPDATE email_accounts SET
-        sent_today = sent_today + 1,
-        last_sent_at = $1,
-        updated_at = $1
-      WHERE workspace_id = $2 AND is_active = 1`,
-      [nowIso, data.workspaceId]
-    );
+    // Increment sent count only for successful sends on the specific sender mailbox
+    if (isSuccessSend) {
+      await sql.query(
+        `UPDATE email_accounts SET
+          sent_today = (
+            SELECT COUNT(*)::int FROM outreach_records
+            WHERE workspace_id = $2
+              AND outreach_status = 'EMAIL SENT'
+              AND sent_at::timestamptz >= date_trunc('day', NOW() AT TIME ZONE 'UTC') AT TIME ZONE 'UTC'
+              AND LOWER(sender_email) = LOWER(email_accounts.sender_email)
+          ),
+          last_sent_at = $1,
+          updated_at = $1
+        WHERE workspace_id = $2 AND LOWER(sender_email) = LOWER($3) AND is_active = 1`,
+        [nowIso, data.workspaceId, data.senderEmail]
+      );
+    }
 
     return rows[0] || null;
   } catch (e) {
     console.error("Neon saveOutreachRecord error:", e);
     return null;
+  }
+}
+
+export async function getNeonEmailsSentTodayUtc(workspaceId: number, senderEmail?: string): Promise<number> {
+  const sql = getNeonSql();
+  if (!sql) return 0;
+  await ensureOutreachTable();
+  try {
+    const params: any[] = [workspaceId];
+    let filterSender = "";
+    if (senderEmail) {
+      params.push(senderEmail.toLowerCase().trim());
+      filterSender = ` AND LOWER(sender_email) = $${params.length}`;
+    }
+    const rows = await sql.query(
+      `SELECT COUNT(*) AS cnt
+       FROM outreach_records
+       WHERE workspace_id = $1
+         AND outreach_status = 'EMAIL SENT'
+         AND sent_at::timestamptz >= date_trunc('day', NOW() AT TIME ZONE 'UTC') AT TIME ZONE 'UTC'
+         ${filterSender}`,
+      params
+    );
+    return parseInt(rows[0]?.cnt || "0", 10);
+  } catch (e) {
+    console.error("getNeonEmailsSentTodayUtc error:", e);
+    return 0;
   }
 }
 
@@ -1119,44 +1199,46 @@ export function computeAuthoritativeUserStatus(user: {
   role?: string;
   status?: string;
   plan?: string;
+  plan_type?: string | null;
+  plan_label?: string | null;
+  custom_duration_value?: number | null;
+  custom_duration_unit?: string | null;
+  custom_price_usd?: number | null;
+  suggested_price_usd?: number | null;
+  daily_email_limit?: number | null;
+  google_maps_enabled?: boolean | null;
+  features_json?: any;
   account_type?: string;
   email?: string;
   username?: string;
+  subscription_start?: string | Date | null;
   subscription_expires_at?: string | Date | null;
 }): {
   status: "ACTIVE" | "LOCKED" | "SUSPENDED" | "REVOKED" | "EXPIRED" | "PREVIEW_ONLY";
   isLocked: boolean;
-  plan: "BASIC" | "LIFETIME" | "FREE_PREVIEW";
+  plan: "BASIC" | "LIFETIME" | "CUSTOM" | "FREE_PREVIEW";
+  plan_type: string;
+  plan_label: string;
+  google_maps_enabled: boolean;
+  daily_email_limit: number;
+  features: FeatureMap;
   isExpired: boolean;
   daysRemaining: number | string;
   remainingDetailed: string;
   remainingMs: number;
 } {
-  const roleUpper = (user.role || "").toUpperCase();
-  const accountTypeUpper = (user.account_type || "").toUpperCase();
-  const usernameLower = String(user.username || "").trim().toLowerCase();
-  const emailLower = String(user.email || "").trim().toLowerCase();
-  const isMasterOwner =
-    roleUpper === "SUPER_ADMIN" ||
-    roleUpper === "ADMIN" ||
-    accountTypeUpper === "MASTER_OWNER" ||
-    usernameLower === "master_owner_usman" ||
-    emailLower === "master_owner@usmanai.internal" ||
-    emailLower === "transaction000501@gmail.com" ||
-    [
-      "master_owner@usmanai.internal",
-      "transaction000501@gmail.com",
-      "admin@usmanai.com",
-      "mu0602503@gmail.com",
-      "admin@usmangtm.com",
-      "selftest_founder_2026@usmanai.com",
-    ].includes(emailLower);
+  const ent = resolveUserEntitlements(user);
 
-  if (isMasterOwner) {
+  if (ent.isOwner) {
     return {
       status: "ACTIVE",
       isLocked: false,
       plan: "LIFETIME",
+      plan_type: "OWNER_LIFETIME",
+      plan_label: ent.planLabel,
+      google_maps_enabled: true,
+      daily_email_limit: ent.dailyEmailLimit,
+      features: ent.features,
       isExpired: false,
       daysRemaining: "Permanent (Master Owner)",
       remainingDetailed: "Permanent Access — No Expiry",
@@ -1164,18 +1246,26 @@ export function computeAuthoritativeUserStatus(user: {
     };
   }
 
-  const statusUpper = (user.status || "LOCKED").toUpperCase();
+  const statusUpper = String(user.status || "LOCKED").toUpperCase();
+  const mappedPlan: "BASIC" | "LIFETIME" | "CUSTOM" | "FREE_PREVIEW" =
+    ent.planType === "CUSTOM"
+      ? "CUSTOM"
+      : ent.planType === "LIFETIME"
+      ? "LIFETIME"
+      : ent.planType === "FREE_PREVIEW"
+      ? "FREE_PREVIEW"
+      : "BASIC";
 
-  // FREE_PREVIEW accounts (Google OAuth visitors)
-  if (
-    accountTypeUpper === "FREE_PREVIEW" ||
-    statusUpper === "PREVIEW_ONLY" ||
-    (user.plan || "").toUpperCase() === "FREE_PREVIEW"
-  ) {
+  if (ent.planType === "FREE_PREVIEW" || statusUpper === "PREVIEW_ONLY") {
     return {
       status: "PREVIEW_ONLY",
       isLocked: true,
       plan: "FREE_PREVIEW",
+      plan_type: "FREE_PREVIEW",
+      plan_label: ent.planLabel,
+      google_maps_enabled: false,
+      daily_email_limit: 0,
+      features: ent.features,
       isExpired: false,
       daysRemaining: "Free Preview",
       remainingDetailed: "Free Preview Mode",
@@ -1183,12 +1273,16 @@ export function computeAuthoritativeUserStatus(user: {
     };
   }
 
-  // Explicit manual lock/suspension/revocation STRICTLY overrides everything
   if (statusUpper === "REVOKED") {
     return {
       status: "REVOKED",
       isLocked: true,
-      plan: (user.plan || "BASIC").toUpperCase() === "LIFETIME" ? "LIFETIME" : "BASIC",
+      plan: mappedPlan,
+      plan_type: ent.planType,
+      plan_label: ent.planLabel,
+      google_maps_enabled: false,
+      daily_email_limit: 0,
+      features: ent.features,
       isExpired: false,
       daysRemaining: 0,
       remainingDetailed: "Revoked by Administrator",
@@ -1199,18 +1293,28 @@ export function computeAuthoritativeUserStatus(user: {
     return {
       status: "SUSPENDED",
       isLocked: true,
-      plan: (user.plan || "BASIC").toUpperCase() === "LIFETIME" ? "LIFETIME" : "BASIC",
+      plan: mappedPlan,
+      plan_type: ent.planType,
+      plan_label: ent.planLabel,
+      google_maps_enabled: false,
+      daily_email_limit: 0,
+      features: ent.features,
       isExpired: false,
       daysRemaining: 0,
       remainingDetailed: "Suspended by Administrator",
       remainingMs: 0,
     };
   }
-  if (statusUpper === "LOCKED" || statusUpper === "PENDING") {
+  if (statusUpper === "LOCKED" || statusUpper === "PENDING" || statusUpper === "PENDING_APPROVAL") {
     return {
       status: "LOCKED",
       isLocked: true,
-      plan: (user.plan || "BASIC").toUpperCase() === "LIFETIME" ? "LIFETIME" : "BASIC",
+      plan: mappedPlan,
+      plan_type: ent.planType,
+      plan_label: ent.planLabel,
+      google_maps_enabled: false,
+      daily_email_limit: 0,
+      features: ent.features,
       isExpired: false,
       daysRemaining: 0,
       remainingDetailed: "Locked by Administrator",
@@ -1218,14 +1322,16 @@ export function computeAuthoritativeUserStatus(user: {
     };
   }
 
-  // Active status: check plan & expiration
-  const planUpper = (user.plan || "BASIC").toUpperCase() === "LIFETIME" ? "LIFETIME" : "BASIC";
-
-  if (planUpper === "LIFETIME") {
+  if (ent.isLifetime) {
     return {
       status: "ACTIVE",
       isLocked: false,
-      plan: "LIFETIME",
+      plan: mappedPlan === "CUSTOM" ? "CUSTOM" : "LIFETIME",
+      plan_type: ent.planType,
+      plan_label: ent.planLabel,
+      google_maps_enabled: ent.googleMapsEnabled,
+      daily_email_limit: ent.dailyEmailLimit,
+      features: ent.features,
       isExpired: false,
       daysRemaining: "Lifetime Access — No Expiry",
       remainingDetailed: "Lifetime Access — No Expiry",
@@ -1233,12 +1339,16 @@ export function computeAuthoritativeUserStatus(user: {
     };
   }
 
-  // Basic Plan ($25 / 30 Days)
   if (!user.subscription_expires_at) {
     return {
-      status: "LOCKED",
+      status: statusUpper === "EXPIRED" ? "EXPIRED" : "LOCKED",
       isLocked: true,
-      plan: "BASIC",
+      plan: mappedPlan,
+      plan_type: ent.planType,
+      plan_label: ent.planLabel,
+      google_maps_enabled: ent.googleMapsEnabled,
+      daily_email_limit: ent.dailyEmailLimit,
+      features: ent.features,
       isExpired: true,
       daysRemaining: 0,
       remainingDetailed: "Expired",
@@ -1247,14 +1357,17 @@ export function computeAuthoritativeUserStatus(user: {
   }
 
   const expTime = new Date(user.subscription_expires_at).getTime();
-  const now = Date.now();
-  const diffMs = expTime - now;
-
-  if (diffMs <= 0) {
+  const diffMs = expTime - Date.now();
+  if (Number.isNaN(expTime) || diffMs <= 0) {
     return {
       status: "EXPIRED",
       isLocked: true,
-      plan: "BASIC",
+      plan: mappedPlan,
+      plan_type: ent.planType,
+      plan_label: ent.planLabel,
+      google_maps_enabled: ent.googleMapsEnabled,
+      daily_email_limit: ent.dailyEmailLimit,
+      features: ent.features,
       isExpired: true,
       daysRemaining: 0,
       remainingDetailed: "Expired",
@@ -1265,21 +1378,26 @@ export function computeAuthoritativeUserStatus(user: {
   const days = Math.floor(diffMs / (1000 * 60 * 60 * 24));
   const hours = Math.floor((diffMs % (1000 * 60 * 60 * 24)) / (1000 * 60 * 60));
   const minutes = Math.floor((diffMs % (1000 * 60 * 60)) / (1000 * 60));
-  const remainingDetailed = `${days}d ${hours}h ${minutes}m left`;
+  const remainingDetailed = days > 0 ? `${days}d ${hours}h ${minutes}m left` : `${hours}h ${minutes}m left`;
 
   return {
     status: "ACTIVE",
     isLocked: false,
-    plan: "BASIC",
+    plan: mappedPlan,
+    plan_type: ent.planType,
+    plan_label: ent.planLabel,
+    google_maps_enabled: ent.googleMapsEnabled,
+    daily_email_limit: ent.dailyEmailLimit,
+    features: ent.features,
     isExpired: false,
-    daysRemaining: days,
+    daysRemaining: days > 0 ? days : `${hours}h ${minutes}m`,
     remainingDetailed,
     remainingMs: diffMs,
   };
 }
 
 /**
- * USMAN AI GTM - 50-Seat Multi-Tenant Client Management
+ * USMAN AI GTM - Multi-Tenant Client Management
  */
 export async function getNeonClients() {
   const sql = getNeonSql();
@@ -1297,6 +1415,15 @@ export async function getNeonClients() {
         u.workspace_id,
         u.status,
         COALESCE(u.plan, 'BASIC') as plan,
+        u.plan_type,
+        u.plan_label,
+        u.custom_duration_value,
+        u.custom_duration_unit,
+        u.custom_price_usd,
+        u.suggested_price_usd,
+        u.daily_email_limit,
+        u.google_maps_enabled,
+        u.features_json,
         u.subscription_start,
         u.subscription_expires_at,
         u.subscription_status,
@@ -1315,11 +1442,27 @@ export async function getNeonClients() {
 
     return clients.map((c: any) => {
       const computed = computeAuthoritativeUserStatus(c);
+      const displayPlan =
+        computed.plan === "CUSTOM"
+          ? computed.plan_label ||
+            `CUSTOM (${formatDurationLabel(c.custom_duration_value, c.custom_duration_unit)})`
+          : computed.plan === "LIFETIME"
+          ? "LIFETIME ($100)"
+          : computed.plan === "FREE_PREVIEW"
+          ? "FREE PREVIEW"
+          : "BASIC ($25/30 Days)";
 
       return {
         ...c,
         raw_plan: computed.plan,
-        plan: computed.plan === "LIFETIME" ? "LIFETIME ($100)" : computed.plan === "FREE_PREVIEW" ? "FREE PREVIEW" : "BASIC ($25/30 Days)",
+        plan_type: computed.plan_type,
+        plan_label: computed.plan_label,
+        google_maps_enabled: computed.google_maps_enabled,
+        daily_email_limit: computed.daily_email_limit,
+        features: computed.features,
+        custom_price_usd: c.custom_price_usd != null ? Number(c.custom_price_usd) : null,
+        suggested_price_usd: c.suggested_price_usd != null ? Number(c.suggested_price_usd) : null,
+        plan: displayPlan,
         status: computed.status,
         payment_status: computed.status === "ACTIVE" ? "PAID" : computed.status === "PREVIEW_ONLY" ? "PREVIEW" : "PENDING",
         remaining_days: computed.daysRemaining,
@@ -1343,8 +1486,16 @@ export async function createPaidClientAccount(data: {
   customerName?: string;
   username: string;
   passwordHash: string;
-  plan: "BASIC" | "LIFETIME";
+  plan: "BASIC" | "LIFETIME" | "CUSTOM";
   clientNotes?: string;
+  durationValue?: number | null;
+  durationUnit?: DurationUnit;
+  features?: Partial<FeatureMap>;
+  googleMapsEnabled?: boolean;
+  dailyEmailLimit?: number;
+  customPriceUsd?: number | null;
+  suggestedPriceUsd?: number | null;
+  planLabel?: string;
 }) {
   const sql = getNeonSql();
   if (!sql) throw new Error("Database connection unavailable");
@@ -1354,7 +1505,6 @@ export async function createPaidClientAccount(data: {
     throw new Error("Username must be at least 3 characters long.");
   }
 
-  // 1. Check if username or email already exists
   const existing = await sql.query(
     "SELECT id FROM users WHERE LOWER(username) = LOWER($1) OR LOWER(email) = LOWER($1) LIMIT 1",
     [cleanUsername]
@@ -1363,12 +1513,12 @@ export async function createPaidClientAccount(data: {
     throw new Error(`Account with username '${cleanUsername}' already exists. Please choose a different username.`);
   }
 
-  const nowIso = new Date().toISOString();
+  const nowDate = new Date();
+  const nowIso = nowDate.toISOString();
   const customerName = (data.customerName || cleanUsername).trim();
   const baseWsName = `${customerName}'s Workspace`;
   const uniqueWsName = `${baseWsName} #${Date.now().toString().slice(-4)}`;
 
-  // 2. Create fresh, completely isolated workspace
   let workspaceId: number;
   let createdWsName = uniqueWsName;
   try {
@@ -1392,43 +1542,100 @@ export async function createPaidClientAccount(data: {
     createdWsName = wsRes[0].name;
   }
 
-  // 3. Subscription & Expiry calculations
-  const isLifetime = data.plan === "LIFETIME";
-  const subscriptionExpiresAt = isLifetime
-    ? null
-    : new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString();
+  const planType = data.plan;
+  let durationVal: number | null = null;
+  let durationUnit: DurationUnit = "days";
+  let subscriptionExpiresAt: string | null = null;
+  let googleMapsEnabled = false;
+  let dailyEmailLimit = BASIC_DAILY_EMAIL_LIMIT;
+  let featuresObj: FeatureMap = { ...BASIC_FEATURES };
+  let planLabel = data.planLabel || "";
+  let customPriceUsd: number | null = data.customPriceUsd ?? null;
+  let suggestedPriceUsd: number | null = data.suggestedPriceUsd ?? null;
 
-  // 4. Create paid client account in users table with explicit typed parameter bindings
+  if (planType === "LIFETIME") {
+    durationUnit = "lifetime";
+    subscriptionExpiresAt = null;
+    googleMapsEnabled = true;
+    dailyEmailLimit = LIFETIME_GMAIL_DAILY_SAFE_CAP;
+    featuresObj = { ...ALL_FEATURES_ENABLED };
+    planLabel = planLabel || "Lifetime Plan ($100 One-Time)";
+    customPriceUsd = customPriceUsd ?? 100;
+    suggestedPriceUsd = suggestedPriceUsd ?? 100;
+  } else if (planType === "BASIC") {
+    durationVal = 30;
+    durationUnit = "days";
+    subscriptionExpiresAt = new Date(nowDate.getTime() + 30 * 86_400_000).toISOString();
+    googleMapsEnabled = false;
+    dailyEmailLimit = BASIC_DAILY_EMAIL_LIMIT;
+    featuresObj = { ...BASIC_FEATURES };
+    planLabel = planLabel || "Basic Plan ($25 / 30 Days)";
+    customPriceUsd = customPriceUsd ?? 25;
+    suggestedPriceUsd = suggestedPriceUsd ?? 25;
+  } else {
+    durationUnit = (data.durationUnit || "days") as DurationUnit;
+    durationVal = durationUnit === "lifetime" ? null : Math.max(1, Math.floor(Number(data.durationValue) || 1));
+    const expDate = calculateCustomPlanExpiresAt(nowDate, durationVal, durationUnit);
+    subscriptionExpiresAt = expDate ? expDate.toISOString() : null;
+    featuresObj = normalizeFeatures(data.features || {}, data.googleMapsEnabled);
+    googleMapsEnabled = Boolean(featuresObj.google_maps && data.googleMapsEnabled !== false);
+    if (!googleMapsEnabled) {
+      featuresObj.google_maps = false;
+      featuresObj.multi_country_maps = false;
+    }
+    dailyEmailLimit = featuresObj.cold_email
+      ? Math.max(0, Math.min(MAX_GMAIL_DAILY_SAFE_CAP, Math.floor(Number(data.dailyEmailLimit ?? BASIC_DAILY_EMAIL_LIMIT))))
+      : 0;
+    const durLabel = formatDurationLabel(durationVal, durationUnit);
+    planLabel = planLabel || `Custom Plan (${durLabel}${googleMapsEnabled ? " • Maps" : ""})`;
+  }
+
   const userRes = await sql.query(
     `INSERT INTO users (
       username, email, password_hash, full_name, role, account_type,
-      workspace_id, status, plan, subscription_status, subscription_start,
-      subscription_expires_at, subscription_notes, active, 
-      is_active, created_at, tenant_id
+      workspace_id, status, plan, plan_type, plan_label,
+      custom_duration_value, custom_duration_unit, custom_price_usd, suggested_price_usd,
+      daily_email_limit, google_maps_enabled, features_json,
+      subscription_status, subscription_start, subscription_expires_at,
+      subscription_notes, active, is_active, created_at, tenant_id
     ) VALUES (
       $1::text, $2::text, $3::text, $4::text, 'CLIENT', 'PAID_CLIENT',
-      $5::int4, 'ACTIVE', $6::varchar, 'ACTIVE', $7::timestamptz,
-      $8::timestamptz, $9::text, 1, 1, $10::text, 1
+      $5::int4, 'ACTIVE', $6::varchar, $7::text, $8::text,
+      $9::int4, $10::text, $11::numeric, $12::numeric,
+      $13::int4, $14::boolean, $15::jsonb,
+      'ACTIVE', $16::timestamptz, $17::timestamptz,
+      $18::text, 1, 1, $19::text, 1
     )
     RETURNING id, username, email, full_name, role, account_type, workspace_id,
-              status, plan, subscription_status, subscription_start, subscription_expires_at, created_at`,
+              status, plan, plan_type, plan_label, custom_duration_value, custom_duration_unit,
+              custom_price_usd, suggested_price_usd, daily_email_limit, google_maps_enabled, features_json,
+              subscription_status, subscription_start, subscription_expires_at, created_at`,
     [
       cleanUsername,
       `${cleanUsername}@app.client`,
       data.passwordHash,
       customerName,
       workspaceId,
-      data.plan,
+      planType,
+      planType,
+      planLabel,
+      durationVal,
+      durationUnit,
+      customPriceUsd,
+      suggestedPriceUsd,
+      dailyEmailLimit,
+      googleMapsEnabled,
+      JSON.stringify(featuresObj),
       nowIso,
       subscriptionExpiresAt,
-      data.clientNotes || `Paid ${data.plan} account created by Master Owner`,
+      data.clientNotes || `Paid ${planLabel} account created by Master Owner`,
       nowIso,
     ]
   );
 
   return {
     client: userRes[0],
-    workspace: { id: workspaceId, name: createdWsName, plan: data.plan },
+    workspace: { id: workspaceId, name: createdWsName, plan: planType },
   };
 }
 
@@ -1630,6 +1837,16 @@ export async function getNeonClientDashboardMetrics(workspaceId: number) {
     );
     const availablePhoneContacts = parseInt(phonesRes[0]?.cnt || "0", 10);
 
+    // 3b. Leads with BOTH email AND phone
+    const bothRes = await sql.query(
+      `SELECT COUNT(*) as cnt FROM leads
+       WHERE workspace_id = $1
+         AND email IS NOT NULL AND email != '' AND email != 'Not Found' AND email LIKE '%@%'
+         AND phone IS NOT NULL AND phone != '' AND phone != 'Not Listed' AND phone != 'Not Found'`,
+      [workspaceId]
+    );
+    const leadsWithBothContacts = parseInt(bothRes[0]?.cnt || "0", 10);
+
     // 4. Connected active Gmail accounts
     const accRes = await sql.query(
       "SELECT COUNT(*) as cnt FROM email_accounts WHERE workspace_id = $1 AND is_active = 1",
@@ -1637,12 +1854,22 @@ export async function getNeonClientDashboardMetrics(workspaceId: number) {
     );
     const connectedEmailAccounts = parseInt(accRes[0]?.cnt || "0", 10);
 
-    // 5. Total emails sent
+    // 5. Total emails sent successfully
     const sentRes = await sql.query(
       "SELECT COUNT(*) as cnt FROM outreach_records WHERE workspace_id = $1 AND outreach_status = 'EMAIL SENT'",
       [workspaceId]
     );
     const emailsSent = parseInt(sentRes[0]?.cnt || "0", 10);
+
+    // 5b. Successful emails sent today (UTC day)
+    const sentTodayRes = await sql.query(
+      `SELECT COUNT(*) as cnt FROM outreach_records
+       WHERE workspace_id = $1
+         AND outreach_status = 'EMAIL SENT'
+         AND sent_at::timestamptz >= date_trunc('day', NOW() AT TIME ZONE 'UTC') AT TIME ZONE 'UTC'`,
+      [workspaceId]
+    );
+    const emailsSentToday = parseInt(sentTodayRes[0]?.cnt || "0", 10);
 
     // 6. Failed emails
     const failedRes = await sql.query(
@@ -1658,6 +1885,16 @@ export async function getNeonClientDashboardMetrics(workspaceId: number) {
     );
     const totalLeadsFound = parseInt(searchRes[0]?.total_found || "0", 10);
 
+    // 8. Authoritative workspace owner/client plan entitlements
+    const wsUserRows = await sql.query(
+      `SELECT role, account_type, status, plan, plan_type, plan_label,
+              custom_duration_value, custom_duration_unit, daily_email_limit,
+              google_maps_enabled, features_json, subscription_start, subscription_expires_at
+       FROM users WHERE workspace_id = $1 ORDER BY id ASC LIMIT 1`,
+      [workspaceId]
+    );
+    const wsEnt = wsUserRows[0] ? resolveUserEntitlements(wsUserRows[0]) : null;
+
     // Quota limits
     const maxLeadsQuota = 5000;
     const remainingQuota = Math.max(0, maxLeadsQuota - totalSavedLeads);
@@ -1666,14 +1903,22 @@ export async function getNeonClientDashboardMetrics(workspaceId: number) {
       workspace_id: workspaceId,
       total_leads_found: Math.max(totalLeadsFound, totalSavedLeads),
       saved_leads: totalSavedLeads,
+      leads_with_email: availableEmailContacts,
+      leads_with_phone: availablePhoneContacts,
+      leads_with_both_contacts: leadsWithBothContacts,
       available_email_contacts: availableEmailContacts,
       available_phone_contacts: availablePhoneContacts,
       connected_gmail_accounts: connectedEmailAccounts,
       emails_sent: emailsSent,
+      emails_sent_today: emailsSentToday,
+      daily_email_limit: wsEnt ? wsEnt.dailyEmailLimit : 10,
       failed_emails: failedEmails,
       remaining_quota: remainingQuota,
       max_quota: maxLeadsQuota,
       contact_rate: totalSavedLeads > 0 ? Math.round((availableEmailContacts / totalSavedLeads) * 100) : 0,
+      google_maps_enabled: wsEnt ? wsEnt.googleMapsEnabled : false,
+      plan_type: wsEnt ? wsEnt.planType : "BASIC",
+      plan_label: wsEnt ? wsEnt.planLabel : "Basic Plan",
     };
   } catch (e) {
     console.error("Neon getNeonClientDashboardMetrics error:", e);
@@ -1746,18 +1991,29 @@ export async function acquireActiveSearchJob(
   keyword: string,
   country?: string,
   city?: string,
-  targetCount: number = 50
+  targetCount: number = 50,
+  initialPayload?: any
 ): Promise<{ allowed: boolean; jobId?: string; message?: string }> {
   const sql = getNeonSql();
   if (!sql) return { allowed: true, jobId: `job_${Date.now()}_fallback` };
 
   try {
-    // Check if an active search job is already running within the last 3 minutes
+    // Auto-expire abandoned RUNNING jobs older than 2 minutes without heartbeat
+    await sql.query(
+      `UPDATE active_search_jobs
+       SET status = 'TIMED_OUT',
+           error_message = 'Job automatically timed out after inactivity',
+           updated_at = CURRENT_TIMESTAMP
+       WHERE workspace_id = $1 AND status = 'RUNNING'
+         AND updated_at <= NOW() - INTERVAL '2 minutes'`,
+      [workspaceId]
+    ).catch(() => {});
+
     const runningJobs = await sql.query(
       `SELECT id, keyword, status, updated_at 
        FROM active_search_jobs 
        WHERE workspace_id = $1 AND status = 'RUNNING' 
-         AND updated_at > NOW() - INTERVAL '3 minutes'
+         AND updated_at > NOW() - INTERVAL '2 minutes'
        LIMIT 1`,
       [workspaceId]
     );
@@ -1766,16 +2022,26 @@ export async function acquireActiveSearchJob(
       return {
         allowed: false,
         jobId: runningJobs[0].id,
-        message: `A lead search for "${runningJobs[0].keyword}" is already in progress for your workspace. Please wait for it to complete.`,
+        message: `A lead search for "${runningJobs[0].keyword}" is already in progress for your workspace. Cancel or wait for it to finish.`,
       };
     }
 
     const jobId = `job_${Date.now()}_${workspaceId}`;
     await sql.query(
       `INSERT INTO active_search_jobs (
-        id, workspace_id, user_id, job_type, status, keyword, country, city, target_count, progress_message
-      ) VALUES ($1, $2, $3, $4, 'RUNNING', $5, $6, $7, $8, 'Search job started')`,
-      [jobId, workspaceId, userId, jobType, keyword, country || "Global", city || "", targetCount]
+        id, workspace_id, user_id, job_type, status, keyword, country, city, target_count, progress_message, job_payload
+      ) VALUES ($1, $2, $3, $4, 'RUNNING', $5, $6, $7, $8, 'Search job started', $9::jsonb)`,
+      [
+        jobId,
+        workspaceId,
+        userId,
+        jobType,
+        keyword,
+        country || "Global",
+        city || "",
+        targetCount,
+        JSON.stringify(initialPayload || {}),
+      ]
     );
 
     return { allowed: true, jobId };
@@ -1785,12 +2051,83 @@ export async function acquireActiveSearchJob(
   }
 }
 
+export async function updateActiveSearchJobProgress(
+  jobId: string,
+  workspaceId: number,
+  updates: {
+    progressCount?: number;
+    progressMessage?: string;
+    jobPayload?: any;
+  }
+): Promise<boolean> {
+  const sql = getNeonSql();
+  if (!sql || !jobId) return false;
+  try {
+    const rows = await sql.query(
+      `UPDATE active_search_jobs
+       SET progress_count = COALESCE($1, progress_count),
+           progress_message = COALESCE($2, progress_message),
+           job_payload = COALESCE($3::jsonb, job_payload),
+           updated_at = CURRENT_TIMESTAMP
+       WHERE id = $4 AND workspace_id = $5 AND status = 'RUNNING'
+       RETURNING id`,
+      [
+        updates.progressCount !== undefined ? updates.progressCount : null,
+        updates.progressMessage || null,
+        updates.jobPayload ? JSON.stringify(updates.jobPayload) : null,
+        jobId,
+        workspaceId,
+      ]
+    );
+    return rows.length > 0;
+  } catch (err) {
+    console.error("updateActiveSearchJobProgress error:", err);
+    return false;
+  }
+}
+
+export async function getActiveSearchJobById(jobId: string, workspaceId: number): Promise<any | null> {
+  const sql = getNeonSql();
+  if (!sql || !jobId) return null;
+  try {
+    const rows = await sql.query(
+      `SELECT * FROM active_search_jobs WHERE id = $1 AND workspace_id = $2 LIMIT 1`,
+      [jobId, workspaceId]
+    );
+    return rows[0] || null;
+  } catch {
+    return null;
+  }
+}
+
+export async function cancelActiveSearchJob(jobId: string, workspaceId: number): Promise<any | null> {
+  const sql = getNeonSql();
+  if (!sql || !jobId) return null;
+  try {
+    const rows = await sql.query(
+      `UPDATE active_search_jobs
+       SET status = 'CANCELLED',
+           progress_message = 'Stopped by user — already discovered leads preserved.',
+           updated_at = CURRENT_TIMESTAMP
+       WHERE id = $1 AND workspace_id = $2
+       RETURNING *`,
+      [jobId, workspaceId]
+    );
+    return rows[0] || null;
+  } catch (err) {
+    console.error("cancelActiveSearchJob error:", err);
+    return null;
+  }
+}
+
 export async function completeActiveSearchJob(
   jobId: string,
-  status: "COMPLETED" | "FAILED",
+  status: "COMPLETED" | "FAILED" | "CANCELLED",
   qualifiedCount: number = 0,
   searchRecordId?: string,
-  errorMessage?: string
+  errorMessage?: string,
+  finalPayload?: any,
+  finalMessage?: string
 ): Promise<void> {
   const sql = getNeonSql();
   if (!sql || !jobId) return;
@@ -1800,30 +2137,63 @@ export async function completeActiveSearchJob(
       `UPDATE active_search_jobs 
        SET status = $1, 
            progress_count = $2, 
-           search_record_id = $3, 
-           error_message = $4, 
+           search_record_id = COALESCE($3, search_record_id), 
+           error_message = $4,
+           progress_message = COALESCE($5, progress_message),
+           job_payload = COALESCE($6::jsonb, job_payload),
            updated_at = CURRENT_TIMESTAMP
-       WHERE id = $5`,
-      [status, qualifiedCount, searchRecordId || null, errorMessage || null, jobId]
+       WHERE id = $7`,
+      [
+        status,
+        qualifiedCount,
+        searchRecordId || null,
+        errorMessage || null,
+        finalMessage || null,
+        finalPayload ? JSON.stringify(finalPayload) : null,
+        jobId,
+      ]
     );
   } catch (err) {
     console.error("completeActiveSearchJob error:", err);
   }
 }
 
-export async function getNeonActiveSearchJob(workspaceId: number): Promise<any | null> {
+export async function getNeonActiveSearchJob(workspaceId: number, includeRecentSeconds: number = 0): Promise<any | null> {
   const sql = getNeonSql();
   if (!sql) return null;
 
   try {
+    // Auto-expire stalled jobs first
+    await sql.query(
+      `UPDATE active_search_jobs
+       SET status = 'TIMED_OUT',
+           error_message = 'Job automatically timed out after inactivity',
+           updated_at = CURRENT_TIMESTAMP
+       WHERE workspace_id = $1 AND status = 'RUNNING'
+         AND updated_at <= NOW() - INTERVAL '2 minutes'`,
+      [workspaceId]
+    ).catch(() => {});
+
     const rows = await sql.query(
       `SELECT * FROM active_search_jobs 
        WHERE workspace_id = $1 AND status = 'RUNNING' 
-         AND updated_at > NOW() - INTERVAL '3 minutes'
+         AND updated_at > NOW() - INTERVAL '2 minutes'
        ORDER BY updated_at DESC LIMIT 1`,
       [workspaceId]
     );
-    return rows[0] || null;
+    if (rows[0]) return rows[0];
+
+    if (includeRecentSeconds > 0) {
+      const recent = await sql.query(
+        `SELECT * FROM active_search_jobs
+         WHERE workspace_id = $1
+           AND updated_at > NOW() - ($2 * INTERVAL '1 second')
+         ORDER BY updated_at DESC LIMIT 1`,
+        [workspaceId, includeRecentSeconds]
+      );
+      return recent[0] || null;
+    }
+    return null;
   } catch {
     return null;
   }

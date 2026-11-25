@@ -1,20 +1,17 @@
 import { NextResponse } from "next/server";
 import { getNeonChatConversations, createNeonChatConversation, deleteNeonChatConversation } from "@/lib/neon-db";
-import { getCurrentUserFromRequest } from "@/lib/serverless-auth";
+import { getCurrentUserFromRequest, verifyClientActiveSubscription } from "@/lib/serverless-auth";
 
 export const dynamic = "force-dynamic";
 
-function getAuth(req: Request) {
-  const currentUser = getCurrentUserFromRequest(req);
-  const wsHeader = req.headers.get("X-Workspace-Id");
-  const workspaceId = wsHeader ? parseInt(wsHeader, 10) : (currentUser?.workspace_id || 1);
-  const userId = currentUser?.id || currentUser?.user_id || 1;
-  return { userId, workspaceId };
-}
-
 export async function GET(req: Request) {
   try {
-    const { workspaceId } = getAuth(req);
+    const currentUser = getCurrentUserFromRequest(req);
+    const subCheck = await verifyClientActiveSubscription(currentUser, "ai_assistant");
+    if (!subCheck.allowed) {
+      return NextResponse.json({ error: subCheck.message }, { status: subCheck.statusCode || 403 });
+    }
+    const workspaceId = Number(subCheck.userRecord?.workspace_id || currentUser.workspace_id) || 1;
     const conversations = await getNeonChatConversations(workspaceId);
     return NextResponse.json({ conversations: conversations || [] });
   } catch (err: any) {
@@ -24,14 +21,21 @@ export async function GET(req: Request) {
 
 export async function POST(req: Request) {
   try {
-    const { userId, workspaceId } = getAuth(req);
+    const currentUser = getCurrentUserFromRequest(req);
+    const subCheck = await verifyClientActiveSubscription(currentUser, "ai_assistant");
+    if (!subCheck.allowed) {
+      return NextResponse.json({ error: subCheck.message }, { status: subCheck.statusCode || 403 });
+    }
+    const workspaceId = Number(subCheck.userRecord?.workspace_id || currentUser.workspace_id) || 1;
+    const userId = Number(subCheck.userRecord?.id || currentUser.id) || 1;
+
     const body = await req.json().catch(() => ({}));
     const title = (body.title || "New Consultation").substring(0, 100);
     const language = body.language || "english";
 
     const conv = await createNeonChatConversation(
       workspaceId,
-      userId || 1,
+      userId,
       title,
       language,
       body.business_context || {}
@@ -49,7 +53,13 @@ export async function POST(req: Request) {
 
 export async function DELETE(req: Request) {
   try {
-    const { workspaceId } = getAuth(req);
+    const currentUser = getCurrentUserFromRequest(req);
+    const subCheck = await verifyClientActiveSubscription(currentUser, "ai_assistant");
+    if (!subCheck.allowed) {
+      return NextResponse.json({ error: subCheck.message }, { status: subCheck.statusCode || 403 });
+    }
+    const workspaceId = Number(subCheck.userRecord?.workspace_id || currentUser.workspace_id) || 1;
+
     const url = new URL(req.url);
     const id = url.searchParams.get("id");
 

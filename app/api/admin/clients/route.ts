@@ -6,6 +6,15 @@ import {
   isNeonConfigured,
   logAccountAudit,
 } from "@/lib/neon-db";
+import {
+  calculateSuggestedCustomPrice,
+  calculateCustomPlanExpiresAt,
+  formatDurationLabel,
+  normalizeFeatures,
+  DurationUnit,
+  BASIC_DAILY_EMAIL_LIMIT,
+  MAX_GMAIL_DAILY_SAFE_CAP,
+} from "@/lib/entitlements";
 import crypto from "crypto";
 
 export const dynamic = "force-dynamic";
@@ -41,8 +50,9 @@ export async function GET(req: Request) {
 
       const stats = {
         total_paid: paidClients.length,
-        active_basic: paidClients.filter((c: any) => (c.raw_plan || c.plan || "").toUpperCase().includes("BASIC") && c.status === "ACTIVE").length,
-        active_lifetime: paidClients.filter((c: any) => (c.raw_plan || c.plan || "").toUpperCase().includes("LIFETIME") && c.status === "ACTIVE").length,
+        active_basic: paidClients.filter((c: any) => String(c.raw_plan || c.plan || "").toUpperCase().includes("BASIC") && c.status === "ACTIVE").length,
+        active_lifetime: paidClients.filter((c: any) => String(c.raw_plan || c.plan || "").toUpperCase().includes("LIFETIME") && c.status === "ACTIVE").length,
+        active_custom: paidClients.filter((c: any) => String(c.raw_plan || c.plan_type || "").toUpperCase() === "CUSTOM" && c.status === "ACTIVE").length,
         expired: paidClients.filter((c: any) => c.status === "EXPIRED").length,
         locked: paidClients.filter((c: any) => c.status === "LOCKED" || c.status === "SUSPENDED" || c.status === "REVOKED").length,
         total_preview: previewClients.length,
@@ -112,8 +122,74 @@ export async function POST(req: Request) {
     }
 
     const rawPlan = String(body.plan || "BASIC").toUpperCase();
-    const plan: "BASIC" | "LIFETIME" = rawPlan === "LIFETIME" ? "LIFETIME" : "BASIC";
+    const plan: "BASIC" | "LIFETIME" | "CUSTOM" =
+      rawPlan === "LIFETIME" ? "LIFETIME" : rawPlan === "CUSTOM" ? "CUSTOM" : "BASIC";
     const clientNotes = body.client_notes ? String(body.client_notes).trim() : undefined;
+
+    const validUnits: DurationUnit[] = ["hours", "days", "weeks", "months", "years", "lifetime"];
+    let durationUnit: DurationUnit = "days";
+    let durationValue: number | null = 30;
+    let normalizedFeatures: any = undefined;
+    let googleMapsEnabled = plan === "LIFETIME";
+    let dailyEmailLimit = plan === "LIFETIME" ? 500 : 10;
+    let suggestedPriceUsd = plan === "LIFETIME" ? 100 : 25;
+    let customPriceUsd = plan === "LIFETIME" ? 100 : 25;
+    let planLabel = plan === "LIFETIME" ? "Lifetime Plan ($100 One-Time)" : "Basic Plan ($25 / 30 Days)";
+
+    if (plan === "CUSTOM") {
+      const reqUnit = String(body.duration_unit || "days").toLowerCase() as DurationUnit;
+      if (!validUnits.includes(reqUnit)) {
+        return NextResponse.json(
+          { detail: "Invalid custom duration_unit. Use hours, days, weeks, months, years, or lifetime." },
+          { status: 400 }
+        );
+      }
+      durationUnit = reqUnit;
+      durationValue = durationUnit === "lifetime" ? null : Math.max(1, Math.floor(Number(body.duration_value) || 1));
+
+      normalizedFeatures = normalizeFeatures(body.features || {}, body.google_maps_enabled);
+      const enabledCount = Object.values(normalizedFeatures).filter(Boolean).length;
+      if (enabledCount === 0) {
+        return NextResponse.json(
+          { detail: "Please enable at least 1 module/feature for a Custom Plan." },
+          { status: 400 }
+        );
+      }
+
+      googleMapsEnabled = Boolean(normalizedFeatures.google_maps && body.google_maps_enabled !== false);
+      if (!googleMapsEnabled) {
+        normalizedFeatures.google_maps = false;
+        normalizedFeatures.multi_country_maps = false;
+      }
+
+      dailyEmailLimit = normalizedFeatures.cold_email
+        ? Math.max(1, Math.min(MAX_GMAIL_DAILY_SAFE_CAP, Math.floor(Number(body.daily_email_limit) || BASIC_DAILY_EMAIL_LIMIT)))
+        : 0;
+
+      const calc = calculateSuggestedCustomPrice({
+        features: normalizedFeatures,
+        durationValue,
+        durationUnit,
+        dailyEmailLimit,
+      });
+      suggestedPriceUsd = calc.suggestedPriceUsd;
+
+      if (body.custom_price_usd !== undefined && body.custom_price_usd !== null && body.custom_price_usd !== "") {
+        const parsedOverride = Number(body.custom_price_usd);
+        if (Number.isNaN(parsedOverride) || parsedOverride < 0) {
+          return NextResponse.json({ detail: "Invalid custom_price_usd value." }, { status: 400 });
+        }
+        customPriceUsd = Number(parsedOverride.toFixed(2));
+      } else {
+        customPriceUsd = suggestedPriceUsd;
+      }
+
+      const durStr = formatDurationLabel(durationValue, durationUnit);
+      planLabel =
+        body.plan_label && String(body.plan_label).trim()
+          ? String(body.plan_label).trim()
+          : `Custom (${durStr} • $${customPriceUsd})`;
+    }
 
     const passwordHash = hashPassword(plainPassword);
 
@@ -130,6 +206,14 @@ export async function POST(req: Request) {
       passwordHash,
       plan,
       clientNotes,
+      durationValue,
+      durationUnit,
+      features: normalizedFeatures,
+      googleMapsEnabled,
+      dailyEmailLimit,
+      customPriceUsd,
+      suggestedPriceUsd,
+      planLabel,
     });
 
     await logAccountAudit({
@@ -143,12 +227,26 @@ export async function POST(req: Request) {
         username,
         customer_name: res.client.full_name,
         plan,
+        plan_label: planLabel,
+        duration_value: durationValue,
+        duration_unit: durationUnit,
+        google_maps_enabled: googleMapsEnabled,
+        daily_email_limit: dailyEmailLimit,
+        suggested_price_usd: suggestedPriceUsd,
+        custom_price_usd: customPriceUsd,
+        features: normalizedFeatures,
         subscription_expires_at: res.client.subscription_expires_at,
         workspace_id: res.client.workspace_id,
       },
     });
 
-    const isLifetime = plan === "LIFETIME";
+    const isLifetime = plan === "LIFETIME" || (plan === "CUSTOM" && durationUnit === "lifetime");
+    const durationHuman =
+      plan === "CUSTOM"
+        ? formatDurationLabel(durationValue, durationUnit)
+        : isLifetime
+        ? "Permanent Access — No Expiry"
+        : "30 Days from Creation";
 
     return NextResponse.json({
       status: "success",
@@ -162,11 +260,20 @@ export async function POST(req: Request) {
         role: "CLIENT",
         account_type: "PAID_CLIENT",
         status: "ACTIVE",
-        plan: isLifetime ? "LIFETIME ($100)" : "BASIC ($25/30 Days)",
+        plan: plan === "CUSTOM" ? planLabel : isLifetime ? "LIFETIME ($100)" : "BASIC ($25/30 Days)",
         raw_plan: plan,
+        plan_type: plan,
+        plan_label: planLabel,
+        google_maps_enabled: googleMapsEnabled,
+        daily_email_limit: dailyEmailLimit,
+        features: res.client.features_json,
+        custom_duration_value: durationValue,
+        custom_duration_unit: durationUnit,
+        custom_price_usd: customPriceUsd,
+        suggested_price_usd: suggestedPriceUsd,
         subscription_start: res.client.subscription_start,
         subscription_expires_at: res.client.subscription_expires_at,
-        remaining_days: isLifetime ? "Permanent Access" : 30,
+        remaining_days: isLifetime ? "Permanent Access" : durationHuman,
         workspace_id: res.client.workspace_id,
         workspace_name: res.workspace.name,
       },
@@ -175,8 +282,13 @@ export async function POST(req: Request) {
         username,
         password: plainPassword,
         customer_name: res.client.full_name,
-        plan: isLifetime ? "LIFETIME ($100 One-Time)" : "BASIC ($25 / 30 Days)",
-        duration: isLifetime ? "Permanent Access — No Expiry" : "30 Days from Creation",
+        plan: plan === "CUSTOM" ? planLabel : isLifetime ? "LIFETIME ($100 One-Time)" : "BASIC ($25 / 30 Days)",
+        duration: durationHuman,
+        expires_at: res.client.subscription_expires_at || "Never (Permanent)",
+        google_maps_enabled: googleMapsEnabled,
+        daily_email_limit: dailyEmailLimit,
+        custom_price_usd: customPriceUsd,
+        suggested_price_usd: suggestedPriceUsd,
         login_url: "https://lead-scraper-mxs5.vercel.app/login",
       },
       temporary_password: plainPassword,

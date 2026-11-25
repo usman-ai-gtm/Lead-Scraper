@@ -7,7 +7,7 @@ import { api } from "@/lib/api";
 import { useAuth } from "@/lib/auth-context";
 import { Lead } from "@/lib/types";
 import { ALL_193_COUNTRIES } from "@/lib/countries";
-import { getSuggestedCitiesForCountry } from "@/lib/cities";
+import { getCitiesForCountry } from "@/lib/cities";
 import {
   Search, Database, Download, RefreshCw,
   Building2, Globe, Mail, Phone, CheckCircle2,
@@ -101,9 +101,15 @@ export default function DashboardPage() {
   const [metrics, setMetrics] = useState<any>({
     total_leads_found: 0,
     saved_leads: 0,
+    leads_with_email: 0,
+    leads_with_phone: 0,
+    leads_with_both_contacts: 0,
     available_email_contacts: 0,
+    available_phone_contacts: 0,
     connected_gmail_accounts: 0,
     emails_sent: 0,
+    emails_sent_today: 0,
+    daily_email_limit: 10,
     failed_emails: 0,
     remaining_quota: 5000,
     max_quota: 5000,
@@ -121,7 +127,7 @@ export default function DashboardPage() {
 
   // Update suggested cities when country changes
   useEffect(() => {
-    const cities = getSuggestedCitiesForCountry(quickCountry);
+    const cities = getCitiesForCountry(quickCountry).slice(0, 80);
     setSuggestedCities(cities);
     setSelectedCity("ALL_CITIES");
   }, [quickCountry]);
@@ -130,13 +136,8 @@ export default function DashboardPage() {
     try {
       setRefreshing(true);
       const [leadsRes, metricsRes] = await Promise.all([
-        api.get<any>("/leads", { page: 1, page_size: 10 }),
-        fetch("/api/workspace/metrics", {
-          headers: {
-            Authorization: `Bearer ${typeof window !== "undefined" ? localStorage.getItem("usman_gtm_token") : ""}`,
-            "X-Workspace-Id": typeof window !== "undefined" ? localStorage.getItem("usman_gtm_workspace_id") || "1" : "1",
-          },
-        }).then((r) => (r.ok ? r.json() : null)).catch(() => null),
+        api.get<any>("/leads", { page: 1, page_size: 10 }).catch(() => null),
+        api.get<any>("/workspace/metrics").catch(() => null),
       ]);
 
       const items = leadsRes?.leads || (Array.isArray(leadsRes) ? leadsRes : []);
@@ -155,8 +156,10 @@ export default function DashboardPage() {
   };
 
   useEffect(() => {
-    fetchWorkspaceOverview();
-  }, []);
+    if (user?.id) {
+      fetchWorkspaceOverview();
+    }
+  }, [user?.id, user?.workspace_id]);
 
   const handleLaunchSearch = (e: React.FormEvent) => {
     e.preventDefault();
@@ -272,7 +275,7 @@ export default function DashboardPage() {
       </div>
 
       {/* Real Workspace Metric Cards (Strictly Derived from Database) */}
-      <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-7 gap-3">
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
         {/* Card 1: Total Leads Found */}
         <div className="p-3.5 rounded-2xl border border-white/[0.08] bg-[#0c1017] hover:border-blue-500/30 transition-all">
           <div className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider mb-1">
@@ -281,7 +284,7 @@ export default function DashboardPage() {
           <div className="text-xl font-extrabold text-white font-mono">
             {metrics.total_leads_found}
           </div>
-          <div className="text-[10px] text-slate-500 mt-0.5">Search queries</div>
+          <div className="text-[10px] text-slate-500 mt-0.5">Search history total</div>
         </div>
 
         {/* Card 2: Saved Leads */}
@@ -292,62 +295,75 @@ export default function DashboardPage() {
           <div className="text-xl font-extrabold text-blue-400 font-mono">
             {metrics.saved_leads}
           </div>
-          <div className="text-[10px] text-slate-500 mt-0.5">In workspace</div>
+          <div className="text-[10px] text-slate-500 mt-0.5">Auto-saved in workspace</div>
         </div>
 
-        {/* Card 3: Available Email Contacts */}
+        {/* Card 3: Leads with Email */}
         <div className="p-3.5 rounded-2xl border border-white/[0.08] bg-[#0c1017] hover:border-emerald-500/30 transition-all">
           <div className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider mb-1">
-            Email Contacts
+            Leads with Email
           </div>
           <div className="text-xl font-extrabold text-emerald-400 font-mono">
-            {metrics.available_email_contacts}
+            {metrics.leads_with_email ?? metrics.available_email_contacts ?? 0}
           </div>
-          <div className="text-[10px] text-slate-500 mt-0.5">Verified emails</div>
+          <div className="text-[10px] text-slate-500 mt-0.5">Syntax-checked emails</div>
         </div>
 
-        {/* Card 4: Connected Gmail Accounts */}
+        {/* Card 4: Leads with Phone */}
+        <div className="p-3.5 rounded-2xl border border-white/[0.08] bg-[#0c1017] hover:border-teal-500/30 transition-all">
+          <div className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider mb-1">
+            Leads with Phone
+          </div>
+          <div className="text-xl font-extrabold text-teal-400 font-mono">
+            {metrics.leads_with_phone ?? metrics.available_phone_contacts ?? 0}
+          </div>
+          <div className="text-[10px] text-slate-500 mt-0.5">Valid phone numbers</div>
+        </div>
+
+        {/* Card 5: Both Email & Phone */}
+        <div className="p-3.5 rounded-2xl border border-white/[0.08] bg-[#0c1017] hover:border-amber-500/30 transition-all">
+          <div className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider mb-1">
+            Both Email &amp; Phone
+          </div>
+          <div className="text-xl font-extrabold text-amber-400 font-mono">
+            {metrics.leads_with_both_contacts ?? 0}
+          </div>
+          <div className="text-[10px] text-slate-500 mt-0.5">Dual-channel contacts</div>
+        </div>
+
+        {/* Card 6: Connected Gmail Accounts */}
         <div className="p-3.5 rounded-2xl border border-white/[0.08] bg-[#0c1017] hover:border-purple-500/30 transition-all">
           <div className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider mb-1">
-            Connected Gmail
+            Connected Email
           </div>
           <div className="text-xl font-extrabold text-purple-400 font-mono">
-            {metrics.connected_gmail_accounts}
+            {metrics.connected_gmail_accounts ?? 0}
           </div>
-          <div className="text-[10px] text-slate-500 mt-0.5">OAuth mailboxes</div>
+          <div className="text-[10px] text-slate-500 mt-0.5">Active Gmail mailboxes</div>
         </div>
 
-        {/* Card 5: Emails Sent */}
+        {/* Card 7: Emails Sent */}
         <div className="p-3.5 rounded-2xl border border-white/[0.08] bg-[#0c1017] hover:border-indigo-500/30 transition-all">
           <div className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider mb-1">
             Emails Sent
           </div>
           <div className="text-xl font-extrabold text-indigo-400 font-mono">
-            {metrics.emails_sent}
+            {metrics.emails_sent ?? 0}
           </div>
-          <div className="text-[10px] text-slate-500 mt-0.5">Delivered</div>
+          <div className="text-[10px] text-slate-500 mt-0.5">
+            Successful dispatches {metrics.failed_emails ? `(${metrics.failed_emails} failed)` : ""}
+          </div>
         </div>
 
-        {/* Card 6: Failed Emails */}
+        {/* Card 8: Daily Send Quota */}
         <div className="p-3.5 rounded-2xl border border-white/[0.08] bg-[#0c1017] hover:border-rose-500/30 transition-all">
           <div className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider mb-1">
-            Failed Emails
+            Daily Send Quota
           </div>
-          <div className="text-xl font-extrabold text-rose-400 font-mono">
-            {metrics.failed_emails}
+          <div className="text-xl font-extrabold text-white font-mono">
+            {metrics.emails_sent_today ?? 0} / {metrics.daily_email_limit ?? user?.daily_email_limit ?? 10}
           </div>
-          <div className="text-[10px] text-slate-500 mt-0.5">Bounced / rejected</div>
-        </div>
-
-        {/* Card 7: Remaining Quota */}
-        <div className="p-3.5 rounded-2xl border border-white/[0.08] bg-[#0c1017] hover:border-amber-500/30 transition-all">
-          <div className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider mb-1">
-            Remaining Quota
-          </div>
-          <div className="text-xl font-extrabold text-amber-400 font-mono">
-            {metrics.remaining_quota}
-          </div>
-          <div className="text-[10px] text-slate-500 mt-0.5">of {metrics.max_quota} quota</div>
+          <div className="text-[10px] text-slate-500 mt-0.5">Resets daily at 00:00 UTC</div>
         </div>
       </div>
 

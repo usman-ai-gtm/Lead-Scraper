@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { getNeonSql, isNeonConfigured, computeAuthoritativeUserStatus } from "@/lib/neon-db";
+import { resolveUserEntitlements } from "@/lib/entitlements";
 import {
   verifyPassword,
   createJwtToken,
@@ -28,7 +29,10 @@ export async function POST(request: Request) {
         const sql = getNeonSql();
         if (sql) {
           const users = await sql`
-            SELECT id, username, email, full_name, role, account_type, workspace_id, status, plan, subscription_expires_at, password_hash, tenant_id
+            SELECT id, username, email, full_name, role, account_type, workspace_id, status, plan,
+                   plan_type, plan_label, custom_duration_value, custom_duration_unit,
+                   custom_price_usd, suggested_price_usd, daily_email_limit, google_maps_enabled,
+                   features_json, subscription_start, subscription_expires_at, password_hash, tenant_id
             FROM users
             WHERE LOWER(username) = LOWER(${email}) OR LOWER(email) = LOWER(${email})
             LIMIT 1
@@ -105,6 +109,9 @@ export async function POST(request: Request) {
               }
             } catch {}
 
+            const ent = resolveUserEntitlements(user);
+            const authoritative = computeAuthoritativeUserStatus(user);
+
             const response = NextResponse.json({
               token: token,
               access_token: token,
@@ -114,16 +121,30 @@ export async function POST(request: Request) {
                 username: user.username,
                 email: user.email,
                 full_name: user.full_name,
-                role: user.role || "CLIENT",
-                account_type: user.account_type || "PAID_CLIENT",
+                role: ent.isOwner ? "SUPER_ADMIN" : (user.role || "CLIENT"),
+                account_type: ent.isOwner ? "MASTER_OWNER" : (user.account_type || "PAID_CLIENT"),
                 workspace_id: user.workspace_id || 1,
-                status: user.status || "ACTIVE",
-                plan: user.plan || "BASIC",
+                status: ent.isOwner ? "ACTIVE" : authoritative.status,
+                plan: ent.isOwner ? "OWNER_LIFETIME" : authoritative.plan,
+                plan_type: ent.planType,
+                plan_label: ent.planLabel,
+                google_maps_enabled: ent.googleMapsEnabled,
+                daily_email_limit: ent.dailyEmailLimit,
+                features: ent.features,
+                custom_duration_value: ent.customDurationValue,
+                custom_duration_unit: ent.customDurationUnit,
+                custom_price_usd: ent.customPriceUsd,
+                suggested_price_usd: ent.suggestedPriceUsd,
+                subscription_start: user.subscription_start,
+                subscription_expires_at: ent.subscriptionExpiresAt,
+                remaining_days: ent.isOwner ? "Permanent (Master Owner)" : authoritative.daysRemaining,
+                remaining_detailed: ent.isOwner ? "Permanent Access — No Expiry" : authoritative.remainingDetailed,
+                isLocked: ent.isOwner ? false : authoritative.isLocked,
               },
               workspace: {
                 id: user.workspace_id || 1,
                 name: wsName,
-                plan: user.plan || "BASIC",
+                plan: ent.planType,
                 ai_credits: 50000,
                 search_credits: 25000,
                 created_at: wsCreated,

@@ -27,30 +27,34 @@ export default function SubscriptionPage() {
   useEffect(() => {
     async function fetchData() {
       try {
-        const [meRes, statsRes] = await Promise.all([
+        const [meRes, metricsRes] = await Promise.all([
           api.get<any>("/auth/me").catch(() => null),
-          api.get<any>("/analytics/overview").catch(() => null),
+          api.get<any>("/workspace/metrics").catch(() => null),
         ]);
         if (meRes) setProfile(meRes);
-        if (statsRes) {
+        if (metricsRes) {
           setStats({
-            leads_count: statsRes.total_leads || 0,
-            searches_count: statsRes.total_searches || 0,
-            connected_accounts: statsRes.connected_accounts || 0,
-            max_leads: 5000,
+            leads_count: metricsRes.saved_leads ?? metricsRes.total_leads_found ?? 0,
+            searches_count: metricsRes.total_leads_found ?? 0,
+            connected_accounts: metricsRes.connected_gmail_accounts ?? 0,
+            max_leads: metricsRes.max_quota ?? 5000,
           });
         }
       } catch {}
       setLoading(false);
     }
-    fetchData();
-  }, []);
+    if (user?.id) {
+      fetchData();
+    }
+  }, [user?.id, user?.workspace_id]);
 
   const currentStatus = profile?.status || user?.status || "LOCKED";
   const isLocked = currentStatus === "LOCKED" || currentStatus === "PENDING";
   const isExpired = currentStatus === "EXPIRED";
   const isActive = currentStatus === "ACTIVE";
-  const isLifetime = (profile?.plan || "").toUpperCase() === "LIFETIME";
+  const planTypeUpper = String(profile?.plan_type || profile?.plan || user?.plan || "").toUpperCase();
+  const isLifetime = planTypeUpper === "LIFETIME" || planTypeUpper === "OWNER_LIFETIME" || (planTypeUpper === "CUSTOM" && String(profile?.custom_duration_unit || "").toLowerCase() === "lifetime");
+  const isCustom = planTypeUpper === "CUSTOM";
 
   return (
     <div className="space-y-6 max-w-5xl mx-auto pb-16">
@@ -103,7 +107,14 @@ export default function SubscriptionPage() {
               <div className="flex items-center gap-2 mb-1 flex-wrap">
                 <span className="text-xs text-slate-400">Current Plan:</span>
                 <span className="text-sm font-black text-white">
-                  {isLifetime ? "Lifetime Access ($100)" : isActive ? "Basic Plan ($25 / 30 Days)" : "Preview Mode (Tala 🔒 / Locked)"}
+                  {profile?.plan_label ||
+                    (isCustom
+                      ? "Custom Plan"
+                      : isLifetime
+                      ? "Lifetime Access ($100)"
+                      : isActive
+                      ? "Basic Plan ($25 / 30 Days)"
+                      : "Preview Mode (Locked)")}
                 </span>
                 <span className={`text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded border ${
                   isActive
@@ -114,9 +125,9 @@ export default function SubscriptionPage() {
                 }`}>
                   {currentStatus}
                 </span>
-                {isActive && !isLifetime && profile?.remaining_days !== undefined && (
+                {isActive && !isLifetime && (profile?.remaining_detailed || profile?.remaining_days !== undefined) && (
                   <span className="text-xs font-mono font-bold text-emerald-300 bg-emerald-500/20 px-2 py-0.5 rounded border border-emerald-500/30">
-                    {profile.remaining_days} days left
+                    {profile?.remaining_detailed || `${profile.remaining_days} left`}
                   </span>
                 )}
                 {isLifetime && (
@@ -127,10 +138,10 @@ export default function SubscriptionPage() {
               </div>
               <p className="text-xs text-slate-300">
                 {isActive
-                  ? `Your subscription is active. ${isLifetime ? "You enjoy permanent access to all lead search, Gemini email assistant, Gmail outreach, and exports." : `Valid until ${profile?.subscription_expires_at ? new Date(profile.subscription_expires_at).toLocaleDateString() : "end of billing cycle"}.`}`
+                  ? `Your subscription is active. Google Maps: ${(profile?.google_maps_enabled || isLifetime) ? "Included" : "Excluded"} • Daily Cold Email Limit: ${profile?.daily_email_limit ?? (isLifetime ? 500 : 10)}/day (UTC). ${isLifetime ? "Permanent access without expiry." : `Valid until ${profile?.subscription_expires_at ? new Date(profile.subscription_expires_at).toUTCString() : "end of cycle"}.`}`
                   : isExpired
-                  ? "Your 30-day Basic subscription has expired. Lead searching and email features are locked. Please renew for $25/mo or upgrade to $100 Lifetime via WhatsApp."
-                  : "All features are currently locked with view-only preview access. To unlock full lead discovery, Gemini AI assistant, and Gmail sending, activate for $25/30 Days or $100 Lifetime Deal via WhatsApp."}
+                  ? "Your subscription has expired. Lead searching and email features are locked. Please renew via WhatsApp (+923174383702)."
+                  : "All features are currently locked with view-only preview access. Contact the Owner on WhatsApp (+923174383702) for activation."}
               </p>
             </div>
           </div>

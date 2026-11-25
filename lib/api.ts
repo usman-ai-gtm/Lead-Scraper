@@ -28,12 +28,8 @@ class ApiClient {
 
     if (typeof window !== "undefined") {
       const token = localStorage.getItem("usman_gtm_token");
-      if (token) {
+      if (token && token !== "null" && token !== "undefined") {
         headers["Authorization"] = `Bearer ${token}`;
-      }
-      const wsId = localStorage.getItem("usman_gtm_workspace_id");
-      if (wsId) {
-        headers["X-Workspace-Id"] = wsId;
       }
     }
 

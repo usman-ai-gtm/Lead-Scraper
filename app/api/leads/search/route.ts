@@ -15,6 +15,8 @@ import {
 } from "@/lib/neon-db";
 import { interpretSearchIntent, SearchIntentResult } from "@/lib/ai-search-parser";
 import { evaluateContactRequirement, calculateLeadQualityScore, ContactRequirement } from "@/lib/lead-quality-engine";
+import { getCountryGlCode, normalizeCountryName } from "@/lib/countries";
+import { parseMapsCountriesAndCities } from "@/lib/maps-extractor";
 import {
   cleanDomain,
   cleanBusinessName,
@@ -26,6 +28,9 @@ import {
   mergeLeadIntoList,
   QualifiedLeadItem
 } from "@/lib/search-intelligence";
+
+export const dynamic = "force-dynamic";
+export const maxDuration = 60;
 
 interface SerperOrganicItem {
   title?: string;
@@ -50,7 +55,25 @@ export async function POST(req: Request) {
   try {
     const body = await req.json().catch(() => ({}));
     const currentUser = getCurrentUserFromRequest(req);
-    const authCheck = await verifyClientActiveSubscription(currentUser);
+
+    const rawKeyword = String(body.keyword || body.query || body.natural_query || "").trim();
+    const rawIndustry = String(body.industry || "").trim();
+    const useBusinessProfile = Boolean(body.use_business_profile || body.use_profile);
+    const targetCount = Math.min(1000, Math.max(1, Number(body.target_count || body.limit) || 50));
+
+    const geo = parseMapsCountriesAndCities(body);
+    if (geo.error) {
+      return NextResponse.json(
+        { status: "error", message: geo.error, qualified_count: 0, leads: [] },
+        { status: 400 }
+      );
+    }
+    const countriesList = geo.countries;
+
+    const authCheck = await verifyClientActiveSubscription(
+      currentUser,
+      countriesList.length > 1 ? "multi_country_search" : "find_leads"
+    );
     if (!authCheck.allowed) {
       return NextResponse.json(
         {
@@ -60,30 +83,17 @@ export async function POST(req: Request) {
         { status: authCheck.statusCode || 403 }
       );
     }
-    const workspaceId = currentUser.workspace_id || 1;
-
-    const rawKeyword = String(body.keyword || body.query || body.natural_query || "").trim();
-    const rawCountry = String(body.country || "United States").trim();
-    const rawCountries = body.countries;
-    const countriesList: string[] = Array.isArray(rawCountries) && rawCountries.length > 0
-      ? rawCountries.map((c: string) => String(c).trim()).filter(Boolean)
-      : [rawCountry && rawCountry !== "ALL COUNTRIES" && rawCountry !== "All Countries" ? rawCountry : "United States"];
+    const workspaceId = Number(authCheck.userRecord?.workspace_id || currentUser.workspace_id) || 1;
 
     const contactRequirement: ContactRequirement = ["EMAIL_AND_PHONE", "EMAIL_ONLY", "PHONE_ONLY", "EMAIL_OR_PHONE"].includes(body.contact_requirement)
       ? (body.contact_requirement as ContactRequirement)
-      : "EMAIL_AND_PHONE";
-
-    const rawCity = String(body.city || "").trim();
-    const rawIndustry = String(body.industry || "").trim();
-    const useBusinessProfile = Boolean(body.use_business_profile || body.use_profile);
-    // Manual requested lead count: supports any number 1 to 1000
-    const targetCount = Math.min(1000, Math.max(1, Number(body.target_count || body.limit) || 50));
+      : "EMAIL_OR_PHONE";
 
     if (!rawKeyword && !rawIndustry && !useBusinessProfile) {
       return NextResponse.json(
         {
           status: "error",
-          message: "Please enter a target keyword or description (e.g. Dentists in London, Mobile Accessories, Software Houses).",
+          message: "Please enter a target keyword or description (e.g. Dentists, Mobile Accessories, Software Houses).",
           qualified_count: 0,
           leads: [],
         },
@@ -92,13 +102,17 @@ export async function POST(req: Request) {
     }
 
     const keyword = rawKeyword || rawIndustry || "Business Prospects";
-    const country = (rawCountry === "ALL COUNTRIES" || rawCountry === "All Countries" || !rawCountry) ? "" : rawCountry;
-    const city = (rawCity === "ALL_CITIES" || rawCity === "All Cities") ? "" : rawCity;
+    const country = countriesList.length > 5 ? `${countriesList.length} Countries` : countriesList.join(", ");
+    const city = geo.specificCitiesEnabled
+      ? geo.cities.map((c) => c.city).slice(0, 5).join(", ")
+      : "";
+    const rawCountry = countriesList[0] || "United States";
+    const rawCity = geo.specificCitiesEnabled && geo.cities[0] ? geo.cities[0].city : "";
 
     // 1. One active search job per customer account lock
     const jobLock = await acquireActiveSearchJob(
       workspaceId,
-      currentUser.id || 1,
+      Number(authCheck.userRecord?.id || currentUser.id) || 1,
       "WEB_SEARCH",
       keyword,
       country,
@@ -261,33 +275,45 @@ export async function POST(req: Request) {
       countryStats[c] = { candidates: 0, eligible: 0, duplicates: 0, missing_contact: 0 };
     }
 
-    const maxInternalPages = Math.min(10, Math.ceil(targetCount / (5 * Math.max(1, countriesList.length))) + 2);
+    const geoTargets: Array<{ country: string; city: string | null }> =
+      geo.specificCitiesEnabled && geo.cities.length > 0
+        ? geo.cities.map((ct) => ({ country: normalizeCountryName(ct.country), city: ct.city }))
+        : countriesList.map((c) => ({ country: normalizeCountryName(c), city: null }));
 
-    for (const currentCountry of countriesList) {
-      if (qualifiedLeads.length >= targetCount) break;
+    const maxInternalPages = Math.min(6, Math.max(1, Math.ceil(targetCount / (6 * Math.max(1, geoTargets.length))) + 1));
+
+    for (const geoTarget of geoTargets) {
+      if (qualifiedLeads.length >= targetCount || Date.now() - startTime > 42000) break;
+      const currentCountry = geoTarget.country;
+      const currentCity = geoTarget.city || "";
+      const targetGl = getCountryGlCode(currentCountry);
+      const targetLocationPhrase = currentCity ? `${currentCity} ${currentCountry}` : currentCountry;
 
       for (let pageNum = 1; pageNum <= maxInternalPages; pageNum++) {
-        if (qualifiedLeads.length >= targetCount) break;
+        if (qualifiedLeads.length >= targetCount || Date.now() - startTime > 42000) break;
 
         const currentVariation = combinedKeywordVariations[(pageNum - 1) % combinedKeywordVariations.length] || effectiveKeyword;
 
         const channelSearches = sourceChannels.map(async (channel) => {
-          if (qualifiedLeads.length >= targetCount) return;
+          if (qualifiedLeads.length >= targetCount || Date.now() - startTime > 42000) return;
 
-          const currentQuery = `${channel.buildQuery(currentVariation)} "${currentCountry}"`;
+          const currentQuery = `${channel.buildQuery(currentVariation)} "${targetLocationPhrase}"`;
 
         try {
+          const serperBody: Record<string, any> = {
+            q: currentQuery,
+            num: 10,
+            page: pageNum,
+          };
+          if (targetGl) serperBody.gl = targetGl;
+
           const res = await fetch("https://google.serper.dev/search", {
             method: "POST",
             headers: {
               "X-API-KEY": serperKey,
               "Content-Type": "application/json",
             },
-            body: JSON.stringify({
-              q: currentQuery,
-              num: 10,
-              page: pageNum,
-            }),
+            body: JSON.stringify(serperBody),
           });
 
           if (!res.ok) {
@@ -347,8 +373,9 @@ export async function POST(req: Request) {
               "x.com", "youtube.com", "tiktok.com"
             ].some((s) => dom.includes(s));
 
-            // Deep Business Website Contact Page Extraction
-            if (!email && !isSocialHost) {
+            // Deep Business Website Contact Page Extraction (bounded to prevent timeouts)
+            const needsEmailNow = contactRequirement !== "PHONE_ONLY";
+            if (!email && needsEmailNow && !isSocialHost && Date.now() - startTime < 38000) {
               const crawlResult = await crawlWebsiteForContacts(dom, email, phone);
               if (crawlResult.email) {
                 email = crawlResult.email;
@@ -361,12 +388,12 @@ export async function POST(req: Request) {
                 phoneEvidenceStatus = crawlResult.phoneStatus;
               }
 
-              if (!email) {
+              if (!email && Date.now() - startTime < 36000) {
                 const resolved = await querySerperForDomainContact(dom, serperKey);
                 if (resolved.email) {
                   email = resolved.email;
                   emailSourceUrl = resolved.emailSourceUrl || link;
-                  emailEvidenceStatus = "FOUND ON OFFICIAL WEBSITE CONTACT PAGE • DOMAIN CHECKED";
+                  emailEvidenceStatus = "EXTRACTED FROM PUBLIC WEBSITE • SYNTAX CHECKED";
                 }
                 if (!phone && resolved.phone) {
                   phone = resolved.phone;
@@ -375,11 +402,11 @@ export async function POST(req: Request) {
                 }
               }
             } else if (email && !isSocialHost) {
-              emailEvidenceStatus = "FOUND ON OFFICIAL WEBSITE • DOMAIN CHECKED";
+              emailEvidenceStatus = "EXTRACTED FROM PUBLIC PAGE • SYNTAX CHECKED";
             } else if (email && isSocialHost) {
-              emailEvidenceStatus = "FOUND ON PUBLIC BUSINESS PROFILE • FORMAT CHECKED";
+              emailEvidenceStatus = "FOUND ON PUBLIC BUSINESS PROFILE • SYNTAX CHECKED";
             } else if (email && (link.includes("yellowpages.") || link.includes("clutch.co") || link.includes("yelp."))) {
-              emailEvidenceStatus = "FOUND ON THIRD-PARTY DIRECTORY • FORMAT CHECKED";
+              emailEvidenceStatus = "FOUND ON THIRD-PARTY DIRECTORY • SYNTAX CHECKED";
             }
 
             // Evaluate Contact Requirement (EMAIL_AND_PHONE, EMAIL_ONLY, PHONE_ONLY, EMAIL_OR_PHONE)
@@ -427,8 +454,8 @@ export async function POST(req: Request) {
               phone_source_url: cleanPhone ? phoneSourceUrl : "",
               phone_status: phoneEvidenceStatus,
               country: currentCountry || "Global",
-              city: effectiveCity || locParts[0] || "",
-              address: snippet.includes(",") ? snippet.slice(0, 100) : [effectiveCity, currentCountry].filter(Boolean).join(", "),
+              city: currentCity || "",
+              address: snippet.includes(",") ? snippet.slice(0, 100) : [currentCity, currentCountry].filter(Boolean).join(", "),
               industry: rawIndustry && rawIndustry !== "Any" ? rawIndustry : aiStrategy.industry || effectiveKeyword,
               source_platform: channel.platformLabel,
               original_source_url: link,
@@ -541,8 +568,8 @@ export async function POST(req: Request) {
         excluded_previous_duplicates: excludedExistingDuplicates,
       },
       message: qualifiedLeads.length >= targetCount
-        ? `Successfully extracted and permanently saved exactly ${qualifiedLeads.length} unique qualified leads with verified emails into Neon PostgreSQL.`
-        : `Discovered and permanently saved ${qualifiedLeads.length} unique qualified leads with verified emails into Neon PostgreSQL. (${excludedExistingDuplicates} previously saved leads were excluded via permanent account deduplication; all results are authentic without synthetic filler).`,
+        ? `Successfully extracted and permanently saved ${qualifiedLeads.length} unique qualified leads matching "${contactRequirement}" into Neon PostgreSQL.`
+        : `Discovered and permanently saved ${qualifiedLeads.length} unique qualified leads out of ${targetCount} requested. (${excludedExistingDuplicates} workspace duplicates excluded; ${missingContactCount} skipped due to missing ${contactRequirement.replace(/_/g, " ")} contact details).`,
     });
   } catch (err: any) {
     if (currentJobId) {

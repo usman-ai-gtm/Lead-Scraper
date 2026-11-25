@@ -1,11 +1,14 @@
 import { NextResponse } from "next/server";
-import { getCurrentUserFromRequest } from "@/lib/serverless-auth";
+import { getCurrentUserFromRequest, verifyClientActiveSubscription } from "@/lib/serverless-auth";
 import { disconnectNeonGmailAccount } from "@/lib/neon-db";
 
 export async function POST(request: Request) {
   const currentUser = getCurrentUserFromRequest(request);
-  const wsHeader = request.headers.get("x-workspace-id") || request.headers.get("X-Workspace-Id");
-  const workspaceId = currentUser ? currentUser.workspace_id : (wsHeader ? Number(wsHeader) : 1);
+  if (!currentUser) {
+    return NextResponse.json({ error: "Authentication required." }, { status: 401 });
+  }
+  const subCheck = await verifyClientActiveSubscription(currentUser);
+  const workspaceId = Number(subCheck.userRecord?.workspace_id || currentUser.workspace_id) || 1;
 
   let body: any = {};
   try {

@@ -70,9 +70,7 @@ function EmailAccountsContent() {
     };
     if (typeof window !== "undefined") {
       const token = localStorage.getItem("usman_gtm_token");
-      if (token) headers["Authorization"] = `Bearer ${token}`;
-      const wsId = localStorage.getItem("usman_gtm_workspace_id");
-      if (wsId) headers["X-Workspace-Id"] = wsId;
+      if (token && token !== "null" && token !== "undefined") headers["Authorization"] = `Bearer ${token}`;
     }
     return headers;
   };
@@ -331,7 +329,7 @@ function EmailAccountsContent() {
                 )}
               </div>
               <p className="text-xs text-slate-400 mt-0.5">
-                Standard Free Gmail: 500 emails / day ($0/mo) • Google Workspace: 2,000 emails / day
+                Plan Allowance: <strong>{statusData?.daily_quota ?? user?.daily_email_limit ?? 10} emails / UTC day</strong> • Provider Caps: Personal Gmail ~500/day max (deliverability depends on warm-up), Google Workspace up to 2,000/day
               </p>
             </div>
           </div>
@@ -420,7 +418,7 @@ function EmailAccountsContent() {
                     Sender: {acc.sender_name || "Sales Outreach"}
                   </div>
                   <div className="text-[10px] text-slate-400 border-t border-white/[0.04] pt-2 flex justify-between">
-                    <span>Sent Today: {acc.sent_today || 0} / {acc.daily_limit || 500}</span>
+                    <span>Sent Today (UTC): {acc.sent_today_utc ?? acc.sent_today ?? 0} / {statusData?.daily_quota ?? acc.daily_limit ?? 10}</span>
                     <span className="text-emerald-400 font-mono">AES-256</span>
                   </div>
                 </div>
@@ -477,14 +475,26 @@ function EmailAccountsContent() {
           </div>
         )}
 
-        {/* Security & Multi-Tenant Isolation Notice */}
-        <div className="p-4 rounded-xl bg-blue-500/5 border border-blue-500/15 flex items-start gap-3 text-xs text-slate-300">
-          <Shield className="h-5 w-5 text-blue-400 shrink-0 mt-0.5" />
-          <div className="space-y-1">
-            <div className="font-semibold text-blue-300">Strict Multi-Tenant Privacy Guarantee</div>
-            <p className="text-slate-400 text-[11px] leading-relaxed">
-              Your connected Gmail address and OAuth tokens are strictly isolated to your private workspace. Other clients on USMAN AI GTM cannot see or send from your email account. Tokens are encrypted with AES-256-GCM at rest and refreshed automatically.
-            </p>
+        {/* Security & Google OAuth Verification Transparency Notice */}
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <div className="p-4 rounded-xl bg-blue-500/5 border border-blue-500/15 flex items-start gap-3 text-xs text-slate-300">
+            <Shield className="h-5 w-5 text-blue-400 shrink-0 mt-0.5" />
+            <div className="space-y-1">
+              <div className="font-semibold text-blue-300">Multi-Account Isolation &amp; Encryption</div>
+              <p className="text-slate-400 text-[11px] leading-relaxed">
+                Multiple Gmail mailboxes can be connected per workspace for sending selection and rotation. All OAuth refresh tokens are encrypted with AES-256-GCM at rest and strictly isolated to your workspace.
+              </p>
+            </div>
+          </div>
+
+          <div className="p-4 rounded-xl bg-amber-500/5 border border-amber-500/20 flex items-start gap-3 text-xs text-slate-300">
+            <AlertTriangle className="h-5 w-5 text-amber-400 shrink-0 mt-0.5" />
+            <div className="space-y-1">
+              <div className="font-semibold text-amber-300">Google OAuth Restricted Scope Notice</div>
+              <p className="text-slate-400 text-[11px] leading-relaxed">
+                Connecting Gmail requests Google&apos;s <code className="text-slate-300">gmail.send</code> scope. Until Google approves full Restricted Scope App Verification (or your Gmail is added as an approved Test User in Google Cloud Console), Google shows an unverified/blocked screen during connect.
+              </p>
+            </div>
           </div>
         </div>
       </div>

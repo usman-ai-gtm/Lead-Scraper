@@ -24,28 +24,37 @@ interface LeadItem {
 
 interface OutreachRecord {
   id: number;
+  lead_id?: number | null;
   recipient_email: string;
   recipient_name: string;
+  sender_email?: string;
   subject: string;
+  body?: string;
   outreach_status: string;
   gmail_message_id?: string;
+  followup_notes?: string;
   sent_at: string;
 }
 
 function ColdEmailContent() {
-  const { user, isLocked, refreshUser } = useAuth();
+  const { user, isLocked } = useAuth();
 
   // State
   const [leads, setLeads] = useState<LeadItem[]>([]);
   const [selectedLeadIds, setSelectedLeadIds] = useState<number[]>([]);
   const [loadingLeads, setLoadingLeads] = useState(true);
 
-  // Sender state
+  // Sender & Daily Quota state
   const [senderAccount, setSenderAccount] = useState<any | null>(null);
   const [allAccounts, setAllAccounts] = useState<any[]>([]);
   const [selectedAccountId, setSelectedAccountId] = useState<string>("ROUND_ROBIN");
   const [isGmailConnected, setIsGmailConnected] = useState(false);
   const [checkingSender, setCheckingSender] = useState(true);
+  const [dailyQuota, setDailyQuota] = useState<number>(10);
+  const [sentTodayUtc, setSentTodayUtc] = useState<number>(0);
+  const [quotaTimezoneNote, setQuotaTimezoneNote] = useState<string>("UTC (00:00 UTC daily)");
+  const [delaySeconds, setDelaySeconds] = useState<number>(2);
+  const [allowDuplicateSend, setAllowDuplicateSend] = useState<boolean>(false);
 
   // Email form & templates
   const [subject, setSubject] = useState("Exploring collaboration with {{business_name}}");
@@ -68,7 +77,8 @@ function ColdEmailContent() {
 
   // Sending process
   const [isSending, setIsSending] = useState(false);
-  const [sendProgress, setSendProgress] = useState({ current: 0, total: 0 });
+  const [sendProgress, setSendProgress] = useState({ current: 0, total: 0, sent: 0, failed: 0 });
+  const [retryingId, setRetryingId] = useState<number | null>(null);
 
   // Sending history
   const [history, setHistory] = useState<OutreachRecord[]>([]);
@@ -85,21 +95,24 @@ function ColdEmailContent() {
     };
     if (typeof window !== "undefined") {
       const token = localStorage.getItem("usman_gtm_token");
-      if (token) headers["Authorization"] = `Bearer ${token}`;
-      const wsId = localStorage.getItem("usman_gtm_workspace_id");
-      if (wsId) headers["X-Workspace-Id"] = wsId;
+      if (token && token !== "null" && token !== "undefined") headers["Authorization"] = `Bearer ${token}`;
     }
     return headers;
   };
 
-  // 1. Fetch connected Gmail sender status
+  // 1. Fetch connected Gmail sender status & authoritative daily plan limits
   const fetchSenderStatus = async () => {
     setCheckingSender(true);
     try {
       const res = await fetch("/api/integrations/gmail/status", {
+        credentials: "include",
         headers: getAuthHeaders(),
       });
       const data = await res.json();
+      if (typeof data?.daily_quota === "number") setDailyQuota(data.daily_quota);
+      if (typeof data?.emails_sent_today === "number") setSentTodayUtc(data.emails_sent_today);
+      if (data?.quota_reset_timezone) setQuotaTimezoneNote(data.quota_reset_timezone);
+
       if (data && data.status_code === "CONNECTED" && (data.account || (data.accounts && data.accounts.length > 0))) {
         setIsGmailConnected(true);
         setSenderAccount(data.account || data.accounts[0]);
@@ -328,17 +341,19 @@ function ColdEmailContent() {
         }),
       });
       const data = await res.json();
-      if (res.ok && data.email_draft) {
-        setSubject(data.email_draft.subject || subject);
+      const draftObj = data?.draft || data?.email_draft;
+      if (res.ok && draftObj) {
+        setSubject(draftObj.subject || subject);
         setBodyText(
-          `${data.email_draft.greeting || "Hi {{contact_name}},"}\n\n${data.email_draft.body}\n\n${
-            data.email_draft.call_to_action || ""
-          }\n\n${data.email_draft.signature || "Best regards,\n{{sender_name}}"}`
+          `${draftObj.greeting || "Hi {{contact_name}},"}\n\n${draftObj.body}\n\n${
+            draftObj.call_to_action || ""
+          }\n\n${draftObj.signature || "Best regards,\n{{sender_name}}"}`
         );
         setToastType("success");
         setToastMsg("Personalized draft created with Gemini AI based on lead details.");
       } else {
-        alert(data.error || "Failed to generate AI email draft.");
+        setToastType("error");
+        setToastMsg(data.error || "Failed to generate AI email draft.");
       }
     } catch (err: any) {
       alert("Error generating email: " + err.message);
@@ -410,18 +425,19 @@ function ColdEmailContent() {
 
     setConfirmModalOpen(false);
     setIsSending(true);
-    setSendProgress({ current: 0, total: selectedLeadIds.length });
+    setSendProgress({ current: 0, total: selectedLeadIds.length, sent: 0, failed: 0 });
 
     let successCount = 0;
     let failCount = 0;
+    let stopReason = "";
 
     const targetLeads = leads.filter((l) => selectedLeadIds.includes(l.id));
+    const safeDelayMs = Math.max(1, Math.min(30, delaySeconds)) * 1000;
 
     for (let i = 0; i < targetLeads.length; i++) {
       const lead = targetLeads[i];
-      setSendProgress({ current: i + 1, total: targetLeads.length });
+      setSendProgress({ current: i + 1, total: targetLeads.length, sent: successCount, failed: failCount });
 
-      // Strict safeguard: skip DO NOT CONTACT
       if (lead.crm_stage === "DO NOT CONTACT") {
         failCount++;
         continue;
@@ -433,6 +449,7 @@ function ColdEmailContent() {
       try {
         const res = await fetch("/api/integrations/gmail/send", {
           method: "POST",
+          credentials: "include",
           headers: getAuthHeaders(),
           body: JSON.stringify({
             lead_id: lead.id,
@@ -440,33 +457,78 @@ function ColdEmailContent() {
             recipient_name: lead.business_name,
             subject: personalizedSubject,
             body: personalizedBody,
+            allow_duplicate: allowDuplicateSend,
             account_id: selectedAccountId !== "ROUND_ROBIN" ? Number(selectedAccountId) : undefined,
           }),
         });
 
+        const resData = await res.json().catch(() => ({}));
         if (res.ok) {
           successCount++;
         } else {
           failCount++;
+          if (res.status === 429) {
+            stopReason = resData.error || "Daily sending limit reached.";
+            setSendProgress({ current: i + 1, total: targetLeads.length, sent: successCount, failed: failCount });
+            break;
+          }
         }
       } catch {
         failCount++;
       }
 
-      // Safe pacing delay (500ms between dispatches to respect Google API quotas)
+      setSendProgress({ current: i + 1, total: targetLeads.length, sent: successCount, failed: failCount });
+
       if (i < targetLeads.length - 1) {
-        await new Promise((resolve) => setTimeout(resolve, 500));
+        await new Promise((resolve) => setTimeout(resolve, safeDelayMs));
       }
     }
 
     setIsSending(false);
-    setToastType(successCount > 0 ? "success" : "error");
+    setToastType(stopReason ? "error" : successCount > 0 ? "success" : "error");
     setToastMsg(
-      `Outreach completed: ${successCount} sent successfully${failCount > 0 ? `, ${failCount} failed` : ""}.`
+      stopReason
+        ? `${stopReason} Completed ${successCount} successful sends before stopping.`
+        : `Outreach batch finished: ${successCount} sent successfully${failCount > 0 ? `, ${failCount} failed` : ""}.`
     );
     setSelectedLeadIds([]);
     await fetchSenderStatus();
     await fetchHistory();
+  };
+
+  const handleRetrySend = async (record: OutreachRecord) => {
+    setRetryingId(record.id);
+    try {
+      const res = await fetch("/api/integrations/gmail/send", {
+        method: "POST",
+        credentials: "include",
+        headers: getAuthHeaders(),
+        body: JSON.stringify({
+          lead_id: record.lead_id || undefined,
+          recipient_email: record.recipient_email,
+          recipient_name: record.recipient_name || record.recipient_email,
+          subject: record.subject,
+          body: record.body || bodyText,
+          allow_duplicate: true,
+          account_id: selectedAccountId !== "ROUND_ROBIN" ? Number(selectedAccountId) : undefined,
+        }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (res.ok) {
+        setToastType("success");
+        setToastMsg(`Retried successfully to ${record.recipient_email}!`);
+      } else {
+        setToastType("error");
+        setToastMsg(data.error || "Retry send failed.");
+      }
+      await fetchSenderStatus();
+      await fetchHistory();
+    } catch (err: any) {
+      setToastType("error");
+      setToastMsg(err?.message || "Retry send error.");
+    } finally {
+      setRetryingId(null);
+    }
   };
 
   const previewLead = leads.find((l) => selectedLeadIds.includes(l.id)) || leads[0];
@@ -531,7 +593,7 @@ function ColdEmailContent() {
                 <option value="ROUND_ROBIN">All Connected Accounts ({allAccounts.length} Mailboxes • Round-Robin)</option>
                 {allAccounts.map((acc: any) => (
                   <option key={acc.id} value={acc.id}>
-                    {acc.sender_email} ({acc.sent_today || 0}/{acc.daily_limit || 500} sent)
+                    {acc.sender_email} ({acc.sent_today_utc ?? acc.sent_today ?? 0}/{dailyQuota} plan UTC quota)
                   </option>
                 ))}
               </select>
@@ -540,7 +602,9 @@ function ColdEmailContent() {
             <div className="flex items-center gap-2 px-3 py-1.5 rounded-xl bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 text-xs">
               <Mail className="h-3.5 w-3.5" />
               <span className="font-semibold">{senderAccount.sender_email}</span>
-              <span className="text-[10px] text-emerald-500">({senderAccount.sent_today || 0}/500 sent today)</span>
+              <span className="text-[10px] text-emerald-300 font-mono">
+                ({sentTodayUtc}/{dailyQuota} UTC today)
+              </span>
             </div>
           ) : (
             <Link
@@ -765,6 +829,61 @@ function ColdEmailContent() {
             />
           </div>
 
+          {/* Delay Pacing & Sending Controls */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 p-3 rounded-xl bg-white/[0.02] border border-white/[0.06] text-xs">
+            <div>
+              <label className="block text-[11px] font-semibold text-slate-300 mb-1">
+                Delay Between Emails ({delaySeconds}s safe pacing)
+              </label>
+              <select
+                value={delaySeconds}
+                disabled={isSending}
+                onChange={(e) => setDelaySeconds(Number(e.target.value))}
+                className="w-full rounded-lg border border-white/10 bg-[#0c1017] px-2.5 py-1.5 text-xs text-white focus:outline-none"
+              >
+                <option value={1}>1 second (Fast batch)</option>
+                <option value={2}>2 seconds (Recommended safe)</option>
+                <option value={5}>5 seconds (Conservative)</option>
+                <option value={10}>10 seconds (High deliverability)</option>
+                <option value={20}>20 seconds (Human pacing)</option>
+              </select>
+            </div>
+            <div className="flex flex-col justify-between">
+              <div className="text-[11px] text-slate-300">
+                Daily Plan Quota Remaining:{" "}
+                <strong className={dailyQuota - sentTodayUtc <= 0 ? "text-rose-400" : "text-emerald-400"}>
+                  {Math.max(0, dailyQuota - sentTodayUtc)} / {dailyQuota}
+                </strong>{" "}
+                <span className="text-slate-500">({quotaTimezoneNote})</span>
+              </div>
+              <label className="flex items-center gap-2 text-[11px] text-slate-400 mt-1 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={allowDuplicateSend}
+                  onChange={(e) => setAllowDuplicateSend(e.target.checked)}
+                  className="rounded border-white/20"
+                />
+                <span>Allow re-sending to contacts messaged within 30 days</span>
+              </label>
+            </div>
+          </div>
+
+          {isSending && (
+            <div className="p-3 rounded-xl bg-blue-500/10 border border-blue-500/20 space-y-2 text-xs">
+              <div className="flex justify-between font-mono text-[11px] text-blue-200">
+                <span>
+                  Sending progress: {sendProgress.current}/{sendProgress.total} (Sent: {sendProgress.sent}, Failed: {sendProgress.failed}, Pending: {Math.max(0, sendProgress.total - sendProgress.current)})
+                </span>
+              </div>
+              <div className="h-1.5 rounded-full bg-white/10 overflow-hidden">
+                <div
+                  className="h-full bg-blue-500 transition-all"
+                  style={{ width: `${sendProgress.total > 0 ? Math.round((sendProgress.current / sendProgress.total) * 100) : 0}%` }}
+                />
+              </div>
+            </div>
+          )}
+
           {/* Action Row */}
           <div className="pt-2 flex items-center justify-between gap-3 flex-wrap">
             <div className="flex items-center gap-2">
@@ -857,7 +976,7 @@ function ColdEmailContent() {
                   <th className="py-3 px-3">Subject</th>
                   <th className="py-3 px-3">Status</th>
                   <th className="py-3 px-3">Sent At</th>
-                  <th className="py-3 px-3">Gmail Message ID</th>
+                  <th className="py-3 px-3 text-right">Details / Retry</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-white/[0.04]">
@@ -880,12 +999,30 @@ function ColdEmailContent() {
                       >
                         {record.outreach_status}
                       </span>
+                      {record.outreach_status === "FAILED" && record.followup_notes && (
+                        <div className="text-[10px] text-rose-300/80 mt-0.5 max-w-[180px] truncate" title={record.followup_notes}>
+                          {record.followup_notes}
+                        </div>
+                      )}
                     </td>
                     <td className="py-3 px-3 text-slate-400 font-mono text-[11px]">
                       {record.sent_at ? new Date(record.sent_at).toLocaleString() : "Recently"}
                     </td>
-                    <td className="py-3 px-3 text-slate-500 font-mono text-[10px] truncate max-w-[150px]">
-                      {record.gmail_message_id || "Direct Dispatch"}
+                    <td className="py-3 px-3 text-right text-slate-500 font-mono text-[10px]">
+                      {record.outreach_status === "FAILED" ? (
+                        <button
+                          type="button"
+                          onClick={() => handleRetrySend(record)}
+                          disabled={retryingId === record.id}
+                          className="px-2.5 py-1 rounded bg-rose-500/15 hover:bg-rose-500/25 text-rose-300 border border-rose-500/30 text-[10px] font-bold cursor-pointer disabled:opacity-50"
+                        >
+                          {retryingId === record.id ? "Retrying..." : "Retry"}
+                        </button>
+                      ) : (
+                        <span className="truncate max-w-[140px] inline-block">
+                          {record.gmail_message_id || "Direct Dispatch"}
+                        </span>
+                      )}
                     </td>
                   </tr>
                 ))}
@@ -1017,7 +1154,11 @@ function ColdEmailContent() {
             <div className="p-3 rounded-xl bg-white/[0.02] border border-white/[0.06] text-xs text-slate-400 space-y-1">
               <div className="flex items-center gap-2 text-emerald-400">
                 <Check className="h-3.5 w-3.5" />
-                <span>Google API limits respected (500 daily quota)</span>
+                <span>Plan daily quota: {sentTodayUtc}/{dailyQuota} UTC sends used today</span>
+              </div>
+              <div className="flex items-center gap-2 text-emerald-400">
+                <Check className="h-3.5 w-3.5" />
+                <span>Pacing delay: {delaySeconds}s between messages</span>
               </div>
               <div className="flex items-center gap-2 text-emerald-400">
                 <Check className="h-3.5 w-3.5" />

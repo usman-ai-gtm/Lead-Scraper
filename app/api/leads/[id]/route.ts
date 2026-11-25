@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { getCurrentUserFromRequest } from "@/lib/serverless-auth";
+import { getCurrentUserFromRequest, verifyClientActiveSubscription } from "@/lib/serverless-auth";
 import { getNeonLeadById, deleteNeonLead, isNeonConfigured } from "@/lib/neon-db";
 
 export const dynamic = "force-dynamic";
@@ -13,9 +13,13 @@ export async function GET(req: Request, { params }: RouteParams) {
   if (!currentUser) {
     return NextResponse.json({ detail: "Authentication required" }, { status: 401 });
   }
+  const subCheck = await verifyClientActiveSubscription(currentUser, "saved_leads");
+  if (!subCheck.allowed) {
+    return NextResponse.json({ detail: subCheck.message }, { status: subCheck.statusCode || 403 });
+  }
 
   const id = Number(params.id);
-  const workspaceId = currentUser.workspace_id;
+  const workspaceId = Number(subCheck.userRecord?.workspace_id || currentUser.workspace_id) || 1;
 
   if (isNeonConfigured()) {
     const lead = await getNeonLeadById(workspaceId, id);
@@ -30,9 +34,13 @@ export async function DELETE(req: Request, { params }: RouteParams) {
   if (!currentUser) {
     return NextResponse.json({ detail: "Authentication required" }, { status: 401 });
   }
+  const subCheck = await verifyClientActiveSubscription(currentUser, "saved_leads");
+  if (!subCheck.allowed) {
+    return NextResponse.json({ detail: subCheck.message }, { status: subCheck.statusCode || 403 });
+  }
 
   const id = Number(params.id);
-  const workspaceId = currentUser.workspace_id;
+  const workspaceId = Number(subCheck.userRecord?.workspace_id || currentUser.workspace_id) || 1;
 
   if (isNeonConfigured()) {
     const deleted = await deleteNeonLead(workspaceId, id);

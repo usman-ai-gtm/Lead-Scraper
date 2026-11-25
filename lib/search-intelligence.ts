@@ -352,44 +352,52 @@ export async function crawlWebsiteForContacts(
   let phoneSourceUrl = existingPhone ? `https://${normDom}` : "";
   let phoneStatus = existingPhone ? "FOUND IN SEARCH SNIPPET • FORMAT CHECKED" : "NOT LISTED";
 
-  // Prioritized contact paths
-  const candidateUrls = [
-    `https://${normDom}/pages/contact-us`,
-    `https://${normDom}/contact-us`,
-    `https://${normDom}/contact`,
-    `https://${normDom}/pages/contact`,
-    `https://${normDom}/about-us`,
-    `https://${normDom}/about`,
-    `https://${normDom}/impressum`,
-    `https://${normDom}`,
+  // Prioritized contact paths fetched in bounded parallel rounds (fast, safe HTTP with 1.8s timeout)
+  const priorityRounds: string[][] = [
+    [
+      `https://${normDom}/contact`,
+      `https://${normDom}/contact-us`,
+      `https://${normDom}`,
+    ],
+    [
+      `https://${normDom}/pages/contact-us`,
+      `https://${normDom}/about-us`,
+      `https://${normDom}/about`,
+    ],
   ];
 
-  for (const url of candidateUrls) {
-    if (discoveredEmail && discoveredPhone) break;
-
+  const inspectUrl = async (url: string) => {
     const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 2500);
-
+    const timeout = setTimeout(() => controller.abort(), 1800);
     try {
       const res = await fetch(url, {
         signal: controller.signal,
         headers: {
-          "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36 (Compatible; UsmanAiGtmBot/2.0)",
+          "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
           "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
           "Accept-Language": "en-US,en;q=0.9",
         },
         redirect: "follow",
       });
       clearTimeout(timeout);
-
-      if (!res.ok) continue;
+      if (!res.ok) return null;
       const contentType = res.headers.get("content-type") || "";
-      if (!contentType.includes("text/html") && !contentType.includes("text/plain")) continue;
-
+      if (!contentType.includes("text/html") && !contentType.includes("text/plain")) return null;
       const rawText = await res.text();
-      const bodySlice = rawText.slice(0, 150000);
+      return { finalUrl: res.url || url, bodySlice: rawText.slice(0, 120000) };
+    } catch {
+      clearTimeout(timeout);
+      return null;
+    }
+  };
 
-      // 1. Extract mailto: links (highest confidence)
+  for (const round of priorityRounds) {
+    if (discoveredEmail && discoveredPhone) break;
+    const settled = await Promise.all(round.map((u) => inspectUrl(u)));
+    for (const page of settled) {
+      if (!page) continue;
+      const { finalUrl, bodySlice } = page;
+
       if (!discoveredEmail) {
         const mailtoMatches = bodySlice.match(/href=["']mailto:([^"'>?]+)/gi) || [];
         for (const m of mailtoMatches) {
@@ -397,28 +405,26 @@ export async function crawlWebsiteForContacts(
           const { emails } = extractContactsFromText(clean);
           if (emails.length > 0) {
             discoveredEmail = emails[0];
-            emailSourceUrl = res.url || url;
-            emailStatus = "FOUND ON OFFICIAL WEBSITE CONTACT PAGE • DOMAIN CHECKED";
+            emailSourceUrl = finalUrl;
+            emailStatus = "EXTRACTED FROM PUBLIC WEBSITE • SYNTAX CHECKED";
             break;
           }
         }
       }
 
-      // 2. Extract tel: links
       if (!discoveredPhone) {
         const telMatches = bodySlice.match(/href=["']tel:([^"'>]+)/gi) || [];
         for (const t of telMatches) {
           const clean = t.replace(/href=["']tel:/i, "").replace(/[^0-9+\s\-()]/g, "").trim();
           if (clean.replace(/\D/g, "").length >= 7) {
             discoveredPhone = clean;
-            phoneSourceUrl = res.url || url;
-            phoneStatus = "FOUND ON OFFICIAL WEBSITE • FORMAT CHECKED";
+            phoneSourceUrl = finalUrl;
+            phoneStatus = "EXTRACTED FROM PUBLIC WEBSITE • FORMAT CHECKED";
             break;
           }
         }
       }
 
-      // 3. Fallback to stripped text regex if mailto was not found
       if (!discoveredEmail || !discoveredPhone) {
         const stripped = bodySlice
           .replace(/<script\b[^<]*(?:(?!<\/script>)<[^<]*)*<\/script>/gi, " ")
@@ -429,18 +435,17 @@ export async function crawlWebsiteForContacts(
         const { emails, phones } = extractContactsFromText(stripped);
         if (!discoveredEmail && emails.length > 0) {
           discoveredEmail = emails[0];
-          emailSourceUrl = res.url || url;
-          emailStatus = "FOUND ON OFFICIAL WEBSITE CONTACT PAGE • DOMAIN CHECKED";
+          emailSourceUrl = finalUrl;
+          emailStatus = "EXTRACTED FROM PUBLIC WEBSITE • SYNTAX CHECKED";
         }
         if (!discoveredPhone && phones.length > 0) {
           discoveredPhone = phones[0];
-          phoneSourceUrl = res.url || url;
-          phoneStatus = "FOUND ON OFFICIAL WEBSITE • FORMAT CHECKED";
+          phoneSourceUrl = finalUrl;
+          phoneStatus = "EXTRACTED FROM PUBLIC WEBSITE • FORMAT CHECKED";
         }
       }
-    } catch {
-      clearTimeout(timeout);
-      // Timeout or network error, proceed to next candidate URL
+
+      if (discoveredEmail && discoveredPhone) break;
     }
   }
 

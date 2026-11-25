@@ -45,8 +45,11 @@ export interface ExportLeadItem {
 function formatLeadsForXlsx(leads: ExportLeadItem[], meta?: any) {
   const pkt = getPktDateTime();
   const validLeads = leads.filter((l) => {
-    const em = l.email || "";
-    return em.includes("@") && em.includes(".") && !em.toLowerCase().includes("not found");
+    const em = String(l.email || "").trim();
+    const ph = String(l.phone || "").trim();
+    const hasEmail = em.includes("@") && em.includes(".") && !em.toLowerCase().includes("not found");
+    const hasPhone = Boolean(ph && ph !== "Not Listed" && ph !== "Not Found");
+    return hasEmail || hasPhone || Boolean(l.business_name || l.name);
   });
 
   const seenKeys = new Set<string>();
@@ -63,12 +66,13 @@ function formatLeadsForXlsx(leads: ExportLeadItem[], meta?: any) {
         rawDomain = rawWebsite.replace(/^https?:\/\//i, "").replace(/^www\./i, "").split("/")[0];
       }
     }
-    const rawEmail = l.email || "";
-    const key = rawDomain ? rawDomain.toLowerCase() : `${rawName.toLowerCase()}|${rawEmail.toLowerCase()}`;
+    const rawEmail = l.email && l.email !== "Not Found" ? l.email : "";
+    const rawPhone = l.phone && l.phone !== "Not Found" ? l.phone : "Not Listed";
+    const key = rawDomain
+      ? rawDomain.toLowerCase()
+      : `${rawName.toLowerCase()}|${rawEmail.toLowerCase()}|${rawPhone}`;
     if (seenKeys.has(key)) continue;
     seenKeys.add(key);
-
-    const rawPhone = l.phone && l.phone !== "Not Found" ? l.phone : "Not Listed";
     const rawOriginalSrc = l.original_source_url || l.source_url || rawWebsite;
     const rawEmailSrc = l.email_source_url || rawOriginalSrc;
     const rawPhoneSrc = rawPhone !== "Not Listed" ? (l.phone_source_url || rawOriginalSrc) : "Not Listed";
@@ -179,8 +183,11 @@ function buildXlsxResponse(formattedData: any[], filenameBase: string) {
 function buildPdfResponse(leads: ExportLeadItem[], filenameBase: string, meta?: any) {
   const pkt = getPktDateTime();
   const validLeads = leads.filter((l) => {
-    const em = l.email || "";
-    return em.includes("@") && em.includes(".") && !em.toLowerCase().includes("not found");
+    const em = String(l.email || "").trim();
+    const ph = String(l.phone || "").trim();
+    const hasEmail = em.includes("@") && em.includes(".") && !em.toLowerCase().includes("not found");
+    const hasPhone = Boolean(ph && ph !== "Not Listed" && ph !== "Not Found");
+    return hasEmail || hasPhone || Boolean(l.business_name || l.name);
   });
 
   // Landscape A4: 841.89 x 595.28 pt
@@ -221,7 +228,7 @@ function buildPdfResponse(leads: ExportLeadItem[], filenameBase: string, meta?: 
   );
 
   const tableHeaders = [
-    ["#", "Business Name", "Website & Domain", "Verified Business Email", "Corporate Phone", "Location & Industry", "Source Platform & URL"]
+    ["#", "Business Name", "Website & Domain", "Email (Syntax Checked)", "Corporate Phone", "Location & Industry", "Source & URL"]
   ];
 
   const seenKeys = new Set<string>();
@@ -232,12 +239,13 @@ function buildPdfResponse(leads: ExportLeadItem[], filenameBase: string, meta?: 
     const rawName = l.business_name || l.name || "Business";
     const rawWebsite = l.website || (l.domain ? `https://${l.domain}` : "");
     const rawDomain = l.domain || "";
-    const rawEmail = l.email || "";
-    const key = rawDomain ? rawDomain.toLowerCase() : `${rawName.toLowerCase()}|${rawEmail.toLowerCase()}`;
+    const rawEmail = l.email && l.email !== "Not Found" ? l.email : "Not Listed";
+    const rawPhone = l.phone && l.phone !== "Not Found" ? l.phone : "Not Listed";
+    const key = rawDomain
+      ? rawDomain.toLowerCase()
+      : `${rawName.toLowerCase()}|${rawEmail.toLowerCase()}|${rawPhone}`;
     if (seenKeys.has(key)) continue;
     seenKeys.add(key);
-
-    const rawPhone = l.phone && l.phone !== "Not Found" ? l.phone : "Not Listed";
     const rawCountry = l.country || "Global";
     const rawCity = l.city || "";
     const locStr = rawCity ? `${rawCity}, ${rawCountry}` : rawCountry;
@@ -329,7 +337,7 @@ function buildPdfResponse(leads: ExportLeadItem[], filenameBase: string, meta?: 
 
 export async function GET(req: Request) {
   const currentUser = getCurrentUserFromRequest(req);
-  const authCheck = await verifyClientActiveSubscription(currentUser);
+  const authCheck = await verifyClientActiveSubscription(currentUser, "exports");
   if (!authCheck.allowed) {
     return NextResponse.json(
       { error: authCheck.message },
@@ -347,7 +355,7 @@ export async function GET(req: Request) {
     );
   }
 
-  const workspaceId = currentUser ? currentUser.workspace_id : 1;
+  const workspaceId = Number(authCheck.userRecord?.workspace_id || currentUser?.workspace_id) || 1;
 
   const fallbackData: any[] = [];
   return proxyToBackend(
@@ -360,7 +368,7 @@ export async function GET(req: Request) {
 export async function POST(req: Request) {
   try {
     const currentUser = getCurrentUserFromRequest(req);
-    const authCheck = await verifyClientActiveSubscription(currentUser);
+    const authCheck = await verifyClientActiveSubscription(currentUser, "exports");
     if (!authCheck.allowed) {
       return NextResponse.json(
         { error: authCheck.message },
@@ -396,7 +404,7 @@ export async function POST(req: Request) {
       );
     }
 
-    const workspaceId = currentUser.workspace_id || 1;
+    const workspaceId = Number(authCheck.userRecord?.workspace_id || currentUser?.workspace_id) || 1;
 
     // Record export history in background
     if (isNeonConfigured()) {

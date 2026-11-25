@@ -1,20 +1,18 @@
 import { NextResponse } from "next/server";
 import { getNeonChatMessages } from "@/lib/neon-db";
-import { getCurrentUserFromRequest } from "@/lib/serverless-auth";
+import { getCurrentUserFromRequest, verifyClientActiveSubscription } from "@/lib/serverless-auth";
 
 export const dynamic = "force-dynamic";
 
-function getAuth(req: Request) {
-  const currentUser = getCurrentUserFromRequest(req);
-  const wsHeader = req.headers.get("X-Workspace-Id");
-  const workspaceId = wsHeader ? parseInt(wsHeader, 10) : (currentUser?.workspace_id || 1);
-  const userId = currentUser?.id || currentUser?.user_id || 1;
-  return { userId, workspaceId };
-}
-
 export async function GET(req: Request) {
   try {
-    const { workspaceId } = getAuth(req);
+    const currentUser = getCurrentUserFromRequest(req);
+    const subCheck = await verifyClientActiveSubscription(currentUser, "ai_assistant");
+    if (!subCheck.allowed) {
+      return NextResponse.json({ error: subCheck.message }, { status: subCheck.statusCode || 403 });
+    }
+    const workspaceId = Number(subCheck.userRecord?.workspace_id || currentUser.workspace_id) || 1;
+
     const url = new URL(req.url);
     const conversationId = url.searchParams.get("conversation_id");
 

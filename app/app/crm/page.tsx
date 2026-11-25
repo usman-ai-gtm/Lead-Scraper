@@ -920,7 +920,7 @@ export default function CRMPage() {
                       </Link>
                     )}
                     <Link
-                      href={`/app/outreach/campaigns/new?contact_email=${encodeURIComponent(ct.email)}&company=${encodeURIComponent(ct.company)}`}
+                      href={`/app/outreach?contact_email=${encodeURIComponent(ct.email)}&company=${encodeURIComponent(ct.company)}`}
                       className="inline-flex items-center gap-1.5 text-xs font-bold text-blue-400 hover:text-blue-300 transition"
                     >
                       <Send className="h-3 w-3" />

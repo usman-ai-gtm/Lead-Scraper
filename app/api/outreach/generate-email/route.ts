@@ -5,14 +5,14 @@ import { updateNeonLeadOutreachStatus, getNeonGmailAccount } from "@/lib/neon-db
 
 export async function POST(request: Request) {
   const currentUser = getCurrentUserFromRequest(request);
-  const authCheck = await verifyClientActiveSubscription(currentUser);
+  const authCheck = await verifyClientActiveSubscription(currentUser, "cold_email");
   if (!authCheck.allowed) {
     return NextResponse.json(
       { error: authCheck.message },
       { status: authCheck.statusCode || 403 }
     );
   }
-  const workspaceId = currentUser.workspace_id || 1;
+  const workspaceId = Number(authCheck.userRecord?.workspace_id || currentUser.workspace_id) || 1;
 
   let body: any = {};
   try {

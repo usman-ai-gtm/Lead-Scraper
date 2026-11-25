@@ -5,17 +5,40 @@ import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { useAuth } from "@/lib/auth-context";
 import { ForcedPasswordModal } from "@/components/auth/ForcedPasswordModal";
+import { MapsJobProvider, useMapsJob } from "@/lib/maps-job-context";
 import {
   LayoutDashboard, Search, Database, Download, Settings,
   Shield, Users2, SlidersHorizontal, Activity, LogOut,
   Menu, X, Sparkles, Bell, CheckCircle2, Mail, Send,
-  Briefcase, History, CreditCard, Receipt, MessageCircle, AlertCircle, MapPin, Layers
+  Briefcase, History, CreditCard, Receipt, MessageCircle, AlertCircle, MapPin, RefreshCw, StopCircle
 } from "lucide-react";
 
 interface NavItem {
   name: string;
   href: string;
   icon: React.ComponentType<{ className?: string }>;
+}
+
+function MapsHeaderIndicator() {
+  const { job, isRunning, cancelJob } = useMapsJob();
+  if (!isRunning || !job) return null;
+  return (
+    <div className="hidden lg:flex items-center gap-2 px-3 py-1.5 rounded-xl border border-amber-500/30 bg-amber-500/10 text-[11px] text-amber-200">
+      <RefreshCw className="h-3.5 w-3.5 animate-spin text-amber-400 shrink-0" />
+      <Link href="/app/google-maps" className="font-semibold hover:underline truncate max-w-[180px]">
+        Maps: {job.eligible_count}/{job.target_count} ({job.keyword})
+      </Link>
+      <button
+        type="button"
+        onClick={() => void cancelJob()}
+        className="text-rose-300 hover:text-rose-200 flex items-center gap-0.5 font-bold cursor-pointer ml-1"
+        title="Stop background Google Maps job"
+      >
+        <StopCircle className="h-3.5 w-3.5" />
+        <span>Stop</span>
+      </button>
+    </div>
+  );
 }
 
 export default function AppLayout({ children }: { children: React.ReactNode }) {
@@ -68,14 +91,12 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
     return () => window.removeEventListener("keydown", handleKeyDown);
   }, []);
 
-  // Client Navigation Items (Including Lifetime Google Maps & Multilingual AI Assistant)
+  // Client Navigation Items (Simplified & aligned with entitlements)
   const clientNav: NavItem[] = [
     { name: "Dashboard", href: "/app", icon: LayoutDashboard },
     { name: "Business Profile", href: "/app/business-profile", icon: Briefcase },
     { name: "Find Leads", href: "/app/leads", icon: Search },
     { name: "Google Maps Leads", href: "/app/google-maps", icon: MapPin },
-    { name: "Campaigns", href: "/app/campaigns", icon: Layers },
-    { name: "Lead Enrichment", href: "/app/enrichment", icon: Sparkles },
     { name: "Saved Leads", href: "/app/saved-leads", icon: Database },
     { name: "Search History", href: "/app/history", icon: History },
     { name: "Email Accounts", href: "/app/accounts", icon: Mail },
@@ -95,16 +116,14 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
   const searchShortcuts = [
     { title: "Dashboard Overview", subtitle: "Command center and real workspace metrics", url: "/app", badge: "DASHBOARD" },
     { title: "Business Profile", subtitle: "Gemini-assisted ICP and target keyword setup wizard", url: "/app/business-profile", badge: "PROFILE" },
-    { title: "Find Leads", subtitle: "Extract public commercial contacts across 193 countries", url: "/app/leads", badge: "SEARCH" },
-    { title: "Google Maps Leads", subtitle: "Scrape local businesses with website email discovery", url: "/app/google-maps", badge: "LIFETIME" },
-    { title: "Campaigns", subtitle: "Manage long-running persistent multi-country search campaigns", url: "/app/campaigns", badge: "CAMPAIGN" },
-    { title: "Lead Enrichment", subtitle: "Discover social profiles, emails, and compute quality scores", url: "/app/enrichment", badge: "ENRICH" },
-    { title: "Saved Leads", subtitle: "Manage saved leads and private company data", url: "/app/saved-leads", badge: "SAVED" },
-    { title: "Search History", subtitle: "Reopen past search snapshots organized by PKT date & time", url: "/app/history", badge: "HISTORY" },
-    { title: "Email Accounts", subtitle: "Connect your official Gmail account for $0 cold outreach", url: "/app/accounts", badge: "GMAIL" },
-    { title: "Cold Email Outreach", subtitle: "Dispatch personalized business emails via Gmail API", url: "/app/outreach", badge: "OUTREACH" },
+    { title: "Find Leads", subtitle: "Extract public commercial contacts across countries & cities", url: "/app/leads", badge: "SEARCH" },
+    { title: "Google Maps Leads", subtitle: "Live local Places search with website email & phone extraction", url: "/app/google-maps", badge: "MAPS" },
+    { title: "Saved Leads", subtitle: "Manage saved leads, dynamic sources, dates, and private data", url: "/app/saved-leads", badge: "SAVED" },
+    { title: "Search History", subtitle: "Reopen past search snapshots cleanly organized by date & time", url: "/app/history", badge: "HISTORY" },
+    { title: "Email Accounts", subtitle: "Connect Gmail OAuth accounts for cold email outreach", url: "/app/accounts", badge: "GMAIL" },
+    { title: "Cold Email Outreach", subtitle: "Dispatch personalized business emails via connected Gmail API", url: "/app/outreach", badge: "OUTREACH" },
     { title: "AI Assistant", subtitle: "Multilingual B2B sales and growth consultation", url: "/app/assistant", badge: "ASSISTANT" },
-    { title: "Usage & Subscription", subtitle: "$25/mo or $100 Lifetime status, quotas, and WhatsApp activation", url: "/app/subscription", badge: "BILLING" },
+    { title: "Usage & Subscription", subtitle: "Active plan details, quotas, expiry countdown & upgrades", url: "/app/subscription", badge: "BILLING" },
     ...(isAdmin ? [
       { title: "Client Accounts", subtitle: "Manage client workspaces, activation, and usage limits", url: "/app/admin/clients", badge: "ADMIN" },
       { title: "Payments & Verification", subtitle: "Review and approve manual WhatsApp payment requests", url: "/app/admin/payments", badge: "ADMIN" },
@@ -140,7 +159,8 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
   }
 
   return (
-    <div className="min-h-screen bg-[#07090e] text-slate-100 flex flex-col md:flex-row antialiased">
+    <MapsJobProvider>
+      <div className="min-h-screen bg-[#07090e] text-slate-100 flex flex-col md:flex-row antialiased">
       {/* SIDEBAR (Desktop) */}
       <aside className="hidden md:flex w-64 flex-col justify-between border-r border-white/[0.08] bg-[#090d16] p-4 shrink-0 h-screen sticky top-0 overflow-y-auto select-none">
         <div>
@@ -183,8 +203,22 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
                     <span>{item.name}</span>
                   </div>
                   {item.href === "/app/google-maps" && !isLockedFeature && (
-                    <span className="text-[9px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded bg-amber-500/15 text-amber-300 border border-amber-500/30">
-                      Lifetime
+                    <span
+                      className={`text-[9px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded border ${
+                        isAdmin ||
+                        user?.google_maps_enabled ||
+                        user?.features?.google_maps ||
+                        String(user?.plan || "").toUpperCase() === "LIFETIME"
+                          ? "bg-amber-500/15 text-amber-300 border-amber-500/30"
+                          : "bg-slate-800 text-slate-400 border-white/10"
+                      }`}
+                    >
+                      {isAdmin ||
+                      user?.google_maps_enabled ||
+                      user?.features?.google_maps ||
+                      String(user?.plan || "").toUpperCase() === "LIFETIME"
+                        ? "Maps"
+                        : "Upgrade"}
                     </span>
                   )}
                   {isLockedFeature && (
@@ -277,6 +311,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
 
           {/* Right Top Bar Controls */}
           <div className="flex items-center gap-3">
+            <MapsHeaderIndicator />
             {/* Workspace Indicator */}
             <div className="hidden sm:flex items-center gap-2 px-3 py-1.5 rounded-xl border border-white/10 bg-white/[0.02] text-xs">
               <span className="text-slate-400">Workspace:</span>
@@ -473,5 +508,6 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
         </div>
       )}
     </div>
+    </MapsJobProvider>
   );
 }

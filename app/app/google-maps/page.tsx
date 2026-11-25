@@ -1,165 +1,173 @@
 "use client";
 
 import React, { useState, useEffect, Suspense } from "react";
-import Link from "next/link";
-import { useSearchParams } from "next/navigation";
 import { useAuth } from "@/lib/auth-context";
+import { useMapsJob } from "@/lib/maps-job-context";
 import { ALL_193_COUNTRIES } from "@/lib/countries";
-import { getSuggestedCitiesForCountry } from "@/lib/cities";
-import { normalizePhoneNumber, buildWhatsAppClickToChatUrl } from "@/lib/phone-utils";
 import {
   MapPin, Download, CheckCircle2, RefreshCw, Mail, Phone, Globe,
-  ShieldCheck, ExternalLink, Building2, Database, Sparkles, Search,
-  FileSpreadsheet, AlertCircle, AlertTriangle, Check, HelpCircle,
-  Crown, Star, Lock, MessageSquare
+  ExternalLink, Building2, Sparkles, Search, FileSpreadsheet,
+  AlertTriangle, Check, Crown, Star, Lock, MessageSquare, StopCircle
 } from "lucide-react";
 import { AiLeadResearchModal } from "@/components/leads/AiLeadResearchModal";
 import { MultiCountrySelector } from "@/components/leads/MultiCountrySelector";
+import { MultiCitySelector, SelectedCityTarget } from "@/components/leads/MultiCitySelector";
 import { WhatsAppModal } from "@/components/leads/WhatsAppModal";
-import { LeadQualityBadge } from "@/components/leads/LeadQualityBadge";
-
-interface MapLead {
-  id?: number;
-  business_name: string;
-  website: string;
-  domain: string;
-  email: string;
-  email_source_url: string;
-  email_status: string;
-  phone: string;
-  phone_source_url: string;
-  phone_status: string;
-  country: string;
-  city: string;
-  address: string;
-  industry: string;
-  category: string;
-  rating?: number;
-  rating_count?: number;
-  place_id?: string;
-  source: string;
-  source_platform: string;
-  source_url: string;
-  quality_score?: number;
-  quality_category?: string;
-  quality_reasons?: string[];
-  contact_requirement?: string;
-}
 
 function GoogleMapsLeadComponent() {
-  const searchParams = useSearchParams();
-  const { user, isLocked, refreshUser } = useAuth();
+  const { user, isLocked } = useAuth();
+  const { job, isRunning, actionError, clearError, startJob, cancelJob } = useMapsJob();
 
-  const isOwner = user?.role === "ADMIN" || user?.role === "SUPER_ADMIN" || (user as any)?.account_type === "MASTER_OWNER" || [
-    "transaction000501@gmail.com",
-    "admin@usmanai.com",
-    "mu0602503@gmail.com",
-    "admin@usmangtm.com",
-    "selftest_founder_2026@usmanai.com",
-  ].includes(String(user?.email || "").toLowerCase());
+  const isOwner =
+    user?.role === "ADMIN" ||
+    user?.role === "SUPER_ADMIN" ||
+    user?.account_type === "MASTER_OWNER";
 
   const planUpper = String(user?.plan || "BASIC").toUpperCase();
-  const isLifetime = isOwner || planUpper === "LIFETIME" || planUpper === "OWNER_LIFETIME";
+  const hasMapsAccess = Boolean(
+    isOwner ||
+      user?.google_maps_enabled ||
+      user?.features?.google_maps ||
+      planUpper === "LIFETIME" ||
+      planUpper === "OWNER_LIFETIME"
+  );
+  const canMultiCountryMaps = Boolean(
+    isOwner ||
+      planUpper === "LIFETIME" ||
+      planUpper === "OWNER_LIFETIME" ||
+      (user?.features ? user.features.multi_country_maps : hasMapsAccess)
+  );
 
   // Form State
   const [keyword, setKeyword] = useState<string>("");
   const [selectedCountries, setSelectedCountries] = useState<string[]>(["United States"]);
-  const [country, setCountry] = useState<string>("United States");
-  const [suggestedCities, setSuggestedCities] = useState<string[]>([]);
-  const [selectedCity, setSelectedCity] = useState<string>("ALL_CITIES");
+  const [specificCitiesEnabled, setSpecificCitiesEnabled] = useState<boolean>(false);
+  const [selectedCities, setSelectedCities] = useState<SelectedCityTarget[]>([]);
   const [requestedQuantity, setRequestedQuantity] = useState<number>(50);
-  const [contactFilter, setContactFilter] = useState<"EMAIL_AND_PHONE" | "EMAIL_ONLY" | "PHONE_ONLY" | "EMAIL_OR_PHONE">("EMAIL_OR_PHONE");
+  const [contactFilter, setContactFilter] = useState<
+    "EMAIL_AND_PHONE" | "EMAIL_ONLY" | "PHONE_ONLY" | "EMAIL_OR_PHONE"
+  >("EMAIL_OR_PHONE");
 
-  // Execution State
-  const [isExtracting, setIsExtracting] = useState<boolean>(false);
-  const [qualifiedLeads, setQualifiedLeads] = useState<MapLead[]>([]);
-  const [countryStats, setCountryStats] = useState<Record<string, { discovered: number; eligible: number; duplicates: number; missing_contact: number }> | null>(null);
-  const [statusMessage, setStatusMessage] = useState<string | null>(null);
   const [toastMsg, setToastMsg] = useState<string | null>(null);
   const [exportLoading, setExportLoading] = useState<boolean>(false);
+  const [starting, setStarting] = useState<boolean>(false);
   const [isResearchModalOpen, setIsResearchModalOpen] = useState<boolean>(false);
   const [selectedResearchLead, setSelectedResearchLead] = useState<any | null>(null);
   const [whatsAppLead, setWhatsAppLead] = useState<any | null>(null);
   const [copiedEmail, setCopiedEmail] = useState<string | null>(null);
 
-  // Initialize Suggested Cities
+  // Pre-fill form fields if a job is currently active or restored from session
   useEffect(() => {
-    const cities = getSuggestedCitiesForCountry(country);
-    setSuggestedCities(cities);
-    setSelectedCity("ALL_CITIES");
-  }, [country]);
+    if (job && !keyword && job.keyword) {
+      setKeyword(job.keyword);
+      if (Array.isArray(job.countries) && job.countries.length > 0) {
+        setSelectedCountries(job.countries);
+      }
+      setSpecificCitiesEnabled(Boolean(job.specific_cities_enabled));
+      if (Array.isArray(job.cities) && job.cities.length > 0) {
+        setSelectedCities(
+          job.cities.map((c) => ({
+            city: c.city,
+            country: c.country,
+            key: `${c.city}||${c.country}`,
+          }))
+        );
+      }
+    }
+  }, [job?.id]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Handle Maps Extraction
+  useEffect(() => {
+    if (actionError) {
+      setToastMsg(actionError);
+    }
+  }, [actionError]);
+
+  const qualifiedLeads = job?.live_leads || [];
+  const countryStats = job?.country_stats || null;
+
+  const scopeSummary = React.useMemo(() => {
+    if (selectedCountries.length === 0) {
+      return "No countries selected — please pick at least 1 target market.";
+    }
+    const countryPart =
+      selectedCountries.length >= ALL_193_COUNTRIES.length
+        ? `All ${ALL_193_COUNTRIES.length} Countries`
+        : selectedCountries.length <= 3
+        ? selectedCountries.join(", ")
+        : `${selectedCountries.slice(0, 3).join(", ")} +${selectedCountries.length - 3} more`;
+
+    if (!specificCitiesEnabled) {
+      return `Whole Country Scope: ${countryPart} (All cities & nationwide coverage)`;
+    }
+    if (selectedCities.length === 0) {
+      return `Specific Cities Mode ON for ${countryPart} — select 1 or more cities below.`;
+    }
+    const cityList =
+      selectedCities.length <= 4
+        ? selectedCities.map((c) => `${c.city} (${c.country})`).join(", ")
+        : `${selectedCities.slice(0, 4).map((c) => c.city).join(", ")} +${selectedCities.length - 4} more cities`;
+    return `Specific Cities (${selectedCities.length}): ${cityList}`;
+  }, [selectedCountries, specificCitiesEnabled, selectedCities]);
+
   const handleStartExtraction = async () => {
-    const isPreview = (user as any)?.account_type === "FREE_PREVIEW" || user?.status === "PREVIEW_ONLY";
+    clearError();
+    const isPreview = user?.account_type === "FREE_PREVIEW" || user?.status === "PREVIEW_ONLY";
     if (isPreview) {
-      setToastMsg("FREE PREVIEW ACCOUNT — Explore the software before purchasing. Contact the Owner to get your fully activated account.");
+      setToastMsg("FREE PREVIEW ACCOUNT — Explore the software before purchasing. Contact the Owner (+923174383702) to activate.");
       return;
     }
 
     if (isLocked) {
-      setToastMsg("Your account is currently locked or expired. Please contact the Owner for activation (+923174383702).");
+      setToastMsg("Your account is currently locked or expired. Please contact the Owner (+923174383702) to renew.");
       return;
     }
 
-    if (!isLifetime) {
-      setToastMsg("⭐ Google Maps Lead Generator is an exclusive feature of the $100 Lifetime Plan. Please upgrade to unlock.");
+    if (!hasMapsAccess) {
+      setToastMsg(`Google Maps Lead Generator is not included in your current ${user?.plan_label || "plan"}. Upgrade to Lifetime ($100) or request a Custom Plan with Google Maps.`);
       return;
     }
 
     if (!keyword.trim()) {
-      setToastMsg("Please enter a target business niche or category (e.g. Dentists, Real Estate, Hotels) to extract Google Maps leads.");
+      setToastMsg("Please enter a target business niche or keyword (e.g. Dentists, Auto Repair, Freight Brokers).");
       return;
     }
 
-    setIsExtracting(true);
-    setStatusMessage(`Scraping Google Maps & Places for "${keyword.trim()}" in ${selectedCity !== "ALL_CITIES" ? selectedCity + ", " : ""}${country} (Target: ${requestedQuantity} leads, Criteria: ${contactFilter})...`);
+    if (selectedCountries.length === 0) {
+      setToastMsg("Please select at least 1 target country.");
+      return;
+    }
 
+    if (selectedCountries.length > 1 && !canMultiCountryMaps) {
+      setToastMsg(`Multi-country Google Maps search is disabled on your ${user?.plan_label || "Custom Plan"}. Select a single country or ask the Owner to enable Multi-Country Google Maps.`);
+      return;
+    }
+
+    if (specificCitiesEnabled && selectedCities.length === 0) {
+      setToastMsg("Select at least 1 specific city, or uncheck 'Select Specific Cities' for whole-country search.");
+      return;
+    }
+
+    setStarting(true);
     try {
-      const token = typeof window !== "undefined" ? localStorage.getItem("usman_gtm_token") : null;
-      const res = await fetch("/api/leads/maps", {
-        method: "POST",
-        credentials: "include",
-        headers: {
-          "Content-Type": "application/json",
-          ...(token ? { Authorization: `Bearer ${token}` } : {}),
-        },
-        body: JSON.stringify({
-          keyword: keyword.trim(),
-          countries: selectedCountries,
-          country: selectedCountries[0] || "United States",
-          city: selectedCity !== "ALL_CITIES" ? selectedCity : "",
-          requested_quantity: requestedQuantity,
-          contact_filter: contactFilter,
-          contact_requirement: contactFilter,
-        }),
+      await startJob({
+        keyword: keyword.trim(),
+        countries: selectedCountries,
+        specific_cities_enabled: specificCitiesEnabled,
+        cities: selectedCities,
+        requested_quantity: requestedQuantity,
+        contact_requirement: contactFilter,
       });
-
-      const data = await res.json();
-      if (!res.ok || data.status === "error") {
-        throw new Error(data.message || "Failed to extract Google Maps leads.");
-      }
-
-      if (data.country_stats) {
-        setCountryStats(data.country_stats);
-      }
-
-      const fresh: MapLead[] = data.leads || [];
-      setQualifiedLeads(fresh);
-      setStatusMessage(data.message || `Discovered ${fresh.length} leads.`);
-      setToastMsg(`Successfully found ${fresh.length} verified Google Maps leads!`);
+      setToastMsg("Live Google Maps research started! Leads auto-save as batches complete.");
     } catch (err: any) {
-      setToastMsg(`Extraction error: ${err?.message || "Unknown error"}`);
-      setStatusMessage(`Error: ${err?.message || "Extraction failed"}`);
+      setToastMsg(err?.message || "Failed to start Google Maps extraction.");
     } finally {
-      setIsExtracting(false);
+      setStarting(false);
     }
   };
 
-  // Export dataset
   const handleExport = async (format: "xlsx" | "pdf") => {
     if (qualifiedLeads.length === 0) {
-      setToastMsg("No leads available to export. Run an extraction first.");
+      setToastMsg("No leads available to export yet.");
       return;
     }
 
@@ -170,33 +178,43 @@ function GoogleMapsLeadComponent() {
       const token = typeof window !== "undefined" ? localStorage.getItem("usman_gtm_token") : null;
       const res = await fetch("/api/leads/export", {
         method: "POST",
+        credentials: "include",
         headers: {
           "Content-Type": "application/json",
-          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+          ...(token && token !== "null" ? { Authorization: `Bearer ${token}` } : {}),
         },
         body: JSON.stringify({
           format,
           leads: qualifiedLeads,
-          metadata: {
-            title: `Google Maps Leads - ${keyword.trim()} (${country})`,
+          meta: {
+            keyword: job?.keyword || keyword.trim(),
+            country: selectedCountries.join(", "),
             total_records: qualifiedLeads.length,
-            export_target: `Google Maps: ${keyword.trim()}`,
+            export_target: `Google Maps: ${job?.keyword || keyword.trim()}`,
           },
         }),
       });
 
-      if (!res.ok) throw new Error("Export failed");
+      if (!res.ok) {
+        const errText = await res.text();
+        let errMsg = "Export failed";
+        try {
+          const parsed = JSON.parse(errText);
+          errMsg = parsed.detail || parsed.error || parsed.message || errMsg;
+        } catch {}
+        throw new Error(errMsg);
+      }
 
       const blob = await res.blob();
       const url = window.URL.createObjectURL(blob);
       const a = document.createElement("a");
       a.href = url;
-      a.download = `GoogleMaps_Leads_${keyword.replace(/\s+/g, "_")}_${Date.now()}.${format === "xlsx" ? "xlsx" : "pdf"}`;
+      a.download = `GoogleMaps_Leads_${(job?.keyword || keyword || "Export").replace(/[^a-zA-Z0-9]+/g, "_")}_${Date.now()}.${format === "xlsx" ? "xlsx" : "pdf"}`;
       document.body.appendChild(a);
       a.click();
       window.URL.revokeObjectURL(url);
       a.remove();
-      setToastMsg(`Export complete!`);
+      setToastMsg(`Export complete (${qualifiedLeads.length} leads)!`);
     } catch (err: any) {
       setToastMsg(`Export failed: ${err?.message || "Error"}`);
     } finally {
@@ -210,18 +228,23 @@ function GoogleMapsLeadComponent() {
     setTimeout(() => setCopiedEmail(null), 2000);
   };
 
+  const progressPct =
+    job && job.target_count > 0
+      ? Math.min(100, Math.round(((job.eligible_count || 0) / job.target_count) * 100))
+      : 0;
+
   return (
     <div className="space-y-6">
       {/* HEADER STRIP */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
-          <div className="flex items-center gap-2 mb-1">
+          <div className="flex items-center gap-2 mb-1 flex-wrap">
             <span className="text-[10px] font-bold uppercase tracking-wider text-amber-300 bg-amber-500/15 px-2.5 py-0.5 rounded border border-amber-500/30 flex items-center gap-1.5">
               <Crown className="h-3 w-3 text-amber-400" />
-              $100 Lifetime Exclusive Engine
+              {user?.plan_label || (hasMapsAccess ? "Maps Enabled Plan" : "Maps Upgrade Required")}
             </span>
             <span className="text-[10px] font-semibold text-slate-400 bg-white/[0.04] px-2 py-0.5 rounded border border-white/10">
-              Google Places API • Direct Web Crawl
+              Serper Places Engine • Direct Web Contact Discovery
             </span>
           </div>
           <h1 className="text-xl sm:text-2xl font-bold text-white flex items-center gap-2">
@@ -229,7 +252,7 @@ function GoogleMapsLeadComponent() {
             Google Maps Business Lead Generator
           </h1>
           <p className="text-xs text-slate-400 mt-0.5">
-            Extract verified local businesses directly from Google Maps with real-time website contact discovery.
+            Live local business discovery across selected countries or specific cities with real-time website email &amp; phone extraction.
           </p>
         </div>
 
@@ -255,259 +278,302 @@ function GoogleMapsLeadComponent() {
         )}
       </div>
 
-      {/* PLAN RESTRICTION NOTICE (IF ON BASIC PLAN) */}
-      {!isLifetime && (
+      {/* ENTITLEMENT RESTRICTION BANNER */}
+      {!hasMapsAccess && (
         <div className="p-4 rounded-2xl bg-gradient-to-r from-amber-500/15 via-yellow-500/10 to-transparent border border-amber-500/30 flex flex-col sm:flex-row items-center justify-between gap-4">
           <div className="flex items-start gap-3">
             <div className="h-9 w-9 rounded-xl bg-amber-500/20 border border-amber-500/30 flex items-center justify-center shrink-0">
               <Lock className="h-5 w-5 text-amber-400" />
             </div>
             <div>
-              <h3 className="text-sm font-bold text-amber-300 flex items-center gap-2">
-                <span>Google Maps Lead Generator is Reserved for $100 Lifetime Plan</span>
+              <h3 className="text-sm font-bold text-amber-300">
+                Google Maps Lead Generator Is Locked on Your Current Plan
               </h3>
               <p className="text-xs text-slate-300 mt-0.5">
-                Your account is currently on the <strong>Basic Plan ($25/30 Days)</strong>. Upgrade to <strong>Lifetime ($100 One-Time)</strong> for permanent access, Google Maps local business intelligence, and AI Research!
+                Your account is currently on <strong>{user?.plan_label || "Basic Plan"}</strong> without Google Maps access. Upgrade to the <strong>$100 Lifetime Plan</strong> or request a <strong>Custom Plan with Google Maps</strong> via WhatsApp.
               </p>
             </div>
           </div>
           <a
-            href="https://wa.me/923174383702?text=Hi%20Usman%2C%20I%20want%20to%20upgrade%20to%20the%20%24100%20Lifetime%20Plan%20for%20Google%20Maps%20Lead%20Generator"
+            href="https://wa.me/923174383702?text=Hi%20Usman%2C%20I%20want%20to%20unlock%20Google%20Maps%20Lead%20Generator%20($100%20Lifetime%20or%20Custom%20Plan)"
             target="_blank"
             rel="noopener noreferrer"
             className="px-4 py-2.5 rounded-xl bg-gradient-to-r from-amber-400 to-yellow-500 hover:from-amber-300 hover:to-yellow-400 text-black font-bold text-xs shadow-md shrink-0 transition-all flex items-center gap-2"
           >
             <Crown className="h-4 w-4" />
-            <span>Upgrade to Lifetime ($100)</span>
+            <span>Unlock Maps Access</span>
           </a>
         </div>
       )}
 
       {/* TOAST MESSAGE */}
       {toastMsg && (
-        <div className="p-3 rounded-xl bg-blue-500/10 border border-blue-500/20 text-blue-300 text-xs flex items-center justify-between">
+        <div className="p-3 rounded-xl bg-blue-500/10 border border-blue-500/20 text-blue-300 text-xs flex items-center justify-between gap-2">
           <span>{toastMsg}</span>
-          <button onClick={() => setToastMsg(null)} className="text-slate-400 hover:text-white text-xs underline">
+          <button onClick={() => setToastMsg(null)} className="text-slate-400 hover:text-white text-xs underline shrink-0">
             Dismiss
           </button>
         </div>
       )}
 
       {/* SEARCH CONFIGURATION PANEL */}
-      <div className="rounded-2xl border border-white/[0.08] bg-[#0c1017] p-6 space-y-6">
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+      <div className="rounded-2xl border border-white/[0.08] bg-[#0c1017] p-6 space-y-5">
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4 items-start">
           {/* Keyword Input */}
           <div>
             <label className="block text-xs font-semibold text-slate-300 mb-1.5">
-              Business Niche / Category <span className="text-rose-400">*</span>
+              Business Niche / Keyword <span className="text-rose-400">*</span>
             </label>
             <div className="relative">
               <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-500" />
               <input
                 type="text"
                 value={keyword}
+                disabled={isRunning}
                 onChange={(e) => setKeyword(e.target.value)}
-                placeholder="e.g. Dentists, Real Estate, Luxury Car Dealerships..."
-                className="w-full bg-[#121824] border border-white/10 rounded-xl pl-10 pr-4 py-2.5 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-amber-500 transition-colors"
+                placeholder="e.g. Dentists, Cafés, B2B Logistics, Solar..."
+                className="w-full bg-[#121824] border border-white/10 rounded-xl pl-10 pr-4 py-2.5 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-amber-500 transition-colors disabled:opacity-50"
               />
             </div>
           </div>
 
           {/* Multi-Country Selector */}
           <div>
-            <label className="block text-xs font-semibold text-slate-300 mb-1.5">Target Country / Countries</label>
+            <label className="block text-xs font-semibold text-slate-300 mb-1.5">
+              Target Country / Countries {!canMultiCountryMaps && "(Single Country Only on Plan)"}
+            </label>
             <MultiCountrySelector
               selectedCountries={selectedCountries}
-              onChange={(newCountries) => {
-                setSelectedCountries(newCountries);
-                if (newCountries.length > 0) {
-                  const cities = getSuggestedCitiesForCountry(newCountries[0]);
-                  setSuggestedCities(cities);
-                  setCountry(newCountries[0]);
-                }
-              }}
+              singleSelect={!canMultiCountryMaps}
+              onChange={(newCountries) => setSelectedCountries(newCountries)}
             />
           </div>
 
-          {/* Searchable City Selector */}
+          {/* Multi-City Optional Toggle Selector */}
           <div>
-            <label className="block text-xs font-semibold text-slate-300 mb-1.5">Target City / State</label>
-            <select
-              value={selectedCity}
-              onChange={(e) => setSelectedCity(e.target.value)}
-              className="w-full bg-[#121824] border border-white/10 rounded-xl px-3 py-2.5 text-xs text-white focus:outline-none focus:border-amber-500 transition-colors"
-            >
-              <option value="ALL_CITIES">All Cities in {country}</option>
-              {suggestedCities.map((city) => (
-                <option key={city} value={city}>
-                  {city}
-                </option>
-              ))}
-            </select>
+            <MultiCitySelector
+              selectedCountries={selectedCountries}
+              specificCitiesEnabled={specificCitiesEnabled}
+              onToggleSpecificCities={setSpecificCitiesEnabled}
+              selectedCities={selectedCities}
+              onChangeCities={setSelectedCities}
+            />
           </div>
+        </div>
+
+        {/* SELECTED GEOGRAPHIC SCOPE SUMMARY */}
+        <div className="rounded-xl border border-white/[0.07] bg-white/[0.02] px-3.5 py-2.5 text-[11px] text-slate-300 flex items-center gap-2">
+          <Globe className="h-3.5 w-3.5 text-amber-400 shrink-0" />
+          <span className="font-semibold text-white">Geographic Scope:</span>
+          <span>{scopeSummary}</span>
         </div>
 
         {/* MUTUALLY EXCLUSIVE CONTACT FILTER SELECTOR */}
         <div>
           <label className="block text-xs font-semibold text-slate-300 mb-2">
-            Mutually Exclusive Contact Filter Criteria
+            Contact Channel Filter Criteria
           </label>
           <div className="grid grid-cols-1 sm:grid-cols-4 gap-3">
-            {/* Email OR Phone */}
-            <div
-              onClick={() => setContactFilter("EMAIL_OR_PHONE")}
-              className={`p-3.5 rounded-xl border cursor-pointer transition-all flex items-start gap-3 ${contactFilter === "EMAIL_OR_PHONE"
-                  ? "bg-purple-500/10 border-purple-500/50 shadow-glow-sm"
-                  : "bg-white/[0.02] border-white/10 hover:border-white/20"
-                }`}
-            >
-              <div
-                className={`h-4 w-4 rounded-full border mt-0.5 flex items-center justify-center shrink-0 ${contactFilter === "EMAIL_OR_PHONE" ? "border-purple-400 bg-purple-400 text-black" : "border-slate-500"
+            {[
+              {
+                id: "EMAIL_OR_PHONE",
+                label: "Email OR Phone",
+                desc: "Matches businesses with either a syntax-checked email or valid phone.",
+                color: "purple",
+              },
+              {
+                id: "EMAIL_AND_PHONE",
+                label: "Email AND Phone",
+                desc: "Requires BOTH syntax-checked website email AND phone number.",
+                color: "amber",
+              },
+              {
+                id: "EMAIL_ONLY",
+                label: "Email Only",
+                desc: "Returns only businesses where a real email was found on their site/index.",
+                color: "blue",
+              },
+              {
+                id: "PHONE_ONLY",
+                label: "Phone Only",
+                desc: "Returns businesses with a valid phone listed (ideal for local Maps volume).",
+                color: "emerald",
+              },
+            ].map((opt) => {
+              const active = contactFilter === opt.id;
+              return (
+                <div
+                  key={opt.id}
+                  onClick={() => !isRunning && setContactFilter(opt.id as any)}
+                  className={`p-3.5 rounded-xl border transition-all flex items-start gap-3 ${
+                    isRunning ? "opacity-60 cursor-not-allowed" : "cursor-pointer"
+                  } ${
+                    active
+                      ? "bg-amber-500/10 border-amber-500/50 shadow-glow-sm"
+                      : "bg-white/[0.02] border-white/10 hover:border-white/20"
                   }`}
-              >
-                {contactFilter === "EMAIL_OR_PHONE" && <Check className="h-3 w-3 stroke-[3]" />}
-              </div>
-              <div>
-                <div className="text-xs font-bold text-white flex items-center gap-1.5">
-                  <Mail className="h-3.5 w-3.5 text-purple-400" />
-                  <span>/</span>
-                  <Phone className="h-3.5 w-3.5 text-purple-400" />
-                  <span>Email OR Phone</span>
+                >
+                  <div
+                    className={`h-4 w-4 rounded-full border mt-0.5 flex items-center justify-center shrink-0 ${
+                      active ? "border-amber-400 bg-amber-400 text-black" : "border-slate-500"
+                    }`}
+                  >
+                    {active && <Check className="h-3 w-3 stroke-[3]" />}
+                  </div>
+                  <div>
+                    <div className="text-xs font-bold text-white">{opt.label}</div>
+                    <p className="text-[10px] text-slate-400 mt-1">{opt.desc}</p>
+                  </div>
                 </div>
-                <p className="text-[10px] text-slate-400 mt-1">
-                  Returns businesses with at least one verified contact channel.
-                </p>
-              </div>
-            </div>
-
-            {/* Both Email & Phone */}
-            <div
-              onClick={() => setContactFilter("EMAIL_AND_PHONE")}
-              className={`p-3.5 rounded-xl border cursor-pointer transition-all flex items-start gap-3 ${contactFilter === "EMAIL_AND_PHONE"
-                  ? "bg-amber-500/10 border-amber-500/50 shadow-glow-sm"
-                  : "bg-white/[0.02] border-white/10 hover:border-white/20"
-                }`}
-            >
-              <div
-                className={`h-4 w-4 rounded-full border mt-0.5 flex items-center justify-center shrink-0 ${contactFilter === "EMAIL_AND_PHONE" ? "border-amber-400 bg-amber-400 text-black" : "border-slate-500"
-                  }`}
-              >
-                {contactFilter === "EMAIL_AND_PHONE" && <Check className="h-3 w-3 stroke-[3]" />}
-              </div>
-              <div>
-                <div className="text-xs font-bold text-white flex items-center gap-1.5">
-                  <Mail className="h-3.5 w-3.5 text-blue-400" />
-                  <span>+</span>
-                  <Phone className="h-3.5 w-3.5 text-emerald-400" />
-                  <span>Both Email & Phone</span>
-                </div>
-                <p className="text-[10px] text-slate-400 mt-1">
-                  Returns businesses with verified email AND valid phone. Strict dual contact.
-                </p>
-              </div>
-            </div>
-
-            {/* Email Only */}
-            <div
-              onClick={() => setContactFilter("EMAIL_ONLY")}
-              className={`p-3.5 rounded-xl border cursor-pointer transition-all flex items-start gap-3 ${contactFilter === "EMAIL_ONLY"
-                  ? "bg-blue-500/10 border-blue-500/50 shadow-glow-sm"
-                  : "bg-white/[0.02] border-white/10 hover:border-white/20"
-                }`}
-            >
-              <div
-                className={`h-4 w-4 rounded-full border mt-0.5 flex items-center justify-center shrink-0 ${contactFilter === "EMAIL_ONLY" ? "border-blue-400 bg-blue-400 text-black" : "border-slate-500"
-                  }`}
-              >
-                {contactFilter === "EMAIL_ONLY" && <Check className="h-3 w-3 stroke-[3]" />}
-              </div>
-              <div>
-                <div className="text-xs font-bold text-white flex items-center gap-1.5">
-                  <Mail className="h-3.5 w-3.5 text-blue-400" />
-                  <span>Email Only</span>
-                </div>
-                <p className="text-[10px] text-slate-400 mt-1">
-                  Returns ONLY businesses with genuine public email from website crawl.
-                </p>
-              </div>
-            </div>
-
-            {/* Phone Only */}
-            <div
-              onClick={() => setContactFilter("PHONE_ONLY")}
-              className={`p-3.5 rounded-xl border cursor-pointer transition-all flex items-start gap-3 ${contactFilter === "PHONE_ONLY"
-                  ? "bg-emerald-500/10 border-emerald-500/50 shadow-glow-sm"
-                  : "bg-white/[0.02] border-white/10 hover:border-white/20"
-                }`}
-            >
-              <div
-                className={`h-4 w-4 rounded-full border mt-0.5 flex items-center justify-center shrink-0 ${contactFilter === "PHONE_ONLY" ? "border-emerald-400 bg-emerald-400 text-black" : "border-slate-500"
-                  }`}
-              >
-                {contactFilter === "PHONE_ONLY" && <Check className="h-3 w-3 stroke-[3]" />}
-              </div>
-              <div>
-                <div className="text-xs font-bold text-white flex items-center gap-1.5">
-                  <Phone className="h-3.5 w-3.5 text-emerald-400" />
-                  <span>Phone Only</span>
-                </div>
-                <p className="text-[10px] text-slate-400 mt-1">
-                  Returns businesses with verified direct phone numbers listed on Google Maps.
-                </p>
-              </div>
-            </div>
+              );
+            })}
           </div>
         </div>
 
-        {/* QUANTITY PRESETS & ACTION BUTTON */}
+        {/* QUANTITY PRESETS & ACTION BUTTONS */}
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pt-2 border-t border-white/[0.06]">
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2 flex-wrap">
             <span className="text-xs text-slate-400 font-semibold">Quantity Target:</span>
-            {[50, 100, 500, 1000, 2000].map((qty) => (
+            {[25, 50, 100, 250, 500, 1000].map((qty) => (
               <button
                 key={qty}
                 type="button"
+                disabled={isRunning}
                 onClick={() => setRequestedQuantity(qty)}
-                className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all ${requestedQuantity === qty
+                className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer disabled:opacity-50 ${
+                  requestedQuantity === qty
                     ? "bg-amber-400 text-black shadow-sm"
                     : "bg-white/[0.04] text-slate-300 hover:bg-white/[0.08]"
-                  }`}
+                }`}
               >
                 {qty}
               </button>
             ))}
           </div>
 
-          <button
-            onClick={handleStartExtraction}
-            disabled={isExtracting}
-            className="px-6 py-2.5 rounded-xl bg-gradient-to-r from-amber-400 via-yellow-400 to-amber-500 hover:from-amber-300 hover:to-yellow-300 text-black font-bold text-xs shadow-glow-sm transition-all flex items-center justify-center gap-2 cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
-            title={!isLifetime ? "Upgrade to $100 Lifetime Plan to unlock Google Maps" : "Start Google Maps Lead Extension"}
-          >
-            {isExtracting ? (
-              <>
-                <RefreshCw className="h-4 w-4 animate-spin text-black" />
-                <span>Extracting Google Maps Leads...</span>
-              </>
-            ) : (
-              <>
-                <Sparkles className="h-4 w-4 text-black" />
-                <span>Start Google Maps Extension</span>
-              </>
+          <div className="flex items-center gap-2.5">
+            {isRunning && (
+              <button
+                type="button"
+                onClick={cancelJob}
+                className="px-4 py-2.5 rounded-xl bg-rose-600 hover:bg-rose-500 text-white font-bold text-xs transition-all flex items-center gap-2 cursor-pointer"
+              >
+                <StopCircle className="h-4 w-4" />
+                <span>Stop &amp; Keep Leads</span>
+              </button>
             )}
-          </button>
+
+            <button
+              onClick={handleStartExtraction}
+              disabled={isRunning || starting}
+              className="px-6 py-2.5 rounded-xl bg-gradient-to-r from-amber-400 via-yellow-400 to-amber-500 hover:from-amber-300 hover:to-yellow-300 text-black font-bold text-xs shadow-glow-sm transition-all flex items-center justify-center gap-2 cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
+            >
+              {isRunning || starting ? (
+                <>
+                  <RefreshCw className="h-4 w-4 animate-spin text-black" />
+                  <span>Live Research Running...</span>
+                </>
+              ) : (
+                <>
+                  <Sparkles className="h-4 w-4 text-black" />
+                  <span>Start Google Maps Extraction</span>
+                </>
+              )}
+            </button>
+          </div>
         </div>
       </div>
 
-      {/* STATUS BANNER */}
-      {statusMessage && (
-        <div className="p-3.5 rounded-xl bg-amber-500/10 border border-amber-500/20 text-amber-200 text-xs flex items-center gap-2">
-          {isExtracting ? (
-            <RefreshCw className="h-4 w-4 animate-spin shrink-0 text-amber-400" />
-          ) : (
-            <CheckCircle2 className="h-4 w-4 shrink-0 text-emerald-400" />
+      {/* LIVE PROGRESS & JOB TELEMETRY PANEL */}
+      {job && (
+        <div className="rounded-2xl border border-white/[0.08] bg-[#0c1017] p-5 space-y-4">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+            <div className="flex items-center gap-2.5">
+              {job.status === "RUNNING" ? (
+                <RefreshCw className="h-4 w-4 animate-spin text-amber-400 shrink-0" />
+              ) : job.status === "CANCELLED" ? (
+                <StopCircle className="h-4 w-4 text-amber-400 shrink-0" />
+              ) : job.status === "FAILED" ? (
+                <AlertTriangle className="h-4 w-4 text-rose-400 shrink-0" />
+              ) : (
+                <CheckCircle2 className="h-4 w-4 text-emerald-400 shrink-0" />
+              )}
+              <div>
+                <div className="text-xs font-bold text-white flex items-center gap-2">
+                  <span>{job.keyword}</span>
+                  <span className="px-2 py-0.5 rounded text-[10px] font-mono bg-white/10 text-slate-300">
+                    {job.status}
+                  </span>
+                </div>
+                <p className="text-[11px] text-slate-300 mt-0.5">{job.progress_message}</p>
+              </div>
+            </div>
+
+            {job.status === "RUNNING" && (
+              <div className="text-[10px] text-amber-300/90 bg-amber-500/10 border border-amber-500/20 px-2.5 py-1 rounded-lg">
+                Continues running while you browse other pages in this session
+              </div>
+            )}
+          </div>
+
+          {/* Progress Bar */}
+          <div className="space-y-1">
+            <div className="flex justify-between text-[10px] font-mono text-slate-400">
+              <span>
+                Progress: {job.eligible_count} / {job.target_count} target ({progressPct}%)
+              </span>
+              <span>
+                Batches: {job.queue_cursor || 0} / {job.queue_total || 1}
+              </span>
+            </div>
+            <div className="h-2 rounded-full bg-white/[0.06] overflow-hidden">
+              <div
+                className="h-full bg-gradient-to-r from-amber-400 to-emerald-400 transition-all duration-300"
+                style={{ width: `${Math.max(4, progressPct)}%` }}
+              />
+            </div>
+          </div>
+
+          {/* Live Counters */}
+          <div className="grid grid-cols-2 sm:grid-cols-5 gap-2.5 text-xs">
+            <div className="p-2.5 rounded-xl bg-white/[0.03] border border-white/[0.06]">
+              <div className="text-[10px] text-slate-400">Listings Scanned</div>
+              <div className="font-mono font-bold text-white text-sm">{job.candidates_processed || 0}</div>
+            </div>
+            <div className="p-2.5 rounded-xl bg-emerald-500/10 border border-emerald-500/20">
+              <div className="text-[10px] text-emerald-300">Qualified &amp; Saved</div>
+              <div className="font-mono font-bold text-emerald-400 text-sm">{job.eligible_count || 0}</div>
+            </div>
+            <div className="p-2.5 rounded-xl bg-amber-500/10 border border-amber-500/20">
+              <div className="text-[10px] text-amber-300">Duplicates Excluded</div>
+              <div className="font-mono font-bold text-amber-400 text-sm">{job.duplicates_skipped || 0}</div>
+            </div>
+            <div className="p-2.5 rounded-xl bg-white/[0.03] border border-white/[0.06]">
+              <div className="text-[10px] text-slate-400">Missing Contact</div>
+              <div className="font-mono font-bold text-slate-200 text-sm">{job.missing_contact_skipped || 0}</div>
+            </div>
+            <div className="p-2.5 rounded-xl bg-white/[0.03] border border-white/[0.06]">
+              <div className="text-[10px] text-slate-400">Provider Errors</div>
+              <div className={`font-mono font-bold text-sm ${(job.errors_count || 0) > 0 ? "text-rose-400" : "text-slate-300"}`}>
+                {job.errors_count || 0}
+              </div>
+            </div>
+          </div>
+
+          {job.shortfall_reason && (
+            <div className="p-3 rounded-xl bg-amber-500/10 border border-amber-500/20 text-[11px] text-amber-200">
+              <strong>Result Summary:</strong> {job.shortfall_reason}
+            </div>
           )}
-          <span>{statusMessage}</span>
+
+          {Array.isArray(job.provider_errors) && job.provider_errors.length > 0 && (
+            <div className="p-3 rounded-xl bg-rose-500/10 border border-rose-500/25 text-[11px] text-rose-200 space-y-1">
+              <div className="font-bold">Provider Diagnostics:</div>
+              {job.provider_errors.map((err, i) => (
+                <div key={i} className="font-mono text-[10px]">• {err}</div>
+              ))}
+            </div>
+          )}
         </div>
       )}
 
@@ -517,10 +583,10 @@ function GoogleMapsLeadComponent() {
           <div className="flex items-center justify-between border-b border-white/[0.08] pb-2">
             <h3 className="text-xs font-bold text-white uppercase tracking-wider flex items-center gap-2">
               <Globe className="h-4 w-4 text-purple-400" />
-              <span>Multi-Country Campaign Metrics Breakdown</span>
+              <span>Country Metrics Breakdown</span>
             </h3>
             <span className="text-[10px] text-slate-400 font-mono">
-              {Object.keys(countryStats).length} Target Markets Processed
+              {Object.keys(countryStats).length} Markets Scanned
             </span>
           </div>
           <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3">
@@ -529,9 +595,9 @@ function GoogleMapsLeadComponent() {
                 <div className="font-bold text-white truncate">{cntry}</div>
                 <div className="grid grid-cols-2 gap-1 text-[10px] font-mono">
                   <div className="text-slate-400">Found: <span className="text-white font-bold">{stats.discovered}</span></div>
-                  <div className="text-slate-400">Eligible: <span className="text-emerald-400 font-bold">{stats.eligible}</span></div>
+                  <div className="text-slate-400">Saved: <span className="text-emerald-400 font-bold">{stats.eligible}</span></div>
                   <div className="text-slate-400">Duplicates: <span className="text-amber-400">{stats.duplicates}</span></div>
-                  <div className="text-slate-400">Skipped: <span className="text-rose-400">{stats.missing_contact}</span></div>
+                  <div className="text-slate-400">Skipped: <span className="text-slate-300">{stats.missing_contact}</span></div>
                 </div>
               </div>
             ))}
@@ -545,10 +611,10 @@ function GoogleMapsLeadComponent() {
           <div className="flex items-center justify-between">
             <h3 className="text-sm font-bold text-white flex items-center gap-2">
               <Building2 className="h-4 w-4 text-amber-400" />
-              <span>Extracted Google Maps Leads ({qualifiedLeads.length})</span>
+              <span>Discovered Google Maps Leads ({qualifiedLeads.length})</span>
             </h3>
             <span className="text-xs text-slate-400 font-mono">
-              Filter: {contactFilter} • 100% Verified
+              Auto-saved to Workspace
             </span>
           </div>
 
@@ -556,18 +622,17 @@ function GoogleMapsLeadComponent() {
             <table className="w-full text-left border-collapse min-w-[850px]">
               <thead>
                 <tr className="border-b border-white/[0.08] text-[11px] font-bold text-slate-400 uppercase tracking-wider">
-                  <th className="py-3 px-3">Business Name & Maps Link</th>
-                  <th className="py-3 px-3">Location & Address</th>
+                  <th className="py-3 px-3">Business Name &amp; Maps Link</th>
+                  <th className="py-3 px-3">Location &amp; Address</th>
                   <th className="py-3 px-3">Rating</th>
-                  <th className="py-3 px-3">Verified Email</th>
-                  <th className="py-3 px-3">Phone & WhatsApp</th>
+                  <th className="py-3 px-3">Email (Syntax Checked)</th>
+                  <th className="py-3 px-3">Phone &amp; WhatsApp</th>
                   <th className="py-3 px-3 text-right">Actions</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-white/[0.04]">
-                {qualifiedLeads.map((lead, idx) => (
+                {qualifiedLeads.map((lead: any, idx: number) => (
                   <tr key={idx} className="hover:bg-white/[0.02] transition-colors">
-                    {/* Business Name */}
                     <td className="py-3 px-3 text-xs">
                       <div className="font-bold text-white flex items-center gap-1.5">
                         <span>{lead.business_name}</span>
@@ -577,7 +642,7 @@ function GoogleMapsLeadComponent() {
                             target="_blank"
                             rel="noopener noreferrer"
                             className="text-amber-400 hover:text-amber-300"
-                            title="View on Google Maps"
+                            title="Open Google Maps search link"
                           >
                             <ExternalLink className="h-3 w-3 inline" />
                           </a>
@@ -594,24 +659,15 @@ function GoogleMapsLeadComponent() {
                           <span>{lead.domain || lead.website}</span>
                         </a>
                       )}
-                      <div className="mt-1 flex items-center gap-1.5 flex-wrap">
-                        <LeadQualityBadge
-                          score={lead.quality_score}
-                          category={lead.quality_category}
-                          reasons={lead.quality_reasons}
-                        />
-                      </div>
                     </td>
 
-                    {/* Location */}
                     <td className="py-3 px-3 text-[11px] text-slate-300">
                       <div>{lead.city ? `${lead.city}, ${lead.country}` : lead.country}</div>
                       <div className="text-[10px] text-slate-500 truncate max-w-[200px]" title={lead.address}>
-                        {lead.address || "Address listed on Maps"}
+                        {lead.address || "Address listed in Places data"}
                       </div>
                     </td>
 
-                    {/* Rating */}
                     <td className="py-3 px-3 text-xs">
                       {lead.rating ? (
                         <div className="flex items-center gap-1 text-amber-400 font-bold">
@@ -626,7 +682,6 @@ function GoogleMapsLeadComponent() {
                       )}
                     </td>
 
-                    {/* Email */}
                     <td className="py-3 px-3 text-xs">
                       {lead.email ? (
                         <div>
@@ -649,16 +704,15 @@ function GoogleMapsLeadComponent() {
                               title={lead.email_source_url}
                             >
                               <ExternalLink className="h-2.5 w-2.5 inline" />
-                              <span>Source: Website crawl</span>
+                              <span>Source: Public website</span>
                             </a>
                           )}
                         </div>
                       ) : (
-                        <span className="text-[11px] text-slate-500 italic">No email discovered</span>
+                        <span className="text-[11px] text-slate-500 italic">No email found</span>
                       )}
                     </td>
 
-                    {/* Phone & WhatsApp */}
                     <td className="py-3 px-3 text-xs font-mono">
                       {lead.phone ? (
                         <div className="space-y-1">
@@ -667,7 +721,7 @@ function GoogleMapsLeadComponent() {
                             type="button"
                             onClick={() => setWhatsAppLead(lead)}
                             className="px-2 py-0.5 rounded text-[10px] font-bold bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 hover:bg-emerald-500/20 transition-colors inline-flex items-center gap-1 cursor-pointer"
-                            title="Chat on WhatsApp"
+                            title="Open WhatsApp Draft"
                           >
                             <MessageSquare className="h-2.5 w-2.5" />
                             <span>WhatsApp</span>
@@ -678,7 +732,6 @@ function GoogleMapsLeadComponent() {
                       )}
                     </td>
 
-                    {/* Actions */}
                     <td className="py-3 px-3 text-right">
                       <button
                         onClick={() => {
@@ -686,7 +739,6 @@ function GoogleMapsLeadComponent() {
                           setIsResearchModalOpen(true);
                         }}
                         className="px-2.5 py-1 text-[10px] font-bold text-amber-300 bg-amber-500/10 border border-amber-500/25 hover:bg-amber-500/20 rounded-lg transition-all"
-                        title="AI Lead Research Agent"
                       >
                         AI Research
                       </button>
@@ -699,7 +751,6 @@ function GoogleMapsLeadComponent() {
         </div>
       )}
 
-      {/* AI RESEARCH MODAL */}
       <AiLeadResearchModal
         lead={selectedResearchLead}
         isOpen={isResearchModalOpen}
@@ -709,7 +760,6 @@ function GoogleMapsLeadComponent() {
         }}
       />
 
-      {/* WhatsApp Safe Outreach Modal */}
       <WhatsAppModal
         isOpen={!!whatsAppLead}
         onClose={() => setWhatsAppLead(null)}

@@ -1,23 +1,41 @@
 import { NextResponse } from "next/server";
 import { getCurrentUserFromRequest } from "@/lib/serverless-auth";
-import { getNeonClientDashboardMetrics, isNeonConfigured } from "@/lib/neon-db";
+import { getNeonClientDashboardMetrics, getNeonSql, isNeonConfigured } from "@/lib/neon-db";
 
 export const dynamic = "force-dynamic";
 
 export async function GET(request: Request) {
   try {
     const user = getCurrentUserFromRequest(request);
-    const workspaceId = user ? user.workspace_id : 1;
+    if (!user) {
+      return NextResponse.json({ detail: "Authentication required" }, { status: 401 });
+    }
+
+    let workspaceId = Number(user.workspace_id) || 1;
+    if (isNeonConfigured()) {
+      const sql = getNeonSql();
+      if (sql && user.id) {
+        const uRows = await sql.query(`SELECT workspace_id FROM users WHERE id = $1 LIMIT 1`, [Number(user.id)]).catch(() => []);
+        if (uRows[0]?.workspace_id) {
+          workspaceId = Number(uRows[0].workspace_id);
+        }
+      }
+    }
 
     if (!isNeonConfigured()) {
       return NextResponse.json({
         workspace_id: workspaceId,
         total_leads_found: 0,
         saved_leads: 0,
+        leads_with_email: 0,
+        leads_with_phone: 0,
+        leads_with_both_contacts: 0,
         available_email_contacts: 0,
         available_phone_contacts: 0,
         connected_gmail_accounts: 0,
         emails_sent: 0,
+        emails_sent_today: 0,
+        daily_email_limit: 10,
         failed_emails: 0,
         remaining_quota: 5000,
         max_quota: 5000,
@@ -26,19 +44,26 @@ export async function GET(request: Request) {
     }
 
     const metrics = await getNeonClientDashboardMetrics(workspaceId);
-    return NextResponse.json(metrics || {
-      workspace_id: workspaceId,
-      total_leads_found: 0,
-      saved_leads: 0,
-      available_email_contacts: 0,
-      available_phone_contacts: 0,
-      connected_gmail_accounts: 0,
-      emails_sent: 0,
-      failed_emails: 0,
-      remaining_quota: 5000,
-      max_quota: 5000,
-      contact_rate: 0,
-    });
+    return NextResponse.json(
+      metrics || {
+        workspace_id: workspaceId,
+        total_leads_found: 0,
+        saved_leads: 0,
+        leads_with_email: 0,
+        leads_with_phone: 0,
+        leads_with_both_contacts: 0,
+        available_email_contacts: 0,
+        available_phone_contacts: 0,
+        connected_gmail_accounts: 0,
+        emails_sent: 0,
+        emails_sent_today: 0,
+        daily_email_limit: 10,
+        failed_emails: 0,
+        remaining_quota: 5000,
+        max_quota: 5000,
+        contact_rate: 0,
+      }
+    );
   } catch (err: any) {
     console.error("[Workspace Metrics GET] Error:", err);
     return NextResponse.json(

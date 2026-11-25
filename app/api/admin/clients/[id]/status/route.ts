@@ -61,7 +61,7 @@ export async function PUT(req: Request, { params }: RouteParams) {
 export async function DELETE(req: Request, { params }: RouteParams) {
   try {
     const user = getCurrentUserFromRequest(req);
-    if (user && user.role !== "ADMIN") {
+    if (!user || !isAuthorizedOwner(user)) {
       return NextResponse.json(
         { detail: "Forbidden: Administrator role required." },
         { status: 403 }

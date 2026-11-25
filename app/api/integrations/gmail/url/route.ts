@@ -14,16 +14,15 @@ function getExactRedirectUri(request: Request): string {
 
 export async function GET(request: Request) {
   const currentUser = getCurrentUserFromRequest(request);
-  const subCheck = await verifyClientActiveSubscription(currentUser);
+  const subCheck = await verifyClientActiveSubscription(currentUser, "cold_email");
   if (!subCheck.allowed) {
     return NextResponse.json(
       { error: subCheck.message || "Active subscription required to connect Gmail.", status: "error" },
       { status: subCheck.statusCode || 403 }
     );
   }
-  const wsHeader = request.headers.get("x-workspace-id") || request.headers.get("X-Workspace-Id");
-  const workspaceId = currentUser ? currentUser.workspace_id : (wsHeader ? Number(wsHeader) : 1);
-  const userId = currentUser ? currentUser.id : 1;
+  const workspaceId = Number(subCheck.userRecord?.workspace_id || currentUser.workspace_id) || 1;
+  const userId = Number(subCheck.userRecord?.id || currentUser.id) || 1;
 
   const clientId = (process.env.GOOGLE_CLIENT_ID || process.env.NEXT_PUBLIC_GOOGLE_CLIENT_ID || "").trim();
   const clientSecret = (process.env.GOOGLE_CLIENT_SECRET || "").trim();

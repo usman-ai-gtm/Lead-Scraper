@@ -39,17 +39,20 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [loading, setLoading] = useState(true);
 
   const refreshUser = async (): Promise<User | null> => {
-    const token = typeof window !== "undefined" ? localStorage.getItem("usman_gtm_token") : null;
-    if (!token) return null;
     try {
       const profile = await api.get<User>("/auth/me");
-      if (profile) {
+      if (profile && profile.id) {
         setUser(profile);
-        localStorage.setItem("usman_gtm_user", JSON.stringify(profile));
+        if (typeof window !== "undefined") {
+          localStorage.setItem("usman_gtm_user", JSON.stringify(profile));
+          if (profile.workspace_id) {
+            localStorage.setItem("usman_gtm_workspace_id", String(profile.workspace_id));
+          }
+        }
         return profile;
       }
     } catch {
-      // transient failure, do not wipe session
+      // transient failure or unauthenticated
     }
     return null;
   };
@@ -57,16 +60,20 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   useEffect(() => {
     const initAuth = async () => {
       const token = localStorage.getItem("usman_gtm_token");
-      if (token) {
+      const inAppRoute = typeof window !== "undefined" && window.location.pathname.startsWith("/app");
+      if (token || inAppRoute) {
         try {
           const profile = await api.get<User>("/auth/me");
           setUser(profile);
           localStorage.setItem("usman_gtm_user", JSON.stringify(profile));
+          if (profile.workspace_id) {
+            localStorage.setItem("usman_gtm_workspace_id", String(profile.workspace_id));
+          }
 
-          const wsList = await api.get<Workspace[]>("/auth/workspaces");
+          const wsList = await api.get<Workspace[]>("/auth/workspaces").catch(() => []);
           setWorkspaces(wsList);
 
-          const savedWsId = localStorage.getItem("usman_gtm_workspace_id");
+          const savedWsId = String(profile.workspace_id || localStorage.getItem("usman_gtm_workspace_id") || "1");
           const targetWs = wsList.find((w) => String(w.id) === savedWsId) || wsList[0] || null;
           setActiveWorkspace(targetWs);
           if (targetWs) {

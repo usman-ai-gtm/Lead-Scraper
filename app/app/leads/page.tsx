@@ -5,7 +5,6 @@ import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { useAuth } from "@/lib/auth-context";
 import { ALL_193_COUNTRIES } from "@/lib/countries";
-import { getSuggestedCitiesForCountry } from "@/lib/cities";
 import { normalizePhoneNumber, buildWhatsAppClickToChatUrl } from "@/lib/phone-utils";
 import {
   Download, CheckCircle2, RefreshCw, Mail, Phone, Globe,
@@ -15,6 +14,7 @@ import {
 } from "lucide-react";
 import { AiLeadResearchModal } from "@/components/leads/AiLeadResearchModal";
 import { MultiCountrySelector } from "@/components/leads/MultiCountrySelector";
+import { MultiCitySelector, SelectedCityTarget } from "@/components/leads/MultiCitySelector";
 import { WhatsAppModal } from "@/components/leads/WhatsAppModal";
 import { LeadQualityBadge } from "@/components/leads/LeadQualityBadge";
 
@@ -63,9 +63,8 @@ function LeadsSearchComponent() {
   // Search input state (pre-populated from Quick Search Launcher if parameters exist)
   const [keyword, setKeyword] = useState<string>("");
   const [selectedCountries, setSelectedCountries] = useState<string[]>(["United States"]);
-  const [country, setCountry] = useState<string>("United States");
-  const [suggestedCities, setSuggestedCities] = useState<string[]>([]);
-  const [selectedCity, setSelectedCity] = useState<string>("ALL_CITIES");
+  const [specificCitiesEnabled, setSpecificCitiesEnabled] = useState<boolean>(false);
+  const [selectedCities, setSelectedCities] = useState<SelectedCityTarget[]>([]);
   const [targetCount, setTargetCount] = useState<number>(50);
   const [contactRequirement, setContactRequirement] = useState<
     "EMAIL_AND_PHONE" | "EMAIL_ONLY" | "PHONE_ONLY" | "EMAIL_OR_PHONE"
@@ -112,14 +111,14 @@ function LeadsSearchComponent() {
     if (qKeyword) setKeyword(qKeyword);
     else if (qIndustry && qIndustry !== "Any") setKeyword(qIndustry);
 
-    if (qCountry) setCountry(qCountry);
-    const cities = getSuggestedCitiesForCountry(qCountry);
-    setSuggestedCities(cities);
+    if (qCountry) setSelectedCountries([qCountry]);
 
-    if (qCity && cities.includes(qCity)) {
-      setSelectedCity(qCity);
+    if (qCity && qCity !== "ALL_CITIES") {
+      setSpecificCitiesEnabled(true);
+      setSelectedCities([{ city: qCity, country: qCountry || "United States", key: `${qCity}||${qCountry || "United States"}` }]);
     } else {
-      setSelectedCity("ALL_CITIES");
+      setSpecificCitiesEnabled(false);
+      setSelectedCities([]);
     }
 
     // Load any previously saved session leads
@@ -171,14 +170,6 @@ function LeadsSearchComponent() {
     checkJob();
   }, [searchParams]);
 
-  // Update suggested cities when country selector changes
-  const handleCountryChange = (newCountry: string) => {
-    setCountry(newCountry);
-    const cities = getSuggestedCitiesForCountry(newCountry);
-    setSuggestedCities(cities);
-    setSelectedCity("ALL_CITIES");
-  };
-
   // Sync session storage
   const syncStorage = (leadsList: QualifiedLead[]) => {
     if (typeof window !== "undefined") {
@@ -209,33 +200,49 @@ function LeadsSearchComponent() {
       setToastMsg("Please enter a target keyword (e.g. Mobile Accessories, Real Estate Agencies, Software Houses).");
       return;
     }
+    if (selectedCountries.length === 0) {
+      setToastMsg("Please select at least 1 target country.");
+      return;
+    }
+    if (specificCitiesEnabled && selectedCities.length === 0) {
+      setToastMsg("Select at least 1 city or uncheck 'Select Specific Cities' for whole-country search.");
+      return;
+    }
 
     setIsExtracting(true);
     setSaveStatus("SAVING");
     setStatusMessage(
-      `Running multi-platform search across all non-Maps sources for "${keyword.trim()}" (Target: ${targetCount} leads)...`
+      `Running multi-platform search across public web sources for "${keyword.trim()}" (Target: ${targetCount} leads)...`
     );
 
     try {
       const token = typeof window !== "undefined" ? localStorage.getItem("usman_gtm_token") : null;
       const res = await fetch("/api/leads/search", {
         method: "POST",
+        credentials: "include",
         headers: {
           "Content-Type": "application/json",
-          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+          ...(token && token !== "null" ? { Authorization: `Bearer ${token}` } : {}),
         },
         body: JSON.stringify({
           keyword: keyword.trim(),
           countries: selectedCountries,
           country: selectedCountries[0] || "United States",
-          city: selectedCity !== "ALL_CITIES" ? selectedCity : "",
+          specific_cities_enabled: specificCitiesEnabled,
+          cities: specificCitiesEnabled ? selectedCities.map((c) => ({ city: c.city, country: c.country })) : [],
           target_count: targetCount,
           contact_requirement: contactRequirement,
           use_business_profile: useBusinessProfile,
         }),
       });
 
-      const data = await res.json();
+      const rawText = await res.text();
+      let data: any = null;
+      try {
+        data = JSON.parse(rawText);
+      } catch {
+        throw new Error(`Search response returned non-JSON output (HTTP ${res.status}).`);
+      }
       if (!res.ok || data.status === "error") {
         setSaveStatus("FAILED");
         throw new Error(data.message || "Extraction failed.");
@@ -292,8 +299,8 @@ function LeadsSearchComponent() {
           filename: `USMAN_AI_QUALIFIED_LEADS_${keyword.replace(/[^a-zA-Z0-9]/g, "_")}_${Date.now()}`,
           meta: {
             keyword: keyword.trim(),
-            country: country,
-            city: selectedCity !== "ALL_CITIES" ? selectedCity : "All Cities",
+            country: selectedCountries.join(", "),
+            city: specificCitiesEnabled ? selectedCities.map((c) => c.city).join(", ") : "Whole Country",
             export_target: `Live Search: ${keyword.trim()}`,
           }
         }),
@@ -461,33 +468,22 @@ function LeadsSearchComponent() {
             </label>
             <MultiCountrySelector
               selectedCountries={selectedCountries}
+              singleSelect={user?.features ? !user.features.multi_country_search : false}
               onChange={(newCountries) => {
                 setSelectedCountries(newCountries);
-                if (newCountries.length > 0) {
-                  const cities = getSuggestedCitiesForCountry(newCountries[0]);
-                  setSuggestedCities(cities);
-                  setCountry(newCountries[0]);
-                }
               }}
             />
           </div>
 
           {/* City Selector (Col 2) */}
-          <div className="md:col-span-2 space-y-1.5">
-            <label className="block text-xs font-bold text-slate-200 flex items-center gap-1.5">
-              <Building2 className="h-3.5 w-3.5 text-amber-400" />
-              <span>Commercial Hub</span>
-            </label>
-            <select
-              value={selectedCity}
-              onChange={(e) => setSelectedCity(e.target.value)}
-              className="w-full rounded-xl border border-white/10 bg-[#0c1017] px-3 py-2.5 text-xs text-white focus:border-blue-500 focus:outline-none"
-            >
-              <option value="ALL_CITIES">All Cities</option>
-              {suggestedCities.map((c) => (
-                <option key={c} value={c}>{c}</option>
-              ))}
-            </select>
+          <div className="md:col-span-2">
+            <MultiCitySelector
+              selectedCountries={selectedCountries}
+              specificCitiesEnabled={specificCitiesEnabled}
+              onToggleSpecificCities={setSpecificCitiesEnabled}
+              selectedCities={selectedCities}
+              onChangeCities={setSelectedCities}
+            />
           </div>
 
           {/* Manual Lead Quantity (Col 2) */}

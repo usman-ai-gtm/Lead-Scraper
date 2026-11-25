@@ -1,5 +1,6 @@
 import crypto from "crypto";
 import { getNeonSql, isNeonConfigured, computeAuthoritativeUserStatus } from "@/lib/neon-db";
+import { resolveUserEntitlements, FeatureKey, ResolvedEntitlements } from "@/lib/entitlements";
 
 const JWT_SECRET = process.env.SECRET_KEY || process.env.JWT_SECRET || "usman_ai_gtm_ultra_pro_max_secret_key_change_in_production_jwt_99";
 
@@ -137,12 +138,19 @@ export function getCurrentUserFromRequest(req: Request): any {
     let token = "";
     const authHeader = req.headers.get("authorization") || req.headers.get("Authorization");
     if (authHeader && authHeader.startsWith("Bearer ")) {
-      token = authHeader.slice(7).trim();
-    } else {
+      const candidate = authHeader.slice(7).trim();
+      if (candidate && candidate !== "null" && candidate !== "undefined") {
+        token = candidate;
+      }
+    }
+    if (!token) {
       const cookieHeader = req.headers.get("cookie") || "";
       const match = cookieHeader.match(/usman_gtm_token=([^;]+)/);
       if (match) {
-        token = decodeURIComponent(match[1].trim());
+        const candidate = decodeURIComponent(match[1].trim());
+        if (candidate && candidate !== "null" && candidate !== "undefined") {
+          token = candidate;
+        }
       }
     }
     if (!token) return null;
@@ -856,11 +864,15 @@ export function isAuthorizedOwner(user: any): boolean {
  * - BASIC subscription ($25/mo) strictly auto-expires 30 days after activation.
  * - LIFETIME subscription ($100) never expires unless manually modified by Owner.
  */
-export async function verifyClientActiveSubscription(user: any): Promise<{
+export async function verifyClientActiveSubscription(
+  user: any,
+  requiredFeature?: FeatureKey
+): Promise<{
   allowed: boolean;
   statusCode?: number;
   message?: string;
   userRecord?: any;
+  entitlements?: ResolvedEntitlements;
 }> {
   if (!user) {
     return {
@@ -870,12 +882,37 @@ export async function verifyClientActiveSubscription(user: any): Promise<{
     };
   }
 
-  // Super-admin / owner bypass
-  if (isAuthorizedOwner(user)) {
-    return { allowed: true };
-  }
-
   const emailLower = String(user.email || user.username || "").trim().toLowerCase();
+
+  // Super-admin / owner bypass with authoritative DB lookup when available
+  if (isAuthorizedOwner(user)) {
+    const ownerEnt = resolveUserEntitlements({
+      ...user,
+      role: "SUPER_ADMIN",
+      account_type: "MASTER_OWNER",
+      plan: "OWNER_LIFETIME",
+      plan_type: "OWNER_LIFETIME",
+      status: "ACTIVE",
+    });
+    if (isNeonConfigured()) {
+      const sql = getNeonSql();
+      if (sql) {
+        try {
+          const userId = Number(user.id || user.sub) || 0;
+          const rows = await sql.query(
+            `SELECT id, username, email, role, account_type, workspace_id, status, plan, plan_type, plan_label,
+                    google_maps_enabled, daily_email_limit, features_json
+             FROM users WHERE id = $1 LIMIT 1`,
+            [userId]
+          );
+          if (rows[0]) {
+            return { allowed: true, userRecord: rows[0], entitlements: ownerEnt };
+          }
+        } catch {}
+      }
+    }
+    return { allowed: true, userRecord: user, entitlements: ownerEnt };
+  }
 
   // For CLIENT users, query the authoritative Neon cloud database
   if (isNeonConfigured()) {
@@ -884,9 +921,12 @@ export async function verifyClientActiveSubscription(user: any): Promise<{
       try {
         const userId = Number(user.id || user.sub) || 0;
         const rows = await sql.query(
-          `SELECT id, email, role, account_type, status, plan, subscription_start, subscription_expires_at, subscription_status
+          `SELECT id, username, email, role, account_type, workspace_id, status, plan, plan_type, plan_label,
+                  custom_duration_value, custom_duration_unit, custom_price_usd, suggested_price_usd,
+                  daily_email_limit, google_maps_enabled, features_json,
+                  subscription_start, subscription_expires_at, subscription_status
            FROM users
-           WHERE id = $1 OR LOWER(email) = LOWER($2)
+           WHERE id = $1 OR (LOWER(email) = LOWER($2) AND $2 != '')
            LIMIT 1`,
           [userId, emailLower]
         );
@@ -901,6 +941,7 @@ export async function verifyClientActiveSubscription(user: any): Promise<{
 
         const u = rows[0];
         const authoritative = computeAuthoritativeUserStatus(u);
+        const entitlements = resolveUserEntitlements(u);
 
         if (authoritative.isLocked) {
           if (
@@ -913,6 +954,7 @@ export async function verifyClientActiveSubscription(user: any): Promise<{
               statusCode: 403,
               message: "FREE PREVIEW ACCOUNT — Explore the software before purchasing. Contact the Owner to get your fully activated account.",
               userRecord: { ...u, status: "PREVIEW_ONLY", plan: "FREE_PREVIEW" },
+              entitlements,
             };
           }
           if (authoritative.status === "REVOKED" || authoritative.status === "SUSPENDED") {
@@ -921,14 +963,16 @@ export async function verifyClientActiveSubscription(user: any): Promise<{
               statusCode: 403,
               message: "Account Suspended or Revoked. Contact Administrator via WhatsApp (+923174383702).",
               userRecord: { ...u, status: authoritative.status },
+              entitlements,
             };
           }
           if (authoritative.status === "EXPIRED") {
             return {
               allowed: false,
               statusCode: 403,
-              message: "Your subscription has expired. Please renew to continue.",
+              message: "Your subscription has expired. Please renew with the Owner (+923174383702) to continue.",
               userRecord: { ...u, status: authoritative.status },
+              entitlements,
             };
           }
           return {
@@ -936,10 +980,34 @@ export async function verifyClientActiveSubscription(user: any): Promise<{
             statusCode: 403,
             message: "Your account is currently locked. Please contact the Owner for activation (+923174383702).",
             userRecord: { ...u, status: authoritative.status },
+            entitlements,
           };
         }
 
-        return { allowed: true, userRecord: { ...u, status: authoritative.status, plan: authoritative.plan } };
+        if (requiredFeature) {
+          const isGoogleMapsReq = requiredFeature === "google_maps";
+          const hasAccess = isGoogleMapsReq
+            ? Boolean(entitlements.googleMapsEnabled && entitlements.features.google_maps)
+            : Boolean(entitlements.features[requiredFeature]);
+
+          if (!hasAccess) {
+            return {
+              allowed: false,
+              statusCode: 403,
+              message: isGoogleMapsReq
+                ? `Google Maps Lead Generator is not included in your current ${entitlements.planLabel}. Upgrade to Lifetime ($100) or ask the Owner to enable Google Maps on a Custom Plan.`
+                : `The feature "${requiredFeature.replace(/_/g, " ")}" is not enabled on your current ${entitlements.planLabel}.`,
+              userRecord: { ...u, status: authoritative.status, plan: authoritative.plan },
+              entitlements,
+            };
+          }
+        }
+
+        return {
+          allowed: true,
+          userRecord: { ...u, status: authoritative.status, plan: authoritative.plan },
+          entitlements,
+        };
       } catch (e) {
         console.error("verifyClientActiveSubscription Neon error:", e);
       }
@@ -947,30 +1015,15 @@ export async function verifyClientActiveSubscription(user: any): Promise<{
   }
 
   // Fallback in-memory status check
-  const statusUpper = (user.status || "LOCKED").toUpperCase();
-  const accountTypeUpper = (user.account_type || "").toUpperCase();
-  if (statusUpper === "PREVIEW_ONLY" || accountTypeUpper === "FREE_PREVIEW" || user.plan === "FREE_PREVIEW") {
+  const entFallback = resolveUserEntitlements(user);
+  if (entFallback.isLocked) {
     return {
       allowed: false,
       statusCode: 403,
-      message: "FREE PREVIEW ACCOUNT — Explore the software before purchasing. Contact the Owner to get your fully activated account.",
+      message: "Subscription inactive, expired, or locked. Please contact administrator.",
+      entitlements: entFallback,
     };
   }
-  if (statusUpper === "LOCKED" || statusUpper === "PENDING" || statusUpper === "EXPIRED") {
-    return {
-      allowed: false,
-      statusCode: 403,
-      message: "Your account is currently locked. Please complete payment and contact the Owner for activation. Your premium access will begin after approval.",
-    };
-  }
-  if (statusUpper === "SUSPENDED" || statusUpper === "REVOKED") {
-    return {
-      allowed: false,
-      statusCode: 403,
-      message: "Account Suspended or Revoked. Contact Administrator via WhatsApp (+923174383702).",
-    };
-  }
-
-  return { allowed: true };
+  return { allowed: true, userRecord: user, entitlements: entFallback };
 }
 

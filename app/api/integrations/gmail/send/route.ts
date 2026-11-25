@@ -6,13 +6,14 @@ import {
   saveNeonGmailAccount,
   saveNeonOutreachRecord,
   updateNeonLeadOutreachStatus,
+  getNeonEmailsSentTodayUtc,
   isRecipientSuppressed,
   isDuplicateOutreach,
 } from "@/lib/neon-db";
 
 export async function POST(request: Request) {
   const currentUser = getCurrentUserFromRequest(request);
-  const authCheck = await verifyClientActiveSubscription(currentUser);
+  const authCheck = await verifyClientActiveSubscription(currentUser, "cold_email");
   if (!authCheck.allowed) {
     return NextResponse.json(
       { error: authCheck.message },
@@ -20,8 +21,10 @@ export async function POST(request: Request) {
     );
   }
 
-  const workspaceId = currentUser.workspace_id || 1;
-  const userId = currentUser.id || 1;
+  const workspaceId = Number(authCheck.userRecord?.workspace_id || currentUser.workspace_id) || 1;
+  const userId = Number(authCheck.userRecord?.id || currentUser.id) || 1;
+  const planDailyLimit = authCheck.entitlements?.dailyEmailLimit ?? 10;
+  const planLabel = authCheck.entitlements?.planLabel || "Active Plan";
 
   let body: any = {};
   try {
@@ -93,6 +96,35 @@ export async function POST(request: Request) {
     );
   }
 
+  // Authoritative plan-based daily email limit (UTC day)
+  if (planDailyLimit <= 0) {
+    return NextResponse.json(
+      { error: `Cold email sending is disabled on your current ${planLabel}.` },
+      { status: 403 }
+    );
+  }
+
+  const workspaceSentTodayUtc = await getNeonEmailsSentTodayUtc(workspaceId);
+  if (workspaceSentTodayUtc >= planDailyLimit) {
+    return NextResponse.json(
+      {
+        error: `Daily plan sending limit reached (${workspaceSentTodayUtc}/${planDailyLimit} successful emails used today on ${planLabel}). Limit resets at 00:00 UTC.`,
+        sent_today: workspaceSentTodayUtc,
+        daily_limit: planDailyLimit,
+      },
+      { status: 429 }
+    );
+  }
+
+  // Round-robin fairness by actual UTC sent count today
+  const sentByEmail = new Map<string, number>();
+  for (const acc of allAccounts) {
+    sentByEmail.set(
+      acc.senderEmail.toLowerCase(),
+      await getNeonEmailsSentTodayUtc(workspaceId, acc.senderEmail)
+    );
+  }
+
   if (account_id) {
     activeAccount = allAccounts.find((a: any) => a.accountId === Number(account_id));
     if (!activeAccount) {
@@ -102,20 +134,40 @@ export async function POST(request: Request) {
       );
     }
   } else {
-    // Fair Round-Robin: select active account with lowest sent_today
-    activeAccount = allAccounts.slice().sort((a: any, b: any) => (a.sentToday || 0) - (b.sentToday || 0))[0];
+    activeAccount = allAccounts
+      .slice()
+      .sort(
+        (a: any, b: any) =>
+          (sentByEmail.get(a.senderEmail.toLowerCase()) || 0) -
+          (sentByEmail.get(b.senderEmail.toLowerCase()) || 0)
+      )[0];
   }
 
-  // Daily quota check
-  if ((activeAccount.sentToday || 0) >= (activeAccount.dailyLimit || 500)) {
+  // Per-mailbox Google safety cap (500/day max for standard Gmail OAuth)
+  const mailboxSentToday = sentByEmail.get(activeAccount.senderEmail.toLowerCase()) || 0;
+  const mailboxCap = Math.min(500, activeAccount.dailyLimit || 500);
+  if (mailboxSentToday >= mailboxCap) {
     return NextResponse.json(
-      { error: `Daily limit reached for account ${activeAccount.senderEmail} (${activeAccount.sentToday}/${activeAccount.dailyLimit}). Select another account or wait for tomorrow.` },
+      { error: `Mailbox daily safety cap reached for ${activeAccount.senderEmail} (${mailboxSentToday}/${mailboxCap}). Select another mailbox or wait until 00:00 UTC.` },
       { status: 429 }
     );
   }
 
   const tokens = activeAccount.tokens;
   if (!tokens || !tokens.access_token) {
+    await saveNeonOutreachRecord({
+      workspaceId,
+      userId,
+      leadId: lead_id ? Number(lead_id) : undefined,
+      recipientEmail: cleanRecipientEmail,
+      recipientName: cleanRecipientName || cleanRecipientEmail,
+      senderEmail: activeAccount.senderEmail,
+      senderName: activeAccount.senderName || "Sales Outreach",
+      subject,
+      body: emailBody,
+      outreachStatus: "FAILED",
+      followupNotes: "Gmail OAuth access token missing or expired",
+    }).catch(() => {});
     return NextResponse.json(
       { error: `Stored Gmail credentials for ${activeAccount.senderEmail} are expired. Please reconnect.` },
       { status: 401 }
@@ -217,6 +269,20 @@ export async function POST(request: Request) {
     const errData = await sendRes.json().catch(() => ({}));
     const errMsg = errData?.error?.message || `Gmail API returned HTTP ${sendRes.status}`;
     console.error("[Gmail Send Error]", sendRes.status, errData);
+
+    await saveNeonOutreachRecord({
+      workspaceId,
+      userId,
+      leadId: lead_id ? Number(lead_id) : undefined,
+      recipientEmail: cleanRecipientEmail,
+      recipientName: cleanRecipientName || cleanRecipientEmail,
+      senderEmail: senderEmail,
+      senderName: senderName,
+      subject: subject,
+      body: emailBody,
+      outreachStatus: "FAILED",
+      followupNotes: errMsg,
+    }).catch(() => {});
 
     return NextResponse.json(
       {
