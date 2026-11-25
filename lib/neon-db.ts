@@ -1843,13 +1843,13 @@ export async function updateNeonClientStatus(
 
     await sql.query(
       `UPDATE users
-       SET status = $1,
+       SET status = $1::text,
            active = 0,
            is_active = 0,
-           subscription_status = $1,
-           updated_at = $2
-       WHERE id = $3`,
-      [validStatus, nowIso, clientId]
+           subscription_status = $2::varchar,
+           updated_at = $3::text
+       WHERE id = $4::int4`,
+      [validStatus, validStatus, nowIso, clientId]
     );
     return { ok: true, effectiveStatus: validStatus, restoredAccess: false };
   } catch (e) {
