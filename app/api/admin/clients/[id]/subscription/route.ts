@@ -366,16 +366,21 @@ export async function POST(req: Request, { params }: RouteParams) {
         const targetStatus =
           action === "LOCK"
             ? "LOCKED"
-            : action === "SUSPEND"
+            : action === "SUSPEND" || action === "DEACTIVATE"
             ? "SUSPENDED"
             : "REVOKED";
+        // Only explicit REVOKE increments session_version; LOCK / SUSPEND / DEACTIVATE preserve session_version so Unlock/Activate resumes cleanly without false session_expired=true
+        const bumpSvSql =
+          targetStatus === "REVOKED"
+            ? "session_version = COALESCE(session_version, 1) + 1,"
+            : "";
         await sql.query(
           `UPDATE users
            SET status = $1::text,
                active = 0,
                is_active = 0,
                subscription_status = $2::varchar,
-               session_version = COALESCE(session_version, 1) + 1,
+               ${bumpSvSql}
                subscription_notes = COALESCE($3, subscription_notes),
                updated_at = NOW()::text
            WHERE id = $4::int4`,

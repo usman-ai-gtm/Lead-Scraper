@@ -535,6 +535,24 @@ function EmailAccountsContent() {
             </div>
           </div>
         </div>
+
+        {/* Simple Customer 5-Step Instructions */}
+        <div className="p-4 rounded-xl bg-white/[0.02] border border-white/[0.08] space-y-2.5 text-xs">
+          <div className="font-bold text-white flex items-center gap-2">
+            <CheckCircle2 className="h-4 w-4 text-emerald-400" />
+            <span>Connect Your Gmail Account (Quick Steps)</span>
+          </div>
+          <ol className="grid grid-cols-1 sm:grid-cols-5 gap-2 text-[11px] text-slate-300 list-decimal list-inside">
+            <li className="p-2 rounded-lg bg-black/30 border border-white/5">Click <strong>Connect Official Gmail Account</strong> above.</li>
+            <li className="p-2 rounded-lg bg-black/30 border border-white/5">Select the Google account you want to send from.</li>
+            <li className="p-2 rounded-lg bg-black/30 border border-white/5">Review the Google permission screen (<code className="text-slate-400">gmail.send</code>).</li>
+            <li className="p-2 rounded-lg bg-black/30 border border-white/5">Click <strong>Allow</strong> (never shares your password).</li>
+            <li className="p-2 rounded-lg bg-black/30 border border-white/5">Return automatically to Lead Scraper Ready status.</li>
+          </ol>
+          <p className="text-[11px] text-slate-400">
+            If Google displays <code className="text-rose-300">Error 403: access_denied</code> (&quot;app is currently being tested&quot;), Google&apos;s public app verification is still pending — contact Owner support to add your Gmail to approved testers until Google review completes.
+          </p>
+        </div>
       </div>
 
       {/* SENDER DOMAIN DELIVERABILITY HEALTH CHECKER */}

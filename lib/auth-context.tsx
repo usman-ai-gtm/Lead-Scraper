@@ -239,10 +239,13 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   };
 
   const changePassword = async (oldPass: string, newPass: string) => {
-    await api.post("/auth/change-password", {
+    const res = await api.post<any>("/auth/change-password", {
       old_password: oldPass,
       new_password: newPass,
     });
+    if (res?.access_token && typeof window !== "undefined") {
+      localStorage.setItem("usman_gtm_token", res.access_token);
+    }
     if (user) {
       const updatedUser = { ...user, must_change_password: false };
       setUser(updatedUser);
@@ -256,7 +259,9 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     localStorage.removeItem("usman_gtm_user");
     localStorage.removeItem("usman_gtm_workspaces");
     setUser(null);
-    window.location.href = "/login";
+    fetch("/api/auth/logout", { method: "POST" }).finally(() => {
+      window.location.href = "/login";
+    });
   };
 
   const switchWorkspace = (workspaceId: number) => {

@@ -164,6 +164,15 @@ export default function AdminGoogleIntegrationPage() {
                 USMAN AI GTM requests strictly <code className="text-slate-300">gmail.send</code> + <code className="text-slate-300">userinfo.email</code> (never <code className="text-slate-300">gmail.readonly</code> or mailbox access) solely so paying workspace owners can manually compose and send explicit 1-to-1 business outreach emails through their own Gmail account. Email drafts stay isolated in the user&apos;s workspace until they click Send; OAuth tokens are AES-256-GCM encrypted in Neon PostgreSQL per workspace_id, never used for AI model training or ads, never involve Gmail passwords, and can be revoked at any time via Gmail Connections (calling Google&apos;s revoke endpoint + deleting DB tokens).
               </p>
             </div>
+            <div className="pt-2 border-t border-white/[0.06] text-[11px] text-slate-300 space-y-1.5">
+              <div className="font-bold text-white">Short Screen-Recording Script (For Google OAuth Verification &amp; Customer Tutorial):</div>
+              <ol className="list-decimal list-inside space-y-1 text-slate-400">
+                <li><strong>Show Homepage &amp; App URL:</strong> Open <code className="text-slate-300">https://lead-scraper-mxs5.vercel.app</code> with clear English UI, Privacy Policy (<code className="text-slate-300">/privacy</code>), and Terms (<code className="text-slate-300">/terms</code>) visible.</li>
+                <li><strong>Show Gmail Connect Screen:</strong> Sign in, open <em>Email Accounts</em> (<code className="text-slate-300">/app/accounts</code>), and click <em>Connect Official Gmail Account</em>.</li>
+                <li><strong>Show Consent Screen &amp; Client ID:</strong> Ensure browser address bar displays full URL including <code className="text-slate-300">client_id=855677476876-...</code>, select your test Gmail, expand permissions showing only <code className="text-slate-300">gmail.send</code> and email address, and click <em>Allow</em>.</li>
+                <li><strong>Demonstrate Live Feature:</strong> Show the connected mailbox badge on <code className="text-slate-300">/app/accounts</code>, open <em>Send Test Email</em> (or <em>Cold Email</em>), manually compose and send a 1-to-1 test email, open Gmail Sent folder to confirm delivery, then click <em>Disconnect</em> to show revocation works.</li>
+              </ol>
+            </div>
           </div>
         </div>
 

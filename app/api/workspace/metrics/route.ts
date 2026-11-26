@@ -1,10 +1,13 @@
 import { NextResponse } from "next/server";
+import { unstable_noStore as noStore } from "next/cache";
 import { getCurrentUserFromRequest } from "@/lib/serverless-auth";
 import { getNeonClientDashboardMetrics, getNeonSql, isNeonConfigured } from "@/lib/neon-db";
 
 export const dynamic = "force-dynamic";
+export const fetchCache = "force-no-store";
 
 export async function GET(request: Request) {
+  noStore();
   try {
     const user = getCurrentUserFromRequest(request);
     if (!user) {

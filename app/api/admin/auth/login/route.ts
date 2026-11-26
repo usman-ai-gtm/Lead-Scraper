@@ -79,7 +79,8 @@ export async function POST(request: Request) {
 
     // Lookup user by username or email
     const users = await sql`
-      SELECT id, username, email, full_name, role, account_type, workspace_id, status, password_hash, tenant_id, plan
+      SELECT id, username, email, full_name, role, account_type, workspace_id, status, password_hash, tenant_id, plan,
+             COALESCE(session_version, 1) AS session_version
       FROM users
       WHERE LOWER(username) = LOWER(${username}) OR LOWER(email) = LOWER(${username})
       LIMIT 1
@@ -166,6 +167,7 @@ export async function POST(request: Request) {
       tenant_id: user.tenant_id || 1,
       status: "ACTIVE",
       plan: "OWNER_LIFETIME",
+      sv: Number(user.session_version) || 1,
     });
 
     const response = NextResponse.json({

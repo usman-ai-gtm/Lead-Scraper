@@ -1,10 +1,13 @@
 import { NextResponse } from "next/server";
+import { unstable_noStore as noStore } from "next/cache";
 import { getCurrentUserFromRequest } from "@/lib/serverless-auth";
 import { getNeonSql, isNeonConfigured } from "@/lib/neon-db";
 
 export const dynamic = "force-dynamic";
+export const fetchCache = "force-no-store";
 
 export async function GET(req: Request) {
+  noStore();
   const currentUser = getCurrentUserFromRequest(req);
   if (!currentUser) {
     return NextResponse.json({ detail: "Authentication required" }, { status: 401 });

@@ -327,7 +327,7 @@ export async function POST(request: Request) {
           error: `Gmail permissions for ${senderEmail} were revoked or expired. Please reconnect your Gmail account.`,
           reconnect_required: true,
         },
-        { status: 401 }
+        { status: 422 }
       );
     }
   }
@@ -369,9 +369,10 @@ export async function POST(request: Request) {
     return NextResponse.json(
       {
         error: `Failed to send email via Gmail (${senderEmail}): ${errMsg}`,
+        reconnect_required: sendRes.status === 401,
         details: errData?.error || null,
       },
-      { status: sendRes.status === 403 ? 403 : sendRes.status === 401 ? 401 : 500 }
+      { status: sendRes.status === 403 ? 403 : sendRes.status === 401 ? 422 : 500 }
     );
   }
 

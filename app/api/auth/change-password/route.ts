@@ -3,6 +3,7 @@ import {
   getCurrentUserFromRequest,
   hashPassword,
   verifyPassword,
+  createJwtToken,
   changeServerlessUserPassword,
 } from "@/lib/serverless-auth";
 import { getNeonSql, isNeonConfigured, logAccountAudit } from "@/lib/neon-db";
@@ -31,7 +32,7 @@ export async function POST(req: Request) {
       const sql = getNeonSql();
       if (sql) {
         const rows = await sql.query(
-          `SELECT id, username, email, workspace_id, password_hash, COALESCE(session_version, 1) AS session_version
+          `SELECT id, username, email, full_name, role, account_type, workspace_id, tenant_id, status, password_hash, COALESCE(session_version, 1) AS session_version
            FROM users WHERE id = $1 LIMIT 1`,
           [userId]
         );
@@ -47,10 +48,17 @@ export async function POST(req: Request) {
           return NextResponse.json({ detail: "Current password is incorrect" }, { status: 400 });
         }
         const newHash = hashPassword(newPassword);
-        await sql.query(
-          `UPDATE users SET password_hash = $1, must_change_password = FALSE, updated_at = $2 WHERE id = $3`,
+        const updRows = await sql.query(
+          `UPDATE users
+           SET password_hash = $1,
+               must_change_password = FALSE,
+               session_version = COALESCE(session_version, 1) + 1,
+               updated_at = $2
+           WHERE id = $3
+           RETURNING COALESCE(session_version, 1) AS session_version`,
           [newHash, new Date().toISOString(), u.id]
         );
+        const nextSv = Number(updRows?.[0]?.session_version || Number(u.session_version || 1) + 1);
         await logAccountAudit({
           adminId: u.id,
           adminEmail: u.username || u.email || "user",
@@ -58,9 +66,35 @@ export async function POST(req: Request) {
           clientEmail: u.email || u.username || "",
           workspaceId: u.workspace_id || 1,
           action: "USER_CHANGE_PASSWORD",
-          details: { self_updated: true },
+          details: { self_updated: true, session_version: nextSv },
         });
-        return NextResponse.json({ status: "success", message: "Password updated successfully" });
+        const nextToken = createJwtToken({
+          sub: String(u.id),
+          email: u.email,
+          username: u.username,
+          full_name: u.full_name,
+          role: u.role || "CLIENT",
+          account_type: u.account_type || "PAID_CLIENT",
+          workspace_id: u.workspace_id || 1,
+          tenant_id: u.tenant_id || 1,
+          status: u.status || "ACTIVE",
+          sv: nextSv,
+        });
+        const response = NextResponse.json({
+          status: "success",
+          access_token: nextToken,
+          token: nextToken,
+          session_version: nextSv,
+          message: "Password updated successfully",
+        });
+        response.cookies.set("usman_gtm_token", nextToken, {
+          httpOnly: true,
+          secure: process.env.NODE_ENV === "production",
+          sameSite: "lax",
+          path: "/",
+          maxAge: 7 * 24 * 60 * 60,
+        });
+        return response;
       }
     }
 

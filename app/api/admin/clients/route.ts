@@ -237,6 +237,7 @@ export async function POST(req: Request) {
         features: normalizedFeatures,
         subscription_expires_at: res.client.subscription_expires_at,
         workspace_id: res.client.workspace_id,
+        reused_deleted_identity_from_id: res.formerTombstoneUserId || null,
       },
     });
 

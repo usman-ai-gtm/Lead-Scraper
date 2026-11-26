@@ -378,6 +378,49 @@ export default function OwnerClientDetailsPage() {
                     </div>
                   )}
                 </div>
+
+                <div className="p-5 rounded-2xl bg-[#0c1017] border border-white/[0.08] space-y-3 text-xs">
+                  <h2 className="text-sm font-bold text-white flex items-center gap-2">
+                    <CheckCircle2 className="h-4 w-4 text-emerald-400" />
+                    <span>Payment Submission History ({acc.payment_history?.length || 0})</span>
+                  </h2>
+                  {(!acc.payment_history || acc.payment_history.length === 0) ? (
+                    <p className="text-[11px] text-slate-500">
+                      No manual payment proof submissions recorded for this client yet.
+                    </p>
+                  ) : (
+                    <div className="space-y-2 max-h-52 overflow-y-auto pr-1">
+                      {acc.payment_history.map((p: any) => (
+                        <div key={p.id} className="p-2.5 rounded-xl bg-white/[0.02] border border-white/[0.06] text-[11px] space-y-1">
+                          <div className="flex justify-between items-center font-mono">
+                            <span className="font-bold text-white">
+                              #{p.id} • {p.requested_plan} (${Number(p.agreed_price_usd).toFixed(2)} {p.currency})
+                            </span>
+                            <span
+                              className={`px-1.5 py-0.5 rounded text-[10px] font-bold ${
+                                p.status === "APPROVED"
+                                  ? "bg-emerald-500/15 text-emerald-300"
+                                  : p.status === "REJECTED"
+                                  ? "bg-rose-500/15 text-rose-300"
+                                  : "bg-amber-500/15 text-amber-300"
+                              }`}
+                            >
+                              {p.status}
+                            </span>
+                          </div>
+                          <div className="text-slate-400">
+                            Method: {p.payment_method_name} {p.payment_reference ? `• Ref: ${p.payment_reference}` : ""}
+                          </div>
+                          <div className="text-slate-500 font-mono text-[10px]">
+                            Submitted: {fmtDate(p.created_at)}
+                            {p.reviewed_by ? ` • Reviewed by ${p.reviewed_by}` : ""}
+                          </div>
+                          {p.admin_notes && <div className="text-slate-300">Note: {p.admin_notes}</div>}
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
               </div>
             </div>
           )}

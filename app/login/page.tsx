@@ -20,6 +20,7 @@ function LoginForm() {
   useEffect(() => {
     // 1. Handle error param
     const errParam = searchParams.get("error");
+    const sessionExpiredParam = searchParams.get("session_expired");
     if (errParam) {
       const decoded = decodeURIComponent(errParam);
       if (decoded.includes("users_username_key") || decoded.includes("unique constraint")) {
@@ -27,6 +28,8 @@ function LoginForm() {
       } else {
         setError(decoded);
       }
+    } else if (sessionExpiredParam === "true") {
+      setError("Your session ended or was invalidated (for example after a password reset). Please sign in again.");
     }
 
     // 2. Handle Google OAuth redirect session

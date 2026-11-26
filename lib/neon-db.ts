@@ -1572,6 +1572,15 @@ export async function createPaidClientAccount(data: {
     throw new Error(`Account with username '${cleanUsername}' already exists. Please choose a different username.`);
   }
 
+  // Deliberate identity separation check if username ever belonged to a deleted tombstone
+  const tombstones = await sql
+    .query(
+      "SELECT former_user_id FROM deleted_account_tombstones WHERE username_lower = LOWER($1) ORDER BY id DESC LIMIT 1",
+      [cleanUsername]
+    )
+    .catch(() => []);
+  const formerTombstoneUserId = tombstones?.[0]?.former_user_id ? Number(tombstones[0].former_user_id) : null;
+
   const nowDate = new Date();
   const nowIso = nowDate.toISOString();
   const customerName = (data.customerName || cleanUsername).trim();
@@ -1695,6 +1704,7 @@ export async function createPaidClientAccount(data: {
   return {
     client: userRes[0],
     workspace: { id: workspaceId, name: createdWsName, plan: planType },
+    formerTombstoneUserId,
   };
 }
 
@@ -1848,13 +1858,15 @@ export async function updateNeonClientStatus(
       return { ok: true, effectiveStatus: "ACTIVE", restoredAccess: true };
     }
 
+    const bumpSvSql =
+      validStatus === "REVOKED" ? "session_version = COALESCE(session_version, 1) + 1," : "";
     await sql.query(
       `UPDATE users
        SET status = $1::text,
            active = 0,
            is_active = 0,
            subscription_status = $2::varchar,
-           session_version = COALESCE(session_version, 1) + 1,
+           ${bumpSvSql}
            updated_at = $3::text
        WHERE id = $4::int4`,
       [validStatus, validStatus, nowIso, clientId]
@@ -1951,22 +1963,60 @@ export async function permanentlyDeleteClientAccount(
     }
 
     const wsId = Number(client.workspace_id);
-    // Log audit before removing child workspace records (preserving audit trail)
+    // Record identity tombstone so deleted usernames can never silently inherit historical records
+    await sql
+      .query(
+        `INSERT INTO deleted_account_tombstones (former_user_id, former_workspace_id, username_lower, account_type, deleted_by)
+         VALUES ($1, $2, $3, $4, $5)`,
+        [
+          client.id,
+          wsId || null,
+          String(client.username || client.email || "").trim().toLowerCase(),
+          client.account_type || "PAID_CLIENT",
+          admin.adminEmail || "master_owner",
+        ]
+      )
+      .catch(() => {});
+
+    // Log anonymous deletion audit before purging workspace data and personal details
     await logAccountAudit({
       adminId: admin.adminId,
       adminEmail: admin.adminEmail || "master_owner",
       clientId: client.id,
-      clientEmail: client.email || client.username,
       workspaceId: wsId || 1,
       action: "PERMANENT_DELETE_CLIENT",
       details: {
-        deleted_username: client.username,
-        deleted_email: client.email,
-        deleted_workspace_id: wsId,
+        former_user_id: client.id,
+        former_workspace_id: wsId,
         previous_plan: client.plan,
         previous_status: client.status,
       },
     });
+
+    // Scrub unnecessary personal identifiers from historical audit rows tied to the deleted user
+    if (client.username || client.email) {
+      await sql
+        .query(
+          `UPDATE account_audit_logs
+           SET actor = $1
+           WHERE account_id = $2 AND LOWER(actor) IN (LOWER($3), LOWER($4))`,
+          [
+            `[deleted_user_${client.id}]`,
+            client.id,
+            String(client.username || ""),
+            String(client.email || ""),
+          ]
+        )
+        .catch(() => {});
+    }
+
+    // Remove uploaded proof images / payment submissions belonging to the deleted user/workspace
+    await sql
+      .query(
+        `DELETE FROM payment_submissions WHERE user_id = $1 OR ($2 > 0 AND workspace_id = $2)`,
+        [clientId, wsId || 0]
+      )
+      .catch(() => {});
 
     if (wsId > 0) {
       // Ensure no other non-target user shares this workspace before deleting workspace rows
@@ -2216,6 +2266,18 @@ export async function getNeonClientFullProfile(clientId: number) {
       : [];
     const suppressionsCount = Number(suppressionsRes?.[0]?.cnt || 0);
 
+    const paymentHistory = await sql
+      .query(
+        `SELECT id, user_id, workspace_id, requested_plan, plan_label, agreed_price_usd, currency,
+                payment_method_name, payment_reference, customer_note, screenshot_filename,
+                screenshot_mime, screenshot_size, status, admin_notes, reviewed_by, reviewed_at, created_at
+         FROM payment_submissions
+         WHERE user_id = $1 OR ($2 > 0 AND workspace_id = $2)
+         ORDER BY created_at DESC LIMIT 50`,
+        [clientId, wsId]
+      )
+      .catch(() => []);
+
     const countriesSet = new Set<string>();
     const citiesSet = new Set<string>();
     const keywordsSet = new Set<string>();
@@ -2290,6 +2352,7 @@ export async function getNeonClientFullProfile(clientId: number) {
         subscription_notes: u.subscription_notes || null,
         subscription_history: subAuditLogs,
         lock_history: lockHistory,
+        payment_history: paymentHistory || [],
       },
       lead_generation: {
         total_searches: (searchRecords || []).length,

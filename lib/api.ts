@@ -56,15 +56,22 @@ class ApiClient {
       const res = await fetch(url, config);
 
       if (res.status === 401 && typeof window !== "undefined") {
-        localStorage.removeItem("usman_gtm_token");
-        localStorage.removeItem("usman_gtm_user");
-        localStorage.removeItem("usman_gtm_workspace_id");
-        localStorage.removeItem("usman_gtm_workspaces");
-        if (
-          window.location.pathname.startsWith("/app") &&
-          !window.location.pathname.startsWith("/app/admin")
-        ) {
-          window.location.href = "/login?session_expired=true";
+        const isLoginEndpoint = url.includes("/auth/login") || url.includes("/auth/signup") || url.includes("/admin/auth/login");
+        const isMailboxEndpoint = url.includes("/integrations/gmail/send");
+        if (!isLoginEndpoint && !isMailboxEndpoint) {
+          const hadToken = Boolean(localStorage.getItem("usman_gtm_token"));
+          localStorage.removeItem("usman_gtm_token");
+          localStorage.removeItem("usman_gtm_user");
+          localStorage.removeItem("usman_gtm_workspace_id");
+          localStorage.removeItem("usman_gtm_workspaces");
+          fetch("/api/auth/logout", { method: "POST" }).catch(() => {});
+          if (
+            hadToken &&
+            window.location.pathname.startsWith("/app") &&
+            !window.location.pathname.startsWith("/app/admin")
+          ) {
+            window.location.href = "/login?session_expired=true";
+          }
         }
       }
 
