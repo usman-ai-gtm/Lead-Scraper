@@ -9,57 +9,57 @@ import { Building2, Rocket, Briefcase, Users2, ArrowRight, Check } from "lucide-
 export default function SolutionsPage() {
   const solutions = [
     {
-      title: "Enterprise Sales & Global Accounts",
-      badge: "Scale & Precision",
+      title: "B2B Agencies & Service Providers",
+      badge: "Targeted Prospecting",
       icon: Building2,
-      desc: "For enterprise sales leaders targeting Fortune 5,000 accounts with account-based orchestration and multi-touch cadences.",
+      desc: "Discover niche businesses across target countries and cities, inspect public websites for decision-maker contacts, and track outreach cleanly.",
       benefits: [
-        "Buying committee mapping for complex stakeholder hierarchies",
-        "Official Google & Meta multi-sender account pools",
-        "Cryptographic PBKDF2 encryption and strict workspace data isolation",
-        "Predictive win-probability to optimize quarterly forecast"
+        "Multi-country & specific-city campaign scoping",
+        "Official Google OAuth 2.0 direct Gmail dispatch",
+        "PBKDF2 password hashing and workspace-scoped database isolation",
+        "Clear email syntax, DNS MX & phone status classification",
       ],
-      href: "/app/leads"
+      href: "/app/leads",
     },
     {
-      title: "RevOps & Pipeline Acceleration",
-      badge: "Efficiency & Automation",
+      title: "Local Business & Map Lead Teams",
+      badge: "Local Discovery",
       icon: Rocket,
-      desc: "Eliminate manual SDR data entry, sync omnichannel timeline events into CRM, and forecast pipeline with ML models.",
+      desc: "Target brick-and-mortar clinics, contractors, salons, and regional firms via Google Maps discovery on Lifetime and Maps-enabled plans.",
       benefits: [
-        "Unified pipeline telemetry across cold email, WhatsApp, and calls",
-        "Automated lead scoring separating hot accounts from noise",
-        "Monte Carlo simulation predicting commit vs best-case ARR",
-        "Automated SLA monitoring on inbound lead response time"
+        "Live Google Places extraction paired with website email crawling",
+        "Mutual contact filters (Email & Phone, Email Only, Phone Only)",
+        "Background batch processing with saved search snapshots",
+        "Click-to-chat WhatsApp templates with workspace suppressions",
       ],
-      href: "/app/saved-leads"
+      href: "/app/google-maps",
     },
     {
-      title: "Lead Generation & GTM Agencies",
-      badge: "High Velocity & Multi-Client",
+      title: "Lead Generation Consultants",
+      badge: "Client Deliverables",
       icon: Briefcase,
-      desc: "Run high-volume, multi-tenant prospecting campaigns for hundreds of clients from a single command center.",
+      desc: "Build clean, deduplicated prospect deliverables ready to share with clients or import into external CRM systems.",
       benefits: [
-        "Workspace isolation keeping client data completely separated",
-        "White-label exports and client-ready analytical slide summaries",
-        "193 countries discovery accessing niche global markets",
-        "Automated domain rotation and spam protection"
+        "Workspace deduplication prevents saving identical domains/emails twice",
+        "Multi-format exports in XLSX, Executive PDF, UTF-8 CSV & JSON",
+        "Original source evidence URLs and UTC/PKT collection timestamps",
+        "Spreadsheet formula-injection sanitization across XLSX & CSV",
       ],
-      href: "/app/leads"
+      href: "/app/exports",
     },
     {
-      title: "Customer Success & Retention Teams",
-      badge: "Mitigate Churn & Expand ARR",
+      title: "Founders & Lean Sales Teams",
+      badge: "Affordable Outbound",
       icon: Users2,
-      desc: "Protect recurring revenue with real-time churn risk indicators, QBR automation, and expansion triggers.",
+      desc: "Run focused 1-to-1 cold email outreach without expensive per-seat enterprise lock-ins or complex external mail infrastructure.",
       benefits: [
-        "360-degree customer health score based on product telemetry",
-        "Automated QBR slide generation summarizing client ROI",
-        "Executive sponsor turnover alerts via LinkedIn tracking",
-        "Net revenue retention cohort matrices"
+        "Predictable $25/month Basic or $100 one-time Lifetime pricing",
+        "Server-enforced daily sending caps & duplicate recipient checks",
+        "Gemini AI email copy & research briefs per saved company",
+        "Direct WhatsApp & Dashboard Owner support (+923174383702)",
       ],
-      href: "/app/exports"
-    }
+      href: "/pricing",
+    },
   ];
 
   return (
@@ -69,15 +69,15 @@ export default function SolutionsPage() {
       <section className="py-20 lg:py-28 relative">
         <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8 text-center">
           <div className="inline-flex items-center gap-2 rounded-full border border-blue-500/30 bg-blue-500/10 px-4 py-1.5 text-xs font-semibold text-blue-400 mb-6">
-            <span>TAILORED REVENUE WORKFLOWS</span>
+            <span>PRACTICAL B2B WORKFLOWS</span>
           </div>
 
           <h1 className="text-4xl sm:text-6xl font-extrabold text-white mb-6">
-            Engineered For <span className="text-gradient">Every Growth Model</span>
+            Engineered For <span className="text-gradient">Outbound Teams</span>
           </h1>
 
           <p className="text-lg text-slate-400 max-w-2xl mx-auto mb-16">
-            Whether scaling an enterprise sales force or operating a high-velocity B2B agency, USMAN AI GTM adapts to your revenue architecture.
+            Whether prospecting locally via Google Maps or researching international web niches, USMAN AI GTM keeps workflows transparent and tenant-isolated.
           </p>
 
           <div className="grid grid-cols-1 md:grid-cols-2 gap-8 text-left">
@@ -112,7 +112,7 @@ export default function SolutionsPage() {
                     href={s.href}
                     className="inline-flex items-center gap-2 text-sm font-semibold text-blue-400 hover:text-blue-300 transition-colors"
                   >
-                    <span>View Solution Workspace</span>
+                    <span>Explore Workflow</span>
                     <ArrowRight className="h-4 w-4" />
                   </Link>
                 </div>

@@ -1,49 +1,12 @@
 import { NextResponse } from "next/server";
 import { getNeonSql, isNeonConfigured, logAccountAudit } from "@/lib/neon-db";
 import { verifyPassword, createJwtToken } from "@/lib/serverless-auth";
+import { consumeRateLimit, getClientIp, rateLimitExceededResponse } from "@/lib/rate-limit";
 
 export const dynamic = "force-dynamic";
 
-// In-memory rate limiting map: identifier -> { count, firstFailedAt }
-const failedAttempts = new Map<string, { count: number; firstFailedAt: number }>();
-const MAX_ATTEMPTS = 5;
-const LOCKOUT_WINDOW_MS = 5 * 60 * 1000; // 5 minutes
-
-function checkRateLimit(key: string): { allowed: boolean; waitMinutes?: number } {
-  const now = Date.now();
-  const record = failedAttempts.get(key);
-  if (!record) return { allowed: true };
-
-  if (now - record.firstFailedAt > LOCKOUT_WINDOW_MS) {
-    failedAttempts.delete(key);
-    return { allowed: true };
-  }
-
-  if (record.count >= MAX_ATTEMPTS) {
-    const remainingMs = LOCKOUT_WINDOW_MS - (now - record.firstFailedAt);
-    return { allowed: false, waitMinutes: Math.ceil(remainingMs / 60000) };
-  }
-
-  return { allowed: true };
-}
-
-function recordFailedAttempt(key: string) {
-  const now = Date.now();
-  const record = failedAttempts.get(key);
-  if (!record || now - record.firstFailedAt > LOCKOUT_WINDOW_MS) {
-    failedAttempts.set(key, { count: 1, firstFailedAt: now });
-  } else {
-    record.count += 1;
-  }
-}
-
-function clearRateLimit(key: string) {
-  failedAttempts.delete(key);
-}
-
 export async function POST(request: Request) {
-  const ip = request.headers.get("x-forwarded-for")?.split(",")[0]?.trim() || "unknown-ip";
-  const origin = new URL(request.url).origin;
+  const ip = getClientIp(request);
   const isVercel = Boolean(process.env.VERCEL || process.env.NEXT_PUBLIC_VERCEL_ENV);
 
   try {
@@ -60,11 +23,16 @@ export async function POST(request: Request) {
     }
 
     const rateKey = `${ip}:${username.toLowerCase()}`;
-    const rateCheck = checkRateLimit(rateKey);
-    if (!rateCheck.allowed) {
-      return NextResponse.json(
-        { detail: `Too many failed login attempts. Please wait ${rateCheck.waitMinutes} minute(s) before trying again.` },
-        { status: 429 }
+    const rl = await consumeRateLimit({
+      bucket: "admin_login",
+      identifier: rateKey,
+      limit: 8,
+      windowSeconds: 300,
+    });
+    if (!rl.allowed) {
+      return rateLimitExceededResponse(
+        rl.retryAfterSeconds,
+        `Too many admin login attempts. Please wait ${rl.retryAfterSeconds} seconds before trying again.`
       );
     }
 
@@ -87,7 +55,6 @@ export async function POST(request: Request) {
     `;
 
     if (!users || users.length === 0) {
-      recordFailedAttempt(rateKey);
       await logAccountAudit({
         clientId: 0,
         action: "ADMIN_LOGIN_FAILED",
@@ -115,7 +82,6 @@ export async function POST(request: Request) {
       emailLower === "transaction000501@gmail.com";
 
     if (!isMasterAdmin) {
-      recordFailedAttempt(rateKey);
       await logAccountAudit({
         clientId: user.id,
         action: "ADMIN_LOGIN_FORBIDDEN",
@@ -132,7 +98,6 @@ export async function POST(request: Request) {
     // Verify password securely
     const isValid = verifyPassword(password, user.password_hash);
     if (!isValid) {
-      recordFailedAttempt(rateKey);
       await logAccountAudit({
         clientId: user.id,
         action: "ADMIN_LOGIN_FAILED",
@@ -142,9 +107,6 @@ export async function POST(request: Request) {
       });
       return NextResponse.json({ detail: "Invalid admin username or password." }, { status: 401 });
     }
-
-    // Password verified! Clear failed attempts
-    clearRateLimit(rateKey);
 
     // Record login audit log
     await logAccountAudit({

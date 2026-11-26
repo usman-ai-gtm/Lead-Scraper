@@ -1,65 +1,75 @@
 import { NextResponse } from "next/server";
 import crypto from "crypto";
+import { getNeonSql, isNeonConfigured, logAccountAudit } from "@/lib/neon-db";
+import { consumeRateLimit, getClientIp, rateLimitExceededResponse } from "@/lib/rate-limit";
+
+export const dynamic = "force-dynamic";
 
 export async function POST(request: Request) {
   try {
+    const ip = getClientIp(request);
     const body = await request.json().catch(() => ({}));
     const email = String(body.email || "").trim().toLowerCase();
 
     if (!email || !email.includes("@")) {
       return NextResponse.json(
-        { detail: "Please provide a valid registered email address." },
+        { detail: "Please provide a valid email address." },
         { status: 400 }
       );
     }
 
-    // Attempt proxy to backend if available
-    const isVercel = Boolean(process.env.VERCEL || process.env.NEXT_PUBLIC_VERCEL_ENV);
-    const backendUrl = process.env.BACKEND_URL || (isVercel ? "" : "http://127.0.0.1:8000");
-
-    if (backendUrl) {
-      try {
-        const controller = new AbortController();
-        const timeout = setTimeout(() => controller.abort(), 4000);
-        const res = await fetch(`${backendUrl}/api/auth/forgot-password`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ email }),
-          signal: controller.signal,
-        });
-        clearTimeout(timeout);
-        if (res.ok) {
-          const data = await res.json();
-          return NextResponse.json(data);
-        }
-      } catch {
-        // Fallback to truthful response
-      }
+    const rl = await consumeRateLimit({
+      bucket: "forgot_password",
+      identifier: `${ip}:${email}`,
+      limit: 5,
+      windowSeconds: 900,
+    });
+    if (!rl.allowed) {
+      return rateLimitExceededResponse(
+        rl.retryAfterSeconds,
+        "Too many password recovery attempts. Please wait before trying again."
+      );
     }
 
-    // Check if external SMTP email dispatcher is configured
     const smtpConfigured = Boolean(
       process.env.SMTP_HOST && process.env.SMTP_USER && process.env.SMTP_PASSWORD
     );
 
-    // Generate a secure cryptographic single-use token
-    const resetToken = crypto.randomBytes(32).toString("hex");
+    if (isNeonConfigured()) {
+      const sql = getNeonSql();
+      if (sql) {
+        const users = await sql.query(
+          `SELECT id, username, email, role, account_type FROM users WHERE LOWER(email) = LOWER($1) OR LOWER(username) = LOWER($1) LIMIT 1`,
+          [email]
+        ).catch(() => []);
 
-    const isAdminAccount = email.includes("admin") || email.includes("usman");
+        if (users && users.length > 0 && smtpConfigured) {
+          const rawToken = crypto.randomBytes(32).toString("hex");
+          const tokenHash = crypto.createHash("sha256").update(rawToken).digest("hex");
+          await sql.query(
+            `INSERT INTO password_reset_tokens (user_id, token_hash, expires_at)
+             VALUES ($1, $2, NOW() + INTERVAL '30 minutes')`,
+            [users[0].id, tokenHash]
+          ).catch(() => {});
+          await logAccountAudit({
+            clientId: Number(users[0].id),
+            action: "PASSWORD_RESET_REQUESTED",
+            result: "QUEUED",
+            adminEmail: email,
+            details: { ip },
+          }).catch(() => {});
+        }
+      }
+    }
 
+    // Uniform neutral response: never leak account existence or secret reset tokens in JSON.
     return NextResponse.json({
-      status: "success",
-      email: email,
-      account_found: true,
+      status: "accepted",
       smtp_configured: smtpConfigured,
-      is_admin_account: Boolean(isAdminAccount),
       recovery_mode: smtpConfigured ? "EMAIL_DISPATCH" : "ADMIN_GOVERNANCE_RESET",
       message: smtpConfigured
-        ? "A secure single-use recovery link has been dispatched to your email."
-        : isAdminAccount
-        ? "Direct Administrative Token generated. Use your master credentials or administrative recovery link."
-        : "Client seat detected. Your system administrator manages client credentials. Contact your administrator to reset your seat password.",
-      token: isAdminAccount ? resetToken : undefined,
+        ? "If an active account matches that email, a single-use recovery link has been queued."
+        : "USMAN AI GTM client credentials are managed by your Workspace Owner / Administrator. Contact support to issue a temporary password reset.",
     });
   } catch (err: any) {
     return NextResponse.json(

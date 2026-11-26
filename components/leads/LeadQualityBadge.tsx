@@ -3,6 +3,7 @@
 import React, { useState } from "react";
 import { Sparkles, CheckCircle2, XCircle } from "lucide-react";
 import { evaluateContactReadiness } from "@/lib/lead-quality-engine";
+import { normalizePersistedEmailStatus, normalizePersistedPhoneStatus } from "@/lib/contact-taxonomy";
 
 interface LeadQualityBadgeProps {
   lead?: any;
@@ -140,6 +141,27 @@ export function LeadQualityBadge({ lead, score, category, reasons }: LeadQuality
             <p className="text-[10px] text-slate-400">
               Assessed from observed email syntax, phone, website, business name, and source URL fields.
             </p>
+          )}
+          {lead && (
+            <div className="mt-2 pt-2 border-t border-white/[0.08] space-y-1 text-[10px] font-mono text-slate-400">
+              <div>
+                Email Check:{" "}
+                <span className="text-slate-200">
+                  {normalizePersistedEmailStatus(lead.email_status, lead.email)}
+                </span>
+              </div>
+              <div>
+                Phone Check:{" "}
+                <span className="text-slate-200">
+                  {normalizePersistedPhoneStatus(lead.phone_status, lead.phone)}
+                </span>
+              </div>
+              {(lead.last_verified_at || lead.created_at) && (
+                <div className="text-[9px] text-slate-500">
+                  Checked: {String(lead.last_verified_at || lead.created_at).slice(0, 19).replace("T", " ")} UTC
+                </div>
+              )}
+            </div>
           )}
         </div>
       )}

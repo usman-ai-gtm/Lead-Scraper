@@ -18,6 +18,7 @@ import { interpretSearchIntent, SearchIntentResult } from "@/lib/ai-search-parse
 import { evaluateContactRequirement, calculateLeadQualityScore, ContactRequirement } from "@/lib/lead-quality-engine";
 import { getCountryGlCode, normalizeCountryName } from "@/lib/countries";
 import { parseMapsCountriesAndCities } from "@/lib/maps-extractor";
+import { consumeRateLimit, rateLimitExceededResponse } from "@/lib/rate-limit";
 import {
   cleanDomain,
   cleanBusinessName,
@@ -134,7 +135,20 @@ export async function POST(req: Request) {
     }
     currentJobId = jobLock.jobId || null;
 
-    const serperKey = process.env.SERPER_API_KEY || "2baa9b7d5907ecc3fe3fceebb8c4b9b7e30e3297";
+    const rl = await consumeRateLimit({
+      bucket: "lead_search",
+      identifier: String(workspaceId),
+      limit: 20,
+      windowSeconds: 60,
+    });
+    if (!rl.allowed) {
+      return rateLimitExceededResponse(
+        rl.retryAfterSeconds,
+        `Search rate limit reached. Please retry in ${rl.retryAfterSeconds} seconds.`
+      );
+    }
+
+    const serperKey = (process.env.SERPER_API_KEY || "").trim();
     if (!serperKey || serperKey.startsWith("your_")) {
       return NextResponse.json(
         {

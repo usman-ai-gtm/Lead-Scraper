@@ -38,7 +38,7 @@ export default function ExportsPage() {
     fetchStats();
   }, []);
 
-  const handleDownloadExport = async (format: "xlsx" | "pdf") => {
+  const handleDownloadExport = async (format: "xlsx" | "pdf" | "csv" | "json") => {
     setDownloading(format);
     try {
       // First fetch leads from caller's isolated workspace
@@ -68,6 +68,11 @@ export default function ExportsPage() {
           leads: leadsToExport,
           format,
           filename: `usman_ai_leads_ws${user?.workspace_id || 1}_${Date.now()}`,
+          meta: {
+            country: exportCountry,
+            keyword: exportIndustry !== "Any" ? exportIndustry : "Saved Workspace Leads",
+            export_target: "Export Center",
+          },
         }),
       });
 
@@ -133,18 +138,18 @@ export default function ExportsPage() {
           <span className="text-xs font-bold uppercase tracking-wider text-emerald-400 bg-emerald-500/10 px-2.5 py-0.5 rounded border border-emerald-500/20">
             Export Center
           </span>
-          <span className="text-xs text-slate-500 font-mono">
-            Tenant Isolated • Excel XLSX & Executive PDF Only
+          <span className="text-xs text-slate-400 font-mono">
+            Tenant Isolated • XLSX, PDF, CSV (RFC 4180 + Formula Safe) &amp; JSON
           </span>
         </div>
         <h1 className="text-2xl font-extrabold text-white">Export Workspace Leads</h1>
         <p className="text-xs text-slate-400">
-          Download your saved leads in professional Microsoft Excel (.xlsx) spreadsheets and landscape Executive PDF reports.
+          Download your saved leads in Microsoft Excel (.xlsx), Executive PDF (.pdf), UTF-8 CSV (.csv), and structured JSON (.json).
         </p>
       </div>
 
       {/* Export Action Cards */}
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
         {/* PDF Card */}
         <div className="p-6 rounded-2xl border border-white/[0.08] bg-[#0c1017] flex flex-col justify-between hover:border-purple-500/30 transition-all space-y-4">
           <div>
@@ -153,21 +158,22 @@ export default function ExportsPage() {
             </div>
             <h3 className="text-base font-bold text-white">Executive PDF (.pdf)</h3>
             <p className="text-xs text-slate-400 mt-1">
-              Landscape A4 presentation-ready document formatted with repeated headers, wrapped text, clickable source links, and page numbering.
+              Landscape A4 report with wrapped text, contact verification statuses, source links, and page numbering.
             </p>
           </div>
 
-          <div className="pt-4 border-t border-white/[0.06] flex items-center justify-between">
+          <div className="pt-4 border-t border-white/[0.06] flex items-center justify-between gap-2">
             <span className="text-xs text-slate-400 font-mono">
-              {loading ? "..." : `${totalLeads} Available Leads`}
+              {loading ? "..." : `${totalLeads} Leads`}
             </span>
             <button
               onClick={() => handleDownloadExport("pdf")}
               disabled={downloading !== null || totalLeads === 0}
-              className="px-4 py-2 text-xs font-bold text-white bg-purple-600 hover:bg-purple-500 rounded-xl transition-all disabled:opacity-40 flex items-center gap-2 shadow-glow-sm"
+              aria-label="Download Executive PDF export"
+              className="px-3.5 py-2 text-xs font-bold text-white bg-purple-600 hover:bg-purple-500 rounded-xl transition-all disabled:opacity-40 flex items-center gap-1.5 shadow-glow-sm"
             >
               <Download className={`h-3.5 w-3.5 ${downloading === "pdf" ? "animate-bounce" : ""}`} />
-              <span>{downloading === "pdf" ? "Generating PDF..." : "Download PDF"}</span>
+              <span>{downloading === "pdf" ? "Generating..." : "PDF"}</span>
             </button>
           </div>
         </div>
@@ -178,23 +184,80 @@ export default function ExportsPage() {
             <div className="h-10 w-10 rounded-xl bg-emerald-600/10 border border-emerald-500/20 flex items-center justify-center text-emerald-400 mb-3">
               <FileSpreadsheet className="h-5 w-5" />
             </div>
-            <h3 className="text-base font-bold text-white">Microsoft Excel (.xlsx)</h3>
+            <h3 className="text-base font-bold text-white">Excel Workbook (.xlsx)</h3>
             <p className="text-xs text-slate-400 mt-1">
-              Genuine binary OpenXML spreadsheet formatted with clean headers, autofilters, typed columns, clickable URLs, and PKT timestamps.
+              Formula-safe OpenXML workbook with clean columns, quality statuses, source evidence URLs, and UTC/PKT timestamps.
             </p>
           </div>
 
-          <div className="pt-4 border-t border-white/[0.06] flex items-center justify-between">
+          <div className="pt-4 border-t border-white/[0.06] flex items-center justify-between gap-2">
             <span className="text-xs text-slate-400 font-mono">
-              {loading ? "..." : `${totalLeads} Available Leads`}
+              {loading ? "..." : `${totalLeads} Leads`}
             </span>
             <button
               onClick={() => handleDownloadExport("xlsx")}
               disabled={downloading !== null || totalLeads === 0}
-              className="px-4 py-2 text-xs font-bold text-white bg-emerald-600 hover:bg-emerald-500 rounded-xl transition-all disabled:opacity-40 flex items-center gap-2 shadow-glow-sm"
+              aria-label="Download Excel XLSX export"
+              className="px-3.5 py-2 text-xs font-bold text-white bg-emerald-600 hover:bg-emerald-500 rounded-xl transition-all disabled:opacity-40 flex items-center gap-1.5 shadow-glow-sm"
             >
               <Download className={`h-3.5 w-3.5 ${downloading === "xlsx" ? "animate-bounce" : ""}`} />
-              <span>{downloading === "xlsx" ? "Generating XLSX..." : "Download XLSX"}</span>
+              <span>{downloading === "xlsx" ? "Generating..." : "XLSX"}</span>
+            </button>
+          </div>
+        </div>
+
+        {/* CSV Card */}
+        <div className="p-6 rounded-2xl border border-white/[0.08] bg-[#0c1017] flex flex-col justify-between hover:border-blue-500/30 transition-all space-y-4">
+          <div>
+            <div className="h-10 w-10 rounded-xl bg-blue-600/10 border border-blue-500/20 flex items-center justify-center text-blue-400 mb-3">
+              <FileSpreadsheet className="h-5 w-5" />
+            </div>
+            <h3 className="text-base font-bold text-white">Universal CSV (.csv)</h3>
+            <p className="text-xs text-slate-400 mt-1">
+              UTF-8 BOM, RFC 4180 compliant quoting with spreadsheet formula injection sanitization for CRMs &amp; Sheets.
+            </p>
+          </div>
+
+          <div className="pt-4 border-t border-white/[0.06] flex items-center justify-between gap-2">
+            <span className="text-xs text-slate-400 font-mono">
+              {loading ? "..." : `${totalLeads} Leads`}
+            </span>
+            <button
+              onClick={() => handleDownloadExport("csv")}
+              disabled={downloading !== null || totalLeads === 0}
+              aria-label="Download CSV export"
+              className="px-3.5 py-2 text-xs font-bold text-white bg-blue-600 hover:bg-blue-500 rounded-xl transition-all disabled:opacity-40 flex items-center gap-1.5 shadow-glow-sm"
+            >
+              <Download className={`h-3.5 w-3.5 ${downloading === "csv" ? "animate-bounce" : ""}`} />
+              <span>{downloading === "csv" ? "Generating..." : "CSV"}</span>
+            </button>
+          </div>
+        </div>
+
+        {/* JSON Card */}
+        <div className="p-6 rounded-2xl border border-white/[0.08] bg-[#0c1017] flex flex-col justify-between hover:border-amber-500/30 transition-all space-y-4">
+          <div>
+            <div className="h-10 w-10 rounded-xl bg-amber-600/10 border border-amber-500/20 flex items-center justify-center text-amber-400 mb-3">
+              <Database className="h-5 w-5" />
+            </div>
+            <h3 className="text-base font-bold text-white">Structured JSON (.json)</h3>
+            <p className="text-xs text-slate-400 mt-1">
+              API-ready JSON payload with workspace metadata, email/phone verification statuses, and full UTC timestamps.
+            </p>
+          </div>
+
+          <div className="pt-4 border-t border-white/[0.06] flex items-center justify-between gap-2">
+            <span className="text-xs text-slate-400 font-mono">
+              {loading ? "..." : `${totalLeads} Leads`}
+            </span>
+            <button
+              onClick={() => handleDownloadExport("json")}
+              disabled={downloading !== null || totalLeads === 0}
+              aria-label="Download JSON export"
+              className="px-3.5 py-2 text-xs font-bold text-white bg-amber-600 hover:bg-amber-500 rounded-xl transition-all disabled:opacity-40 flex items-center gap-1.5 shadow-glow-sm"
+            >
+              <Download className={`h-3.5 w-3.5 ${downloading === "json" ? "animate-bounce" : ""}`} />
+              <span>{downloading === "json" ? "Generating..." : "JSON"}</span>
             </button>
           </div>
         </div>

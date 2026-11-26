@@ -278,8 +278,10 @@ export async function saveNeonSearchRecordAndLeads(
       const city = String(lead.city || searchMeta.city || "").trim();
       const country = String(lead.country || searchMeta.country || "").trim();
       const address = String(lead.address || "").trim();
-      const emailStatus = String(lead.email_status || (email ? "EXTRACTED • SYNTAX CHECKED" : "NOT FOUND")).trim();
-      const phoneStatus = String(lead.phone_status || (phone ? "FORMAT CHECKED" : "NOT LISTED")).trim();
+      const emailStatus = String(lead.email_status || (email ? "Syntax Valid (Mailbox Unverified)" : "Not Found")).trim();
+      const phoneStatus = String(lead.phone_status || (phone ? "Source Listed" : "Not Found")).trim();
+      const verifiedAt = String(lead.last_verified_at || nowIso).trim();
+      const collectedAt = String(lead.collection_timestamp || lead.created_at || nowIso).trim();
 
       const normEmail = email.includes("@") ? email.toLowerCase().trim() : "";
       const normDom = dom.replace(/^https?:\/\//i, "").replace(/^www\./i, "").split("/")[0].toLowerCase().trim();
@@ -320,11 +322,11 @@ export async function saveNeonSearchRecordAndLeads(
             workspace_id, business_name, email, phone, website,
             source, source_url, search_keyword, search_location,
             lead_score, fit_score, lead_temperature, crm_stage,
-            date_discovered, created_at, updated_at,
+            date_discovered, created_at, updated_at, last_verified_at, collection_timestamp,
             domain, city, country, address, email_status, phone_status,
             normalized_domain, normalized_email, normalized_phone, place_id,
             rating, review_count, industry, category
-          ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27, $28, $29, $30)
+          ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18::timestamptz, $19, $20, $21, $22, $23, $24, $25, $26, $27, $28, $29, $30, $31, $32)
           ON CONFLICT DO NOTHING
           RETURNING id`,
           [
@@ -344,6 +346,8 @@ export async function saveNeonSearchRecordAndLeads(
             pkt.date,
             nowIso,
             nowIso,
+            verifiedAt,
+            collectedAt,
             dom,
             city,
             country,

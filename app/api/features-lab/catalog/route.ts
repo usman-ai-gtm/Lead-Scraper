@@ -1,17 +1,38 @@
-import { proxyToBackend } from "@/lib/backend-proxy";
+import { NextResponse } from "next/server";
+import { getCurrentUserFromRequest, verifyClientActiveSubscription } from "@/lib/serverless-auth";
+
+export const dynamic = "force-dynamic";
 
 export async function GET(req: Request) {
-  const fallback = {
+  const user = getCurrentUserFromRequest(req);
+  if (!user) {
+    return NextResponse.json({ detail: "Authentication required" }, { status: 401 });
+  }
+  const subCheck = await verifyClientActiveSubscription(user);
+  if (!subCheck.allowed) {
+    return NextResponse.json({ detail: subCheck.message }, { status: subCheck.statusCode || 403 });
+  }
+
+  return NextResponse.json({
     categories: [
-      { id: "rev_ai", name: "Revenue Intelligence & Models", count: 20 },
-      { id: "data_clean", name: "Autonomous Enrichment & Cleanup", count: 25 },
-      { id: "cadence_ops", name: "Omnichannel Cadence Orchestrator", count: 24 }
+      { id: "lead_quality", name: "Deterministic Validation & Scoring", count: 2 },
+      { id: "research_ai", name: "AI Lead Research & Drafts", count: 2 },
     ],
     features: [
-      { id: 501, name: "Predictive Deal Win-Probability Model", category: "rev_ai", status: "READY", description: "Calculates Bayesian deal conversion likelihood based on CRM events." },
-      { id: 502, name: "Autonomous Churn Risk Sentinel", category: "rev_ai", status: "READY", description: "Monitors account engagement decay to flag potential cancellations." },
-      { id: 503, name: "AI Buying Committee Influence Mapper", category: "cadence_ops", status: "READY", description: "Maps C-level decision-makers and gatekeepers from public org signals." }
-    ]
-  };
-  return proxyToBackend("/api/features-lab/catalog", req, fallback);
+      {
+        id: 1,
+        name: "Contact Readiness & DNS MX Validator",
+        category: "lead_quality",
+        status: "LIVE",
+        description: "Evaluates email syntax, MX domain records, and E.164 phone structure on workspace leads.",
+      },
+      {
+        id: 2,
+        name: "AI Lead Research & Outreach Draft",
+        category: "research_ai",
+        status: subCheck.entitlements?.features.ai_research ? "LIVE" : "PLAN_GATED",
+        description: "Generates bespoke B2B outreach drafts from saved website and industry context.",
+      },
+    ],
+  });
 }

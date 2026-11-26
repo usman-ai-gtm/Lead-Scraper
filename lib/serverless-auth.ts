@@ -2,7 +2,14 @@ import crypto from "crypto";
 import { getNeonSql, isNeonConfigured, computeAuthoritativeUserStatus } from "@/lib/neon-db";
 import { resolveUserEntitlements, FeatureKey, ResolvedEntitlements } from "@/lib/entitlements";
 
-const JWT_SECRET = process.env.SECRET_KEY || process.env.JWT_SECRET || "usman_ai_gtm_ultra_pro_max_secret_key_change_in_production_jwt_99";
+function getJwtSecret(): string {
+  const configured = (process.env.SECRET_KEY || process.env.JWT_SECRET || "").trim();
+  if (configured) return configured;
+  if (process.env.VERCEL || process.env.NODE_ENV === "production") {
+    throw new Error("Server misconfiguration: SECRET_KEY environment variable is required in production.");
+  }
+  return crypto.createHash("sha256").update(`dev-ephemeral:${process.cwd()}`).digest("hex");
+}
 
 export interface ServerlessUser {
   id: number;
@@ -51,12 +58,10 @@ function seedAdminUser(email: string, pass: string, name: string) {
   }
 }
 
-// Seed production administrator accounts
-seedAdminUser("admin@usmanai.com", "UsmanGTM@2026!", "Administrator");
-seedAdminUser("admin@usmangtm.com", "UsmanGTM@2026!", "Administrator");
-seedAdminUser("selftest_founder_2026@usmanai.com", "SecurePassword@2026!", "Muhammad Usman (Founder)");
-seedAdminUser("mu0602503@gmail.com", "UsmanGTM@2026!", "Muhammad Usman");
-seedAdminUser("transaction000501@gmail.com", "UsmanGTM@2026!", "Muhammad Usman (Owner)");
+// Optional non-production in-memory seed only when explicitly supplied via local env (zero hardcoded credentials in source control)
+if (process.env.DEV_SEED_ADMIN_EMAIL && process.env.DEV_SEED_ADMIN_PASSWORD && process.env.NODE_ENV !== "production") {
+  seedAdminUser(process.env.DEV_SEED_ADMIN_EMAIL, process.env.DEV_SEED_ADMIN_PASSWORD, "Local Admin");
+}
 
 export function verifyPassword(plainPassword: string, storedHash?: string): boolean {
   if (!plainPassword || !storedHash) return false;
@@ -106,7 +111,7 @@ export function createJwtToken(payload: {
   ).toString("base64url");
 
   const signature = crypto
-    .createHmac("sha256", JWT_SECRET)
+    .createHmac("sha256", getJwtSecret())
     .update(`${header}.${body}`)
     .digest("base64url");
 
@@ -125,7 +130,7 @@ export function signOAuthState(payload: Record<string, any>): string {
       ts: Date.now(),
     })
   ).toString("base64url");
-  const sig = crypto.createHmac("sha256", JWT_SECRET).update(body).digest("base64url");
+  const sig = crypto.createHmac("sha256", getJwtSecret()).update(body).digest("base64url");
   return `${body}.${sig}`;
 }
 
@@ -139,7 +144,7 @@ export function verifyOAuthState(
     if (dot <= 0) return null;
     const body = token.slice(0, dot);
     const sig = token.slice(dot + 1);
-    const expectedSig = crypto.createHmac("sha256", JWT_SECRET).update(body).digest("base64url");
+    const expectedSig = crypto.createHmac("sha256", getJwtSecret()).update(body).digest("base64url");
     const a = Buffer.from(sig, "utf-8");
     const b = Buffer.from(expectedSig, "utf-8");
     if (a.length !== b.length || !crypto.timingSafeEqual(a, b)) return null;
@@ -158,7 +163,7 @@ export function verifyJwtToken(token: string): any {
     if (parts.length !== 3) return null;
     const [header, body, signature] = parts;
     const expectedSig = crypto
-      .createHmac("sha256", JWT_SECRET)
+      .createHmac("sha256", getJwtSecret())
       .update(`${header}.${body}`)
       .digest("base64url");
 

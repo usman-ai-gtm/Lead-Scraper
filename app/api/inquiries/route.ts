@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { getCurrentUserFromRequest, isAuthorizedOwner } from "@/lib/serverless-auth";
 import { getNeonSql, isNeonConfigured } from "@/lib/neon-db";
+import { consumeRateLimit, getClientIp, rateLimitExceededResponse } from "@/lib/rate-limit";
 
 export const dynamic = "force-dynamic";
 
@@ -9,6 +10,15 @@ export const dynamic = "force-dynamic";
  */
 export async function POST(req: Request) {
   try {
+    const rl = await consumeRateLimit({
+      bucket: "public_inquiry",
+      identifier: getClientIp(req),
+      limit: 8,
+      windowSeconds: 900,
+    });
+    if (!rl.allowed) {
+      return rateLimitExceededResponse(rl.retryAfterSeconds);
+    }
     const body = await req.json().catch(() => ({}));
     const customerName = String(body.customer_name || body.name || "").trim();
     const contactInfo = String(body.contact_info || body.whatsapp || body.phone || "").trim();

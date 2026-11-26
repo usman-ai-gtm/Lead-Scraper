@@ -21,6 +21,7 @@ import {
   processMapsBatchStep,
   buildShortfallMessage,
 } from "@/lib/maps-extractor";
+import { consumeRateLimit, rateLimitExceededResponse } from "@/lib/rate-limit";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 60;
@@ -138,6 +139,19 @@ export async function POST(req: Request) {
     }
 
     if (action === "start") {
+      const rl = await consumeRateLimit({
+        bucket: "maps_job_start",
+        identifier: String(workspaceId),
+        limit: 12,
+        windowSeconds: 60,
+      });
+      if (!rl.allowed) {
+        return rateLimitExceededResponse(
+          rl.retryAfterSeconds,
+          `Too many Maps jobs started in a short window. Please retry in ${rl.retryAfterSeconds}s.`
+        );
+      }
+
       const keyword = String(body.keyword || "").trim();
       if (!keyword) {
         return NextResponse.json(

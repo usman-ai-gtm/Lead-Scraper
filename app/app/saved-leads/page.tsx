@@ -472,9 +472,9 @@ export default function SavedLeadsPage() {
     }
   };
 
-  // Professional Export Handler (XLSX & Landscape PDF ONLY - CSV Prohibited)
+  // Professional Export Handler (XLSX, PDF, CSV, JSON)
   const handleExport = async (
-    format: "xlsx" | "pdf",
+    format: "xlsx" | "pdf" | "csv" | "json",
     targetType: "all" | "selected" | "single_lead" | "search_record" | "date",
     payload?: { specificLeads?: any[]; searchRecord?: SearchRecord; dateStr?: string }
   ) => {
@@ -933,6 +933,20 @@ export default function SavedLeadsPage() {
                     <span>PDF</span>
                   </button>
                   <button
+                    onClick={() => handleExport("csv", "selected")}
+                    className="px-2.5 py-1 text-[11px] font-bold text-blue-300 hover:text-white bg-blue-500/20 hover:bg-blue-500/30 border border-blue-500/30 rounded flex items-center gap-1 cursor-pointer"
+                  >
+                    <Download className="h-3 w-3 text-blue-400" />
+                    <span>CSV</span>
+                  </button>
+                  <button
+                    onClick={() => handleExport("json", "selected")}
+                    className="px-2.5 py-1 text-[11px] font-bold text-amber-300 hover:text-white bg-amber-500/20 hover:bg-amber-500/30 border border-amber-500/30 rounded flex items-center gap-1 cursor-pointer"
+                  >
+                    <Download className="h-3 w-3 text-amber-400" />
+                    <span>JSON</span>
+                  </button>
+                  <button
                     onClick={() => handleExport("xlsx", "selected")}
                     className="px-2.5 py-1 text-[11px] font-bold text-emerald-300 hover:text-white bg-emerald-500/20 hover:bg-emerald-500/30 border border-emerald-500/30 rounded flex items-center gap-1 cursor-pointer"
                   >
@@ -949,13 +963,27 @@ export default function SavedLeadsPage() {
                   </button>
                 </div>
               ) : (
-                <div className="flex items-center gap-2">
+                <div className="flex items-center gap-2 flex-wrap">
                   <button
                     onClick={() => handleExport("pdf", "all")}
-                    className="flex items-center gap-1.5 px-3.5 py-2 text-xs font-bold text-rose-300 bg-rose-500/10 hover:bg-rose-500/20 border border-rose-500/30 rounded-xl transition-all cursor-pointer shadow-sm"
+                    className="flex items-center gap-1.5 px-3 py-2 text-xs font-bold text-rose-300 bg-rose-500/10 hover:bg-rose-500/20 border border-rose-500/30 rounded-xl transition-all cursor-pointer shadow-sm"
                   >
                     <Download className="h-3.5 w-3.5 text-rose-400" />
-                    <span>Export PDF (Landscape)</span>
+                    <span>PDF</span>
+                  </button>
+                  <button
+                    onClick={() => handleExport("csv", "all")}
+                    className="flex items-center gap-1.5 px-3 py-2 text-xs font-bold text-blue-300 bg-blue-500/10 hover:bg-blue-500/20 border border-blue-500/30 rounded-xl transition-all cursor-pointer shadow-sm"
+                  >
+                    <Download className="h-3.5 w-3.5 text-blue-400" />
+                    <span>CSV</span>
+                  </button>
+                  <button
+                    onClick={() => handleExport("json", "all")}
+                    className="flex items-center gap-1.5 px-3 py-2 text-xs font-bold text-amber-300 bg-amber-500/10 hover:bg-amber-500/20 border border-amber-500/30 rounded-xl transition-all cursor-pointer shadow-sm"
+                  >
+                    <Download className="h-3.5 w-3.5 text-amber-400" />
+                    <span>JSON</span>
                   </button>
                   <button
                     onClick={() => handleExport("xlsx", "all")}

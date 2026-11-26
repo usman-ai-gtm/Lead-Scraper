@@ -26,28 +26,28 @@ STRICT SECURITY & PRIVACY GUARD:
 
 GENUINE PLATFORM INFORMATION:
 1. WHAT IS USMAN AI GTM:
-   A premium B2B lead generation and cold outreach SaaS built for sales teams, agencies, and entrepreneurs.
+   A B2B lead generation and 1-to-1 cold outreach SaaS built for sales teams, agencies, and founders.
    Core features include:
-   - High-Speed B2B Lead Search Engine: Discovers authentic public emails, phone numbers, and domains across 193 countries.
-   - Google Maps Business Lead Generator (EXCLUSIVE TO $100 LIFETIME PLAN): Scrapes verified local businesses with Google Places, crawls websites for contact emails, and supports mutual exclusive filtering (Email Only, Phone Only, Both).
-   - Direct Gmail Integration: Authenticated via Google OAuth 2.0 to send cold outreach directly from personal Gmail accounts (500 free emails/day, zero cold email provider fees).
-   - Gemini AI Email Assistant: Creates natural, high-converting B2B emails without corporate fluff.
-   - AI Lead Research Agent (EXCLUSIVE TO $100 LIFETIME PLAN): Deep-dives into target companies to identify growth bottlenecks and draft custom-tailored outreach proposals.
+   - High-Speed B2B Lead Search Engine: Discovers public commercial emails, phone numbers, and domains across supported global markets with DNS MX & syntax checking.
+   - Google Maps Business Lead Generator (Lifetime & Maps-enabled plans): Discovers local business listings via Serper Places, crawls websites for public emails, and supports mutual filtering (Email Only, Phone Only, Both, Either).
+   - Direct Gmail Integration: Authenticated via Google OAuth 2.0 (minimal gmail.send scope) to send 1-to-1 cold outreach directly from your Gmail account.
+   - Gemini AI Email Assistant: Creates natural, concise B2B outreach drafts.
+   - AI Lead Research Agent (Lifetime & AI Research enabled plans): Generates practical company summaries and tailored outreach proposals.
+   - Multi-Format Exports: Download workspace leads in XLSX, Executive PDF, CSV, and JSON.
 
-2. PRICING & SUBSCRIPTION PLANS:
+2. PRICING & SUBSCRIPTION PLANS (TRUTHFUL LIMITS):
    - Basic Plan: $25 / 30 Days
-     • Up to 5,000 verified leads per month.
-     • Multi-platform non-Maps web search engine.
-     • Personal Gmail outreach integration (500 free emails/day).
-     • Standard AI email generator.
-     • 30 days active access. Auto-locks upon expiry until renewed.
+     • Multi-country web lead search (excludes Google Maps).
+     • Personal Gmail outreach integration: up to 10 cold emails per UTC day.
+     • Standard AI email generator & XLSX/PDF/CSV/JSON exports.
+     • 30 days active access. Auto-locks at exact expiry until renewed.
    - Lifetime Plan: $100 One-Time (Permanent Access)
-     • Permanent lifetime access — zero monthly fees forever!
-     • Unlimited search engine access.
+     • Permanent access — zero monthly renewal fees!
      • EXCLUSIVE: Google Maps Business Lead Generator.
      • EXCLUSIVE: AI Lead Research Agent.
-     • Multi-Gmail mailbox rotation.
+     • Up to 500 cold emails per UTC day across connected Gmail accounts (Google fair-use cap).
      • Priority WhatsApp support directly from the Founder.
+   - Custom Plans: Configurable duration, quotas, and module permissions set by Owner agreement.
 
 3. HOW TO PURCHASE & ACTIVATE ACCOUNT:
    - Step 1: Sign in with Google on https://lead-scraper-mxs5.vercel.app/login.
@@ -88,7 +88,7 @@ function getFallbackReply(message: string): { reply: string; suggested_actions: 
 
   if (lang === "urdu") {
     return {
-      reply: `**عثمان اے آئی جی ٹی ایم (USMAN AI GTM) میں خوش آمدید!**\n\n• **بیسک پلان ($25 / 30 دن)**: 5,000 تصدیق شدہ لیڈز، جی میل آؤٹ ریچ (روزانہ 500 مفت ای میلز)، اور عام سرچ انجن۔\n• **لائف ٹائم پلان ($100 ایک بار)**: مستقل رسائی، گوگل میپس بزنس لیڈ جنریٹر، اے آئی لیڈ ریسرچ ایجنٹ، اور لامحدود سرچ۔\n\nاکاؤنٹ ایکٹیویٹ کروانے کے لیے واٹس ایپ پر رابطہ کریں: **+923174383702**`,
+      reply: `**عثمان اے آئی جی ٹی ایم (USMAN AI GTM) میں خوش آمدید!**\n\n• **بیسک پلان ($25 / 30 دن)**: ویب لیڈ سرچ، روزانہ 10 کولڈ ای میلز (جی میل OAuth)، اور XLSX/PDF/CSV/JSON ایکسپورٹس۔\n• **لائف ٹائم پلان ($100 ایک بار)**: مستقل رسائی، گوگل میپس بزنس لیڈ جنریٹر، اے آئی لیڈ ریسرچ ایجنٹ، اور روزانہ 500 تک کولڈ ای میلز۔\n\nاکاؤنٹ ایکٹیویٹ کروانے کے لیے واٹس ایپ پر رابطہ کریں: **+923174383702**`,
       suggested_actions: [
         { label: "واٹس ایپ پر رابطہ کریں (+923174383702)", url: "https://wa.me/923174383702?text=%D8%B9%D8%AB%D9%85%D8%A7%D9%86%20%D8%A8%DA%BE%D8%A7%D8%A6%DB%8C%20%D8%A7%DA%A9%D8%A7%D8%A4%D9%86%D8%B7%20%D8%A7%DB%8C%DA%A9%D9%B9%DB%8C%D9%88%DB%8C%D9%B9%20%DA%A9%D8%B1%D9%88%D8%A7%D9%86%D8%A7%20%DB%81%DB%8C" },
         { label: "پلانز دیکھیں", url: "/pricing" },
@@ -98,7 +98,7 @@ function getFallbackReply(message: string): { reply: string; suggested_actions: 
 
   if (lang === "roman_urdu") {
     return {
-      reply: `**USMAN AI GTM Plans & Activation:**\n\n• **Basic Plan ($25 / 30 Din)**: 5,000 verified B2B leads, web search, personal Gmail integration (500 free daily emails).\n• **Lifetime Plan ($100 One-Time)**: Permanent access, Google Maps Lead Generator, AI Research Agent, multi-Gmail rotation aur zero monthly fees!\n\nAccount ka tala khulwane ya subscription lene k liye WhatsApp per Founder se rabta karein: **+923174383702**`,
+      reply: `**USMAN AI GTM Plans & Activation:**\n\n• **Basic Plan ($25 / 30 Din)**: Web lead search, DNS MX email checking, XLSX/PDF/CSV/JSON exports aur Gmail OAuth integration (daily 10 cold emails cap).\n• **Lifetime Plan ($100 One-Time)**: Permanent access, Google Maps Lead Generator, AI Research Agent, daily up to 500 cold emails aur zero monthly fees!\n\nAccount activate karwane k liye WhatsApp per Founder se rabta karein: **+923174383702**`,
       suggested_actions: [
         { label: "WhatsApp per Rabta Karein (+923174383702)", url: "https://wa.me/923174383702?text=Hi%20Usman%2C%20account%20activate%20krwana%20hai" },
         { label: "Pricing Page", url: "/pricing" },
@@ -108,7 +108,7 @@ function getFallbackReply(message: string): { reply: string; suggested_actions: 
 
   if (lower.includes("price") || lower.includes("cost") || lower.includes("plan") || lower.includes("rate") || lower.includes("how much")) {
     return {
-      reply: `**USMAN AI GTM Pricing & Capabilities:**\n\n• **Basic Plan ($25 / 30 Days)**:\n  - Up to 5,000 verified B2B leads per month.\n  - Multi-source organic web search engine across 193 countries.\n  - Direct personal Gmail outreach (500 free emails/day).\n  - Standard Gemini email generator.\n  - Auto-locks after 30 days unless renewed.\n\n• **Lifetime Plan ($100 One-Time — Recommended)**:\n  - Permanent access with zero monthly renewals!\n  - **Exclusive Google Maps Business Lead Generator** (scrape local businesses with emails & phones).\n  - **Exclusive AI Lead Research Agent** (deep target company intelligence).\n  - Multi-Gmail account rotation.\n  - Priority Founder WhatsApp support.\n\nTo activate your account instantly, contact the Owner on WhatsApp (+923174383702).`,
+      reply: `**USMAN AI GTM Pricing & Capabilities:**\n\n• **Basic Plan ($25 / 30 Days)**:\n  - Multi-country web lead search (excludes Google Maps).\n  - Direct Gmail OAuth outreach (up to 10 cold emails per UTC day).\n  - Standard Gemini email generator & XLSX/PDF/CSV/JSON exports.\n  - Auto-locks at exact 30-day expiry until renewed.\n\n• **Lifetime Plan ($100 One-Time — Recommended)**:\n  - Permanent access with zero monthly renewals.\n  - **Exclusive Google Maps Business Lead Generator** (local places + website contact discovery).\n  - **Exclusive AI Lead Research Agent** (company briefs & outreach proposals).\n  - Up to 500 Gmail outreach emails per UTC day + Multi-Gmail rotation.\n  - Priority Founder WhatsApp support.\n\nTo activate your account, submit payment proof inside Usage & Subscription or contact the Owner on WhatsApp (+923174383702).`,
       suggested_actions: [
         { label: "Activate via WhatsApp (+923174383702)", url: "https://wa.me/923174383702?text=Hi%20Usman%2C%20I%20want%20to%20activate%20my%20subscription" },
         { label: "View Pricing Plans", url: "/pricing" },
@@ -127,7 +127,7 @@ function getFallbackReply(message: string): { reply: string; suggested_actions: 
   }
 
   return {
-    reply: `Welcome to **USMAN AI GTM**! I am your AI Sales & Support Assistant.\n\nI can help you with:\n• **B2B Lead Search**: How to find verified business leads globally.\n• **Google Maps Lead Generator**: Exclusive $100 Lifetime tool for local business leads.\n• **Gmail Outreach**: Sending up to 500 cold emails daily at $0 cost.\n• **Account Activation**: Fast manual unlocking via WhatsApp (**+923174383702**).\n\nWhat would you like to know?`,
+    reply: `Welcome to **USMAN AI GTM**! I am your AI Sales & Support Assistant.\n\nI can help you with:\n• **B2B Web Lead Search**: Discover public commercial emails & phones with DNS MX checks.\n• **Google Maps Lead Generator**: Local Places discovery (Lifetime & Maps-enabled plans).\n• **Gmail OAuth Outreach**: 1-to-1 outreach from your Gmail (10/day on Basic, up to 500/day on Lifetime).\n• **Account Activation**: Manual activation & payment verification via WhatsApp (**+923174383702**).\n\nWhat would you like to know?`,
     suggested_actions: [
       { label: "Contact Owner on WhatsApp (+923174383702)", url: "https://wa.me/923174383702" },
       { label: "View Plans & Pricing", url: "/pricing" },

@@ -75,7 +75,7 @@ I was reviewing ${name}'s technology platform and recent market progress.
 
 Many high-growth software companies find that inbound demand fluctuates, making a predictable, verified outbound prospecting engine essential for hitting quarterly revenue targets.
 
-USMAN AI GTM provides verified decision-maker intelligence across 193 countries, paired with multi-channel outreach automation that lands directly in primary inboxes.
+USMAN AI GTM helps teams discover public commercial business contacts worldwide and conduct 1-to-1 Gmail outreach directly from their connected inbox.
 
 Would you have 10 minutes for a brief discussion this week to see if this aligns with ${name}'s current growth goals?
 

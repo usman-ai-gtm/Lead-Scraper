@@ -7,11 +7,13 @@ import {
   authenticateServerlessUser,
   isAuthorizedOwner,
 } from "@/lib/serverless-auth";
+import { consumeRateLimit, getClientIp, rateLimitExceededResponse } from "@/lib/rate-limit";
 
 export const dynamic = "force-dynamic";
 
 export async function POST(request: Request) {
   try {
+    const ip = getClientIp(request);
     const body = await request.json();
     const email = String(body.email || body.username || body.workEmail || "").trim().toLowerCase();
     const password = String(body.password || "").trim();
@@ -20,6 +22,19 @@ export async function POST(request: Request) {
       return NextResponse.json(
         { detail: "Email and password are required" },
         { status: 400 }
+      );
+    }
+
+    const rl = await consumeRateLimit({
+      bucket: "client_login",
+      identifier: `${ip}:${email}`,
+      limit: 12,
+      windowSeconds: 300,
+    });
+    if (!rl.allowed) {
+      return rateLimitExceededResponse(
+        rl.retryAfterSeconds,
+        `Too many login attempts. Please wait ${rl.retryAfterSeconds} seconds before trying again.`
       );
     }
 

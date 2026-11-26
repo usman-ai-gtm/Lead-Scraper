@@ -449,13 +449,36 @@ export async function crawlWebsiteForContacts(
     }
   }
 
+  let finalEmail = discoveredEmail;
+  let finalEmailStatus = emailStatus;
+  let finalPhone = discoveredPhone;
+  let finalPhoneStatus = phoneStatus;
+
+  if (finalEmail || finalPhone) {
+    try {
+      const { verifyLeadEmailTruthfully, evaluatePhoneQualityTruthfully } = await import("@/lib/contact-verification");
+      if (finalEmail) {
+        const emailCheck = await verifyLeadEmailTruthfully(finalEmail, { resolveMx: true });
+        finalEmail = emailCheck.email || finalEmail;
+        finalEmailStatus = emailCheck.displayLabel;
+      }
+      if (finalPhone) {
+        const phoneCheck = evaluatePhoneQualityTruthfully(finalPhone, undefined, phoneSourceUrl);
+        finalPhone = phoneCheck.normalized || finalPhone;
+        finalPhoneStatus = phoneCheck.displayLabel;
+      }
+    } catch {
+      // Keep original syntax-validated strings if DNS lookup environment is restricted
+    }
+  }
+
   const result: DiscoveredContact = {
-    email: discoveredEmail,
+    email: finalEmail,
     emailSourceUrl,
-    emailStatus,
-    phone: discoveredPhone,
+    emailStatus: finalEmailStatus,
+    phone: finalPhone,
     phoneSourceUrl,
-    phoneStatus,
+    phoneStatus: finalPhoneStatus,
   };
 
   domainCrawlCache.set(normDom, result);

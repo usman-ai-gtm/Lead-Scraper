@@ -28,11 +28,11 @@ export default function PricingPage() {
           </div>
 
           <h1 className="text-3xl sm:text-5xl font-extrabold text-white tracking-tight mb-4">
-            Scale Verified Lead Generation & Outreach
+            Transparent B2B Lead Generation &amp; Outreach Pricing
           </h1>
 
           <p className="text-sm sm:text-base text-slate-400 max-w-2xl mx-auto mb-12">
-            No expensive enterprise lock-ins or hidden credit markups. Connect your official Google account, extract verified leads across 193 countries, and send individualized cold emails with Gemini AI.
+            Simple, honest plans with server-enforced daily sending caps and zero hidden renewals. Connect your Google account via OAuth 2.0, discover public commercial contacts, and export in XLSX, PDF, CSV, and JSON.
           </p>
 
           {/* TWO PRICING CARDS: $25/MO & $100 LIFETIME */}
@@ -58,12 +58,12 @@ export default function PricingPage() {
                 {/* Quota Highlights */}
                 <div className="grid grid-cols-2 gap-2.5 mb-6">
                   <div className="p-3 rounded-xl bg-white/[0.03] border border-white/[0.06]">
-                    <div className="text-[10px] uppercase font-bold text-slate-400 mb-0.5">Leads Quota</div>
-                    <div className="text-sm font-extrabold text-white">5,000 / mo</div>
+                    <div className="text-[10px] uppercase font-bold text-slate-400 mb-0.5">Gmail Outreach Cap</div>
+                    <div className="text-sm font-extrabold text-white">10 emails / day</div>
                   </div>
                   <div className="p-3 rounded-xl bg-white/[0.03] border border-white/[0.06]">
-                    <div className="text-[10px] uppercase font-bold text-slate-400 mb-0.5">Search Engine</div>
-                    <div className="text-sm font-extrabold text-blue-400">Unlimited</div>
+                    <div className="text-[10px] uppercase font-bold text-slate-400 mb-0.5">Access Duration</div>
+                    <div className="text-sm font-extrabold text-blue-400">30 Days Exact</div>
                   </div>
                 </div>
 
@@ -71,31 +71,31 @@ export default function PricingPage() {
                 <div className="space-y-2.5 text-xs text-slate-300 mb-8">
                   <div className="flex items-center gap-2">
                     <Check className="h-4 w-4 text-emerald-400 shrink-0" />
-                    <span>5,000 Verified B2B Leads per Month</span>
+                    <span>Multi-Country Web Lead Search (Rate-Limited Fair Use)</span>
                   </div>
                   <div className="flex items-center gap-2">
                     <Check className="h-4 w-4 text-emerald-400 shrink-0" />
-                    <span>Public Business Email Extraction</span>
+                    <span>Public Email &amp; Phone Extraction + MX Domain Check</span>
                   </div>
                   <div className="flex items-center gap-2">
                     <Check className="h-4 w-4 text-emerald-400 shrink-0" />
-                    <span>Individual 1-to-1 Gmail Outreach</span>
+                    <span>Up to 10 Individual 1-to-1 Gmail Outreach Emails / Day</span>
                   </div>
                   <div className="flex items-center gap-2">
                     <Check className="h-4 w-4 text-emerald-400 shrink-0" />
-                    <span>Gemini AI Email Personalization</span>
+                    <span>Gemini AI Email Personalization Assistant</span>
                   </div>
                   <div className="flex items-center gap-2">
                     <Check className="h-4 w-4 text-emerald-400 shrink-0" />
-                    <span>Excel (.xlsx) & Landscape PDF Exports</span>
+                    <span>Excel (.xlsx), PDF, CSV &amp; JSON Exports</span>
                   </div>
                   <div className="flex items-center gap-2">
                     <Check className="h-4 w-4 text-emerald-400 shrink-0" />
-                    <span>Search History & Snapshots (PKT Time)</span>
+                    <span>Search History &amp; Snapshots (Excludes Google Maps)</span>
                   </div>
                   <div className="flex items-center gap-2">
                     <Check className="h-4 w-4 text-emerald-400 shrink-0" />
-                    <span>Private Workspace Tenant Isolation</span>
+                    <span>Private Workspace Isolation (Auto-Locks at Day 30)</span>
                   </div>
                 </div>
               </div>
@@ -148,23 +148,23 @@ export default function PricingPage() {
                 <div className="space-y-2.5 text-xs text-slate-300 mb-8">
                   <div className="flex items-center gap-2">
                     <Check className="h-4 w-4 text-amber-400 shrink-0" />
-                    <span className="font-semibold text-white">All Monthly Features Included Forever</span>
+                    <span className="font-semibold text-white">Up to 500 Gmail Outreach Emails / Day (Google Fair-Use Cap)</span>
                   </div>
                   <div className="flex items-center gap-2">
                     <Check className="h-4 w-4 text-amber-400 shrink-0" />
-                    <span className="font-semibold text-amber-300">Exclusive AI Lead Research Agent (Company Analysis & Custom Proposals)</span>
+                    <span className="font-semibold text-amber-300">Exclusive Google Maps Business Lead Generator</span>
                   </div>
                   <div className="flex items-center gap-2">
                     <Check className="h-4 w-4 text-amber-400 shrink-0" />
-                    <span>Permanent Isolated Workspace Access</span>
+                    <span className="font-semibold text-amber-300">Exclusive AI Lead Research Agent (Company Briefs &amp; Proposals)</span>
                   </div>
                   <div className="flex items-center gap-2">
                     <Check className="h-4 w-4 text-amber-400 shrink-0" />
-                    <span>Unlimited Historical Snapshots & Reopens</span>
+                    <span>Multi-Gmail Sender Account Rotation</span>
                   </div>
                   <div className="flex items-center gap-2">
                     <Check className="h-4 w-4 text-amber-400 shrink-0" />
-                    <span>Individual Cold Outreach with Gemini AI</span>
+                    <span>XLSX, Executive PDF, CSV &amp; JSON Formula-Safe Exports</span>
                   </div>
                   <div className="flex items-center gap-2">
                     <Check className="h-4 w-4 text-amber-400 shrink-0" />
@@ -172,11 +172,11 @@ export default function PricingPage() {
                   </div>
                   <div className="flex items-center gap-2">
                     <Check className="h-4 w-4 text-amber-400 shrink-0" />
-                    <span>Zero Monthly Renewals or Credit Expirations</span>
+                    <span>Permanent Workspace Access — Zero Monthly Renewals</span>
                   </div>
                   <div className="flex items-center gap-2">
                     <Check className="h-4 w-4 text-amber-400 shrink-0" />
-                    <span>Early Access to All Future Platform Upgrades</span>
+                    <span>Custom Plans Available Upon Owner Agreement</span>
                   </div>
                 </div>
               </div>

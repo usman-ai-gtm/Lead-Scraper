@@ -166,7 +166,7 @@ function GoogleMapsLeadComponent() {
     }
   };
 
-  const handleExport = async (format: "xlsx" | "pdf") => {
+  const handleExport = async (format: "xlsx" | "pdf" | "csv" | "json") => {
     if (qualifiedLeads.length === 0) {
       setToastMsg("No leads available to export yet.");
       return;
@@ -197,10 +197,9 @@ function GoogleMapsLeadComponent() {
       });
 
       if (!res.ok) {
-        const errText = await res.text();
         let errMsg = "Export failed";
         try {
-          const parsed = JSON.parse(errText);
+          const parsed = await res.json();
           errMsg = parsed.detail || parsed.error || parsed.message || errMsg;
         } catch {}
         throw new Error(errMsg);
@@ -210,12 +209,12 @@ function GoogleMapsLeadComponent() {
       const url = window.URL.createObjectURL(blob);
       const a = document.createElement("a");
       a.href = url;
-      a.download = `GoogleMaps_Leads_${(job?.keyword || keyword || "Export").replace(/[^a-zA-Z0-9]+/g, "_")}_${Date.now()}.${format === "xlsx" ? "xlsx" : "pdf"}`;
+      a.download = `GoogleMaps_Leads_${(job?.keyword || keyword || "Export").replace(/[^a-zA-Z0-9]+/g, "_")}_${Date.now()}.${format}`;
       document.body.appendChild(a);
       a.click();
       window.URL.revokeObjectURL(url);
       a.remove();
-      setToastMsg(`Export complete (${qualifiedLeads.length} leads)!`);
+      setToastMsg(`Export complete (${qualifiedLeads.length} leads in .${format.toUpperCase()})!`);
     } catch (err: any) {
       setToastMsg(`Export failed: ${err?.message || "Error"}`);
     } finally {
@@ -258,22 +257,42 @@ function GoogleMapsLeadComponent() {
         </div>
 
         {qualifiedLeads.length > 0 && (
-          <div className="flex items-center gap-2 shrink-0">
+          <div className="flex items-center gap-2 shrink-0 flex-wrap">
             <button
               onClick={() => handleExport("pdf")}
               disabled={exportLoading}
+              aria-label="Export Google Maps leads as PDF"
               className="px-3 py-2 rounded-xl border border-rose-500/30 bg-rose-500/10 hover:bg-rose-500/20 text-rose-300 font-bold text-xs transition-all flex items-center gap-1.5 cursor-pointer disabled:opacity-50"
             >
               <Download className="h-3.5 w-3.5 text-rose-400" />
-              <span>Export PDF</span>
+              <span>PDF</span>
+            </button>
+            <button
+              onClick={() => handleExport("csv")}
+              disabled={exportLoading}
+              aria-label="Export Google Maps leads as CSV"
+              className="px-3 py-2 rounded-xl border border-blue-500/30 bg-blue-500/10 hover:bg-blue-500/20 text-blue-300 font-bold text-xs transition-all flex items-center gap-1.5 cursor-pointer disabled:opacity-50"
+            >
+              <Download className="h-3.5 w-3.5 text-blue-400" />
+              <span>CSV</span>
+            </button>
+            <button
+              onClick={() => handleExport("json")}
+              disabled={exportLoading}
+              aria-label="Export Google Maps leads as JSON"
+              className="px-3 py-2 rounded-xl border border-amber-500/30 bg-amber-500/10 hover:bg-amber-500/20 text-amber-300 font-bold text-xs transition-all flex items-center gap-1.5 cursor-pointer disabled:opacity-50"
+            >
+              <Download className="h-3.5 w-3.5 text-amber-400" />
+              <span>JSON</span>
             </button>
             <button
               onClick={() => handleExport("xlsx")}
               disabled={exportLoading}
+              aria-label="Export Google Maps leads as Excel XLSX"
               className="px-3.5 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs shadow-md transition-all flex items-center gap-1.5 cursor-pointer disabled:opacity-50"
             >
               <FileSpreadsheet className="h-4 w-4" />
-              <span>Export Excel</span>
+              <span>Excel XLSX</span>
             </button>
           </div>
         )}

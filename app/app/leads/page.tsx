@@ -284,8 +284,8 @@ function LeadsSearchComponent() {
     }
   };
 
-  // Complete Dataset Export (XLSX or Landscape PDF)
-  const handleExport = async (format: "xlsx" | "pdf") => {
+  // Complete Dataset Export (XLSX, PDF, CSV, JSON)
+  const handleExport = async (format: "xlsx" | "pdf" | "csv" | "json") => {
     if (qualifiedLeads.length === 0) {
       setToastMsg("No qualified leads available to export. Run an extraction first.");
       return;
@@ -407,14 +407,34 @@ function LeadsSearchComponent() {
             <button
               onClick={() => handleExport("pdf")}
               disabled={exportLoading}
-              className="px-3.5 py-2 rounded-xl border border-rose-500/30 bg-rose-500/10 hover:bg-rose-500/20 text-rose-300 font-bold text-xs transition-all flex items-center gap-1.5 cursor-pointer disabled:opacity-50 shadow-sm"
+              aria-label="Export search results as PDF"
+              className="px-3 py-2 rounded-xl border border-rose-500/30 bg-rose-500/10 hover:bg-rose-500/20 text-rose-300 font-bold text-xs transition-all flex items-center gap-1.5 cursor-pointer disabled:opacity-50 shadow-sm"
             >
               <Download className="h-3.5 w-3.5 text-rose-400" />
-              <span>Export PDF (Landscape)</span>
+              <span>PDF</span>
+            </button>
+            <button
+              onClick={() => handleExport("csv")}
+              disabled={exportLoading}
+              aria-label="Export search results as CSV"
+              className="px-3 py-2 rounded-xl border border-blue-500/30 bg-blue-500/10 hover:bg-blue-500/20 text-blue-300 font-bold text-xs transition-all flex items-center gap-1.5 cursor-pointer disabled:opacity-50 shadow-sm"
+            >
+              <Download className="h-3.5 w-3.5 text-blue-400" />
+              <span>CSV</span>
+            </button>
+            <button
+              onClick={() => handleExport("json")}
+              disabled={exportLoading}
+              aria-label="Export search results as JSON"
+              className="px-3 py-2 rounded-xl border border-amber-500/30 bg-amber-500/10 hover:bg-amber-500/20 text-amber-300 font-bold text-xs transition-all flex items-center gap-1.5 cursor-pointer disabled:opacity-50 shadow-sm"
+            >
+              <Download className="h-3.5 w-3.5 text-amber-400" />
+              <span>JSON</span>
             </button>
             <button
               onClick={() => handleExport("xlsx")}
               disabled={exportLoading}
+              aria-label="Export search results as Excel XLSX"
               className="px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs shadow-md transition-all flex items-center gap-2 cursor-pointer disabled:opacity-50"
             >
               <FileSpreadsheet className="h-4 w-4" />
@@ -721,9 +741,9 @@ function LeadsSearchComponent() {
             <div className="text-[10px] text-emerald-400 mt-0.5 font-mono">100% Unique Businesses</div>
           </div>
           <div className="p-3.5 rounded-xl border border-white/[0.08] bg-[#0c1017]">
-            <div className="text-[11px] text-slate-400 uppercase tracking-wider font-semibold">Compulsory Emails</div>
+            <div className="text-[11px] text-slate-400 uppercase tracking-wider font-semibold">Emails Extracted</div>
             <div className="text-xl font-extrabold text-emerald-400 mt-0.5">{qualifiedLeads.length}</div>
-            <div className="text-[10px] text-emerald-300 mt-0.5 font-mono">100% Source-Backed</div>
+            <div className="text-[10px] text-emerald-300 mt-0.5 font-mono">Syntax &amp; Domain MX Checked</div>
           </div>
           <div className="p-3.5 rounded-xl border border-white/[0.08] bg-[#0c1017]">
             <div className="text-[11px] text-slate-400 uppercase tracking-wider font-semibold">Phones Included</div>

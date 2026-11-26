@@ -5,68 +5,108 @@ import Link from "next/link";
 import { Header } from "@/components/marketing/Header";
 import { Footer } from "@/components/marketing/Footer";
 import {
-  Target, Search, Mail, MessageSquare, Database, LineChart,
-  UserCheck, ShieldCheck, Cpu, Bot, ArrowRight, Zap, CheckCircle2, Download
+  Target, Search, Mail, MessageSquare, Database,
+  UserCheck, ShieldCheck, ArrowRight, Zap, CheckCircle2, Download
 } from "lucide-react";
 
 export default function FeaturesPage() {
   const domains = [
     {
-      title: "Global Lead Discovery & Web Evidence",
-      desc: "Search millions of verified commercial entities across 193 countries. Target by niche, industry, revenue, and platform signals.",
+      title: "Global Web Lead Discovery & Evidence",
+      desc: "Search public company websites and business profiles by country, city, and niche with normalized workspace deduplication.",
       icon: Target,
       href: "/app/leads",
-      items: ["193 Countries & Global Cities", "Real-Time Google Business & Maps Crawls", "LinkedIn Company & Decision Maker Filter", "Normalized Domain Deduplication"]
+      items: [
+        "Multi-country & multi-city campaign targeting",
+        "Direct website HTML inspection for public emails & phones",
+        "DNS MX lookup & email syntax validation",
+        "Workspace-level domain, email & phone deduplication",
+      ],
     },
     {
-      title: "Deep AI Research & Tech Stack Extraction",
-      desc: "Synthesize full business profile, commercial pain points, buying signals, and custom entry pitches in seconds.",
+      title: "Google Maps Business Lead Generator",
+      desc: "Available on Lifetime & custom Maps-enabled plans. Discover local commercial listings with website crawling and mutual contact filtering.",
       icon: Search,
-      href: "/app/research",
-      items: ["Website DOM & Meta Telemetry Analysis", "Automated Tech Stack Fingerprinting", "Buying Signal Detection", "Tailored Value Proposition Synthesis"]
+      href: "/app/google-maps",
+      items: [
+        "Google Places queries via Serper API",
+        "Email Only, Phone Only, Email & Phone, or Either filter",
+        "Background batch processing with live progress & stop control",
+        "Maps listing & contact source URL preservation",
+      ],
     },
     {
-      title: "Cold Email Command Center",
-      desc: "Official Google OAuth 2.0 multi-account sender pooling. Automated Day 1 to Day 7 sequence execution with smart reply pauses.",
+      title: "1-to-1 Gmail OAuth 2.0 Outreach",
+      desc: "Send personalized individual outreach emails through your connected Google mailbox without sharing account passwords.",
       icon: Mail,
       href: "/app/outreach",
-      items: ["Official Google OAuth 2.0 (Zero Password Risk)", "Multi-Account Sending & Load Balancing", "Dynamic Personalization Tags", "CAN-SPAM Suppression & Hard Bounce Gating"]
+      items: [
+        "Least-privilege gmail.send + userinfo.email OAuth scope",
+        "Plan-enforced daily sending caps (10/day Basic, up to 500/day Lifetime)",
+        "Workspace suppression list & Do-Not-Contact gating",
+        "30-day duplicate outreach prevention",
+      ],
     },
     {
-      title: "Official Meta WhatsApp Business Cloud API",
-      desc: "Enterprise two-way messaging on the official Meta Cloud API platform. High-open interactive templates without phone bans.",
-      icon: MessageSquare,
-      href: "/app/whatsapp",
-      items: ["Official Cloud API Integration", "Two-Way Inbox & Conversation Threads", "Pre-Approved Broadcast Templates", "24-Hour Messaging Window Compliance"]
+      title: "AI Lead Research & Copy Assistant",
+      desc: "Generate practical outreach drafts, company summaries, and conversational B2B targeting guidance with Gemini AI.",
+      icon: Zap,
+      href: "/app/assistant",
+      items: [
+        "Company research modal for saved prospects (Lifetime / enabled plans)",
+        "Custom subject & body drafts for Cold Email",
+        "Multilingual AI growth assistant inside dashboard",
+        "ICP Business Profile tailoring",
+      ],
     },
     {
-      title: "Enterprise CRM & Revenue Kanban",
-      desc: "Purpose-built 9-stage revenue Kanban board. Track deal value, expected close dates, win probabilities, and connected accounts.",
-      icon: Database,
-      href: "/app/crm",
-      items: ["9-Stage Visual Pipeline (New to Closed-Won)", "Deal Win-Probability Modeling", "Connected Companies & Contacts", "Unified Omnichannel Activity Timeline"]
-    },
-    {
-      title: "Data Export Center & Spreadsheets",
-      desc: "Instant export of verified business contacts in Microsoft Excel (.xlsx) and Executive PDF formats with full source URLs.",
+      title: "Multi-Format Formula-Safe Exports",
+      desc: "Export filtered workspace leads or individual search snapshots cleanly with full verification statuses and source URLs.",
       icon: Download,
       href: "/app/exports",
-      items: ["Executive Landscape PDF generation", "Native Microsoft Excel (.xlsx) generation", "Targeted Country & Industry Filtering", "Direct Single & Bulk Workspace Export"]
+      items: [
+        "Native Microsoft Excel (.xlsx) workbooks",
+        "Landscape Executive PDF (.pdf) reports",
+        "UTF-8 BOM, RFC 4180 CSV (.csv) exports",
+        "Structured JSON (.json) + CWE-1236 formula sanitization",
+      ],
     },
     {
-      title: "Sales Enablement & Battlecards",
-      desc: "Equip reps with dynamic competitor battlecards, automated call scoring, roleplay simulations, and tailored proposal generators.",
+      title: "Workspace CRM & WhatsApp Companion",
+      desc: "Organize prospect stages, track email & WhatsApp click-to-chat outreach, and maintain per-workspace suppression lists.",
+      icon: MessageSquare,
+      href: "/app/saved-leads",
+      items: [
+        "Lead pipeline stages (New Lead through Won/Lost)",
+        "WhatsApp click-to-chat templates & draft helpers",
+        "Per-workspace phone & email suppression tables",
+        "Permanent search snapshots & history reopen",
+      ],
+    },
+    {
+      title: "Manual Payment & Plan Governance",
+      desc: "Clear monthly ($25/30 days) and Lifetime ($100 one-time) plans with payment proof uploads and owner verification.",
       icon: UserCheck,
-      href: "/app/features-lab",
-      items: ["Interactive Competitor Battlecards", "AI Rep Call Coaching & Scoring", "Automated SOW & Proposal Generator", "Commission & SPIF Real-Time Calculator"]
+      href: "/app/subscription",
+      items: [
+        "DB-authoritative UTC subscription expiration locking",
+        "Proof of payment upload for Bank, Raast, Wallet & Card",
+        "Live Owner client management & custom plan quotas",
+        "Full audit trail on account activation and status changes",
+      ],
     },
     {
-      title: "Security & Access Governance",
-      desc: "PBKDF2/Argon2 cryptographic password hashing, role-based access control (RBAC), and immutable activity audit trails.",
+      title: "Security, Rate Limiting & Privacy Controls",
+      desc: "Built for multi-tenant isolation, abuse throttling, and straightforward GDPR/CCPA data subject workflows.",
       icon: ShieldCheck,
-      href: "/app/admin",
-      items: ["PBKDF2-HMAC Password Hashing", "Role-Based Access Control (RBAC)", "Workspace Account Isolation", "Zero Plaintext Secret Storage"]
-    }
+      href: "/privacy#dsr",
+      items: [
+        "PBKDF2-SHA256 salted password hashing & session versioning",
+        "AES-256-GCM encrypted Gmail OAuth token storage",
+        "PostgreSQL-backed distributed rate limiting (429 Retry-After)",
+        "Self-service GDPR/CCPA Data Subject Request workflow",
+      ],
+    },
   ];
 
   return (
@@ -76,8 +116,8 @@ export default function FeaturesPage() {
       <section className="py-20 lg:py-28 relative">
         <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8 text-center">
           <div className="inline-flex items-center gap-2 rounded-full border border-blue-500/30 bg-blue-500/10 px-4 py-1.5 text-xs font-semibold text-blue-400 mb-6">
-            <Zap className="h-3.5 w-3.5" />
-            <span>FULL ARCHITECTURE MATRIX</span>
+            <Database className="h-3.5 w-3.5" />
+            <span>VERIFIED PLATFORM CAPABILITIES</span>
           </div>
 
           <h1 className="text-4xl sm:text-6xl font-extrabold text-white mb-6">
@@ -85,7 +125,7 @@ export default function FeaturesPage() {
           </h1>
 
           <p className="text-lg text-slate-400 max-w-3xl mx-auto mb-16">
-            Explore the complete suite of sales intelligence, automated prospecting, cold channels, and revenue automation engines.
+            Every feature listed below reflects live, tested functionality across lead discovery, contact validation, exports, outreach, and workspace security.
           </p>
 
           <div className="grid grid-cols-1 md:grid-cols-2 gap-8 text-left">
@@ -118,7 +158,7 @@ export default function FeaturesPage() {
                     href={d.href}
                     className="inline-flex items-center gap-2 text-sm font-semibold text-blue-400 hover:text-blue-300 transition-colors"
                   >
-                    <span>Launch in Dashboard</span>
+                    <span>Explore Module</span>
                     <ArrowRight className="h-4 w-4" />
                   </Link>
                 </div>

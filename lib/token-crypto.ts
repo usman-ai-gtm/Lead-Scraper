@@ -6,14 +6,25 @@ import crypto from "crypto";
  * Tokens are never stored in plain text.
  */
 
-// Derive a 32-byte key using SHA-256 hash of the master encryption secret
-const SECRET =
-  process.env.TOKEN_ENCRYPTION_KEY ||
-  process.env.JWT_SECRET ||
-  process.env.SECRET_KEY ||
-  "usman_ai_gtm_token_vault_master_key_2026_aes256_secure";
+function getMasterKey(): Buffer {
+  const raw = (
+    process.env.TOKEN_ENCRYPTION_KEY ||
+    process.env.SECRET_KEY ||
+    process.env.JWT_SECRET ||
+    ""
+  ).trim();
 
-const MASTER_KEY = crypto.createHash("sha256").update(SECRET).digest();
+  if (!raw) {
+    if (process.env.VERCEL || process.env.NODE_ENV === "production") {
+      throw new Error(
+        "Server misconfiguration: TOKEN_ENCRYPTION_KEY environment variable is required in production."
+      );
+    }
+    return crypto.createHash("sha256").update(`dev-vault:${process.cwd()}`).digest();
+  }
+
+  return crypto.createHash("sha256").update(raw).digest();
+}
 
 /**
  * Encrypt a plain token string or JSON object using AES-256-GCM.
@@ -24,8 +35,9 @@ export function encryptToken(plainTextOrObj: string | Record<string, any>): stri
   const plainText =
     typeof plainTextOrObj === "string" ? plainTextOrObj : JSON.stringify(plainTextOrObj);
 
+  const masterKey = getMasterKey();
   const iv = crypto.randomBytes(12); // 12-byte IV standard for AES-GCM
-  const cipher = crypto.createCipheriv("aes-256-gcm", MASTER_KEY, iv);
+  const cipher = crypto.createCipheriv("aes-256-gcm", masterKey, iv);
 
   let encrypted = cipher.update(plainText, "utf8", "hex");
   encrypted += cipher.final("hex");
@@ -41,16 +53,16 @@ export function encryptToken(plainTextOrObj: string | Record<string, any>): stri
 export function decryptToken(cipherText: string): any {
   if (!cipherText || typeof cipherText !== "string") return null;
 
-  // Check for encrypted prefix
   if (cipherText.startsWith("enc_v1:")) {
     try {
       const parts = cipherText.split(":");
       if (parts.length !== 4) return null;
       const [, ivHex, authTagHex, encryptedHex] = parts;
 
+      const masterKey = getMasterKey();
       const iv = Buffer.from(ivHex, "hex");
       const authTag = Buffer.from(authTagHex, "hex");
-      const decipher = crypto.createDecipheriv("aes-256-gcm", MASTER_KEY, iv);
+      const decipher = crypto.createDecipheriv("aes-256-gcm", masterKey, iv);
       decipher.setAuthTag(authTag);
 
       let decrypted = decipher.update(encryptedHex, "hex", "utf8");

@@ -14,53 +14,53 @@ export default function HomePage() {
   const [activeTab, setActiveTab] = useState<number>(0);
 
   const capabilities = [
-    { name: "AI Lead Intelligence", icon: Target },
-    { name: "Web Research", icon: Search },
-    { name: "Enterprise CRM", icon: Database },
-    { name: "Cold Email Cadence", icon: Mail },
-    { name: "WhatsApp Business API", icon: MessageSquare },
-    { name: "Autonomous Workflows", icon: Zap },
-    { name: "Revenue Intelligence", icon: LineChart },
-    { name: "Customer Success", icon: UserCheck },
+    { name: "Web Lead Discovery", icon: Target },
+    { name: "Google Maps Search", icon: Search },
+    { name: "Workspace CRM", icon: Database },
+    { name: "Gmail OAuth Outreach", icon: Mail },
+    { name: "WhatsApp Templates", icon: MessageSquare },
+    { name: "Contact Validation", icon: Shield },
+    { name: "Multi-Format Exports", icon: Download },
+    { name: "AI Lead Briefs", icon: Bot },
   ];
 
   const whatItDoes = [
-    { title: "Find the right companies", desc: "Filter by 193 countries, cities, industries, and headcount.", href: "/app/leads", icon: Search, badge: "Discovery" },
-    { title: "Research every prospect", desc: "Synthesize business model, products, and tech stack in seconds.", href: "/app/research", icon: Bot, badge: "Deep AI" },
-    { title: "Enrich lead intelligence", desc: "Append verified corporate decision maker emails and phone numbers.", href: "/app/leads", icon: Database, badge: "Enrichment" },
-    { title: "Validate business data", desc: "Verify active domain, DNS TXT, and MX deliverability records.", href: "/app/leads", icon: CheckCircle2, badge: "Validation" },
-    { title: "Score opportunities", desc: "Multi-variate 0–100 scoring based on ICP fit and purchase readiness.", href: "/app/leads", icon: Award, badge: "AI Scoring" },
-    { title: "Personalize outreach", desc: "Generate hyper-personalized emails and WhatsApp copy dynamically.", href: "/app/outreach", icon: Sparkles, badge: "Copywriting" },
-    { title: "Automate follow-ups", desc: "Multi-channel cadence across Day 1, 2, 4, 7 with smart reply pauses.", href: "/app/outreach", icon: Zap, badge: "Cadence" },
-    { title: "Track conversations", desc: "Unified omnichannel timeline aggregating all email and WhatsApp events.", href: "/app/crm", icon: MessageSquare, badge: "Omnichannel" },
-    { title: "Manage pipeline", desc: "Visual 9-stage Kanban CRM with drag/drop deal movement and stage velocity.", href: "/app/leads", icon: Layers, badge: "Deals" },
-    { title: "Export lead intelligence", desc: "Download verified leads and contacts in native Excel XLSX and Executive PDF formats.", href: "/app/exports", icon: Download, badge: "Exports" },
+    { title: "Find commercial websites", desc: "Filter by country, city, and business keywords across live public web indexes.", href: "/app/leads", icon: Search, badge: "Discovery" },
+    { title: "Local Maps discovery", desc: "Search local Google Places listings and crawl business sites (Lifetime / enabled plans).", href: "/app/google-maps", icon: Bot, badge: "Maps" },
+    { title: "Extract public contacts", desc: "Parse publicly displayed corporate email addresses and phone numbers with source URLs.", href: "/app/leads", icon: Database, badge: "Contacts" },
+    { title: "Validate contact syntax & MX", desc: "Distinguish email syntax checks, domain DNS MX records, risky patterns, and invalid inputs.", href: "/app/leads", icon: CheckCircle2, badge: "Validation" },
+    { title: "Score contact readiness", desc: "Transparent 0–100 completeness rating based on observed email, phone, website, and source links.", href: "/app/leads", icon: Award, badge: "Readiness" },
+    { title: "Draft personalized outreach", desc: "Generate concise 1-to-1 cold email and WhatsApp drafts tailored to saved company details.", href: "/app/outreach", icon: Sparkles, badge: "AI Drafts" },
+    { title: "Protect workspace compliance", desc: "Enforce per-workspace suppression lists, 30-day duplicate guards, and daily sending caps.", href: "/app/outreach", icon: Zap, badge: "Safety" },
+    { title: "Track prospect replies", desc: "Schedule manual follow-ups and organize lead outreach history in one workspace view.", href: "/app/saved-leads", icon: MessageSquare, badge: "Tracking" },
+    { title: "Manage pipeline stages", desc: "Organize deals from New Lead to Won/Lost inside your isolated workspace Kanban board.", href: "/app/crm", icon: Layers, badge: "CRM" },
+    { title: "Export lead intelligence", desc: "Download workspace leads in formula-safe Excel XLSX, Landscape PDF, UTF-8 CSV, and JSON.", href: "/app/exports", icon: Download, badge: "Exports" },
   ];
 
   const howItWorksSteps = [
-    { step: "01", name: "Search", desc: "Discover high-intent accounts" },
-    { step: "02", name: "Enrich", desc: "Append emails & phone numbers" },
-    { step: "03", name: "Validate", desc: "Verify MX deliverability & DNS" },
-    { step: "04", name: "Score", desc: "Explainable 0–100 ICP fit" },
-    { step: "05", name: "Research", desc: "Extract business signals & needs" },
-    { step: "06", name: "Personalize", desc: "Synthesize bespoke value pitch" },
-    { step: "07", name: "Outreach", desc: "Multi-channel email & WhatsApp" },
-    { step: "08", name: "Track", desc: "Live open, click & reply events" },
-    { step: "09", name: "Follow-Up", desc: "Automated sequence cadence" },
-    { step: "10", name: "Revenue", desc: "Close deals and track expansion" },
+    { step: "01", name: "Search", desc: "Query live web & Places" },
+    { step: "02", name: "Crawl", desc: "Inspect public sites" },
+    { step: "03", name: "Validate", desc: "Check syntax & DNS MX" },
+    { step: "04", name: "Deduplicate", desc: "Skip workspace duplicates" },
+    { step: "05", name: "Save", desc: "Store search snapshots" },
+    { step: "06", name: "Research", desc: "Summarize business fit" },
+    { step: "07", name: "Draft", desc: "Personalize cold message" },
+    { step: "08", name: "Outreach", desc: "Send via Gmail OAuth" },
+    { step: "09", name: "Suppress", desc: "Honor opt-out lists" },
+    { step: "10", name: "Export", desc: "XLSX, PDF, CSV & JSON" },
   ];
 
   const productShowcases = [
     {
       id: "leads",
-      title: "AI Lead Intelligence Studio",
-      subtitle: "Pinpoint High-Probability Accounts",
-      desc: "Stop spraying and praying. Target verified enterprise prospects with algorithmic accuracy. Filter across 193 countries, millions of verified contacts, and live web evidence.",
+      title: "Live Web & Maps Lead Discovery",
+      subtitle: "Source-Backed Prospect Extraction",
+      desc: "Run multi-country or city-specific campaigns with live website contact extraction. Every qualifying business includes source URLs, UTC/PKT collection timestamps, and clear validation status.",
       bullets: [
-        "193 countries & top global cities location database",
-        "Multi-platform discovery: Google, LinkedIn, Directories, Reddit",
-        "Deterministic explainable scoring model (Fit, Readiness, Opportunity)",
-        "Zero duplicate records with normalized domain matching"
+        "Multi-country & specific-city campaign targeting",
+        "Direct HTML & search snippet extraction for public emails and phones",
+        "Deterministic readiness score & DNS MX domain lookup",
+        "Workspace-level domain, email & phone deduplication"
       ],
       ctaText: "Launch Lead Discovery",
       ctaHref: "/app/leads",
@@ -68,29 +68,29 @@ export default function HomePage() {
     },
     {
       id: "research",
-      title: "Deep AI Research Engine",
-      subtitle: "Know Their Business Better Than They Do",
-      desc: "Instant synthesized intelligence on any target domain. USMAN AI reads public records, inspects tech stacks, identifies active pain points, and extracts economic buyers.",
+      title: "AI Lead Research & Pitch Briefs",
+      subtitle: "Tailored Outreach Preparation",
+      desc: "Generate practical commercial summaries, opportunity angles, and personalized email or WhatsApp entry drafts based on a prospect's saved industry, location, and domain.",
       bullets: [
-        "Automated tech stack detection (CMS, CDN, Analytics, Frameworks)",
-        "Executive buying committee identification",
-        "Synthesized commercial pain points & customized angle of entry",
-        "Generates tailored Cold Email and WhatsApp copy automatically"
+        "Executive commercial opportunity brief per saved lead",
+        "Industry-aware pain-point & value-angle framing",
+        "Generates tailored Cold Email & WhatsApp draft copy",
+        "Included on Lifetime & AI Research custom plans"
       ],
-      ctaText: "Explore AI Research",
-      ctaHref: "/app/research",
+      ctaText: "Explore Lead Search",
+      ctaHref: "/app/leads",
       badgeColor: "text-purple-400 bg-purple-500/10 border-purple-500/20"
     },
     {
       id: "email",
       title: "Cold Email Command Center",
-      subtitle: "Official Gmail OAuth & SMTP Engine",
-      desc: "Zero password exposure. Built on official Google OAuth 2.0 protocols and multi-account sending pools. Protect your sender reputation with automated warm-up and suppression gating.",
+      subtitle: "Official Gmail OAuth 2.0 Integration",
+      desc: "Connect your own Google mailbox with minimal gmail.send scope and AES-256-GCM token encryption. Enforce daily plan quotas (10/day Basic, up to 500/day Lifetime) and suppression checks automatically.",
       bullets: [
         "Official Google OAuth 2.0 multi-account sender pooling",
-        "Dynamic multi-step cadence sequence builder (Day 1, Day 3, Day 7)",
-        "Automated reply detection with immediate follow-up cessation",
-        "Hard bounce protection and CAN-SPAM suppression ledger"
+        "Plan-enforced daily sending quotas per workspace",
+        "30-day duplicate outreach protection & manual follow-ups",
+        "Per-workspace Do-Not-Contact & email suppression gating"
       ],
       ctaText: "Open Email Studio",
       ctaHref: "/app/outreach",
@@ -98,46 +98,46 @@ export default function HomePage() {
     },
     {
       id: "whatsapp",
-      title: "Meta WhatsApp Business Cloud API",
-      subtitle: "Compliant High-Engagement Outbound",
-      desc: "Official Meta Cloud API architecture. Send pre-approved interactive templates, manage two-way customer conversations, and respect 24-hour messaging windows with zero account bans.",
+      title: "WhatsApp Outreach Companion",
+      subtitle: "Structured Click-to-Chat Workflows",
+      desc: "Organize phone-qualified leads, draft AI-assisted WhatsApp introductions, track outreach notes, and enforce per-workspace phone suppressions cleanly.",
       bullets: [
-        "100% Official Meta Cloud API (No unapproved web scraping)",
-        "Two-way customer inbox with instant push notifications",
-        "Pre-approved template broadcasts with rich media & quick replies",
-        "Complete automated opt-out and suppression management"
+        "E.164 phone normalization with manual WhatsApp check status",
+        "Reusable workspace message templates & AI draft helper",
+        "Click-to-chat launch without unauthorized account automation",
+        "Per-workspace phone suppression & Do-Not-Contact ledger"
       ],
-      ctaText: "Open WhatsApp Center",
-      ctaHref: "/app/whatsapp",
+      ctaText: "Open Saved Leads",
+      ctaHref: "/app/saved-leads",
       badgeColor: "text-emerald-400 bg-emerald-500/10 border-emerald-500/20"
     },
     {
       id: "crm",
-      title: "Enterprise CRM & Pipeline Kanban",
-      subtitle: "Visual Deal Acceleration",
-      desc: "A responsive, purpose-built B2B CRM designed for fast-moving sales teams. Drag deals across 9 standardized revenue stages with instant value roll-ups and win-loss intelligence.",
+      title: "Workspace CRM & Pipeline Kanban",
+      subtitle: "Visual Deal Stage Tracking",
+      desc: "Keep qualified prospects organized in one workspace pipeline from New Lead to Won or Lost, backed directly by your isolated PostgreSQL workspace.",
       bullets: [
-        "9-stage revenue Kanban board (New to Closed-Won)",
-        "Deal win-probability modeling and expected value forecasting",
-        "Linked companies, decision maker contacts, and activity logs",
-        "Zero external CRM dependency required"
+        "Visual deal Kanban & tabular pipeline views",
+        "Stage updates saved cleanly to your workspace database",
+        "Connected lead email, phone & website quick actions",
+        "Zero unverified third-party tracking lock-ins"
       ],
-      ctaText: "Access Enterprise CRM",
+      ctaText: "Access Workspace CRM",
       ctaHref: "/app/crm",
       badgeColor: "text-amber-400 bg-amber-500/10 border-amber-500/20"
     },
     {
-      id: "revenue",
-      title: "Revenue Intelligence & CS",
-      subtitle: "Predictive Analytics & Churn Shield",
-      desc: "Harness machine learning models to forecast ARR, detect anomalous pipeline drops, calculate rep sales velocity, and trigger automated retention playbooks before accounts churn.",
+      id: "exports",
+      title: "Multi-Format Formula-Safe Exports",
+      subtitle: "XLSX, PDF, CSV & JSON Portability",
+      desc: "Download complete workspace leads or archived search snapshots anytime with full source URLs, contact statuses, UTC/PKT timestamps, and spreadsheet formula neutralization.",
       bullets: [
-        "Predictive deal win-probability and sales cycle duration",
-        "Customer health scoring and automated QBR slide builder",
-        "Cohort revenue retention matrix and net revenue expansion tracking",
-        "Forecast scenario simulator (Conservative, Expected, Best Case)"
+        "Native Excel (.xlsx) & Executive Landscape PDF (.pdf)",
+        "UTF-8 BOM, RFC 4180 CSV (.csv) & Structured JSON (.json)",
+        "CWE-1236 spreadsheet formula-injection sanitization",
+        "Workspace audit log tracking export history"
       ],
-      ctaText: "Explore Lead Exports",
+      ctaText: "Explore Export Center",
       ctaHref: "/app/exports",
       badgeColor: "text-rose-400 bg-rose-500/10 border-rose-500/20"
     }
@@ -192,108 +192,103 @@ export default function HomePage() {
             {/* Top Browser Bar */}
             <div className="flex items-center justify-between border-b border-white/[0.08] pb-3 mb-4 px-2">
               <div className="flex items-center gap-2">
-                <div className="h-3 w-3 rounded-full bg-rose-500/80" />
-                <div className="h-3 w-3 rounded-full bg-amber-500/80" />
-                <div className="h-3 w-3 rounded-full bg-emerald-500/80" />
-                <span className="ml-3 text-xs text-slate-400 font-mono hidden sm:inline">
-                  https://app.usmanai.com/command-center
+                <span className="ml-1 text-xs text-slate-400 font-mono">
+                  Illustrative Workspace Preview (Sample Data)
                 </span>
               </div>
               <div className="flex items-center gap-2">
                 <span className="flex items-center gap-1.5 text-xs text-emerald-400 bg-emerald-500/10 px-2.5 py-1 rounded-md border border-emerald-500/20 font-medium">
-                  <span className="h-1.5 w-1.5 rounded-full bg-emerald-400 animate-ping" />
-                  Direct Engine
+                  Live Workspace Demo Layout
                 </span>
                 <span className="text-xs text-slate-400 px-2 py-0.5 rounded bg-white/5 font-mono">Multi-Source Discovery</span>
               </div>
             </div>
 
-            {/* Interactive Mock Dashboard Grid */}
+            {/* Sample UI Preview Grid (Illustrative only) */}
             <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 text-left">
               {/* Col 1: Lead Intelligence & Scoring */}
               <div className="rounded-xl border border-white/[0.08] bg-[#0c121e]/80 p-4">
                 <div className="flex items-center justify-between mb-3">
                   <span className="text-xs font-semibold uppercase tracking-wider text-slate-400 flex items-center gap-1.5">
-                    <Target className="h-3.5 w-3.5 text-blue-400" /> Lead Intelligence
+                    <Target className="h-3.5 w-3.5 text-blue-400" /> Lead Intelligence (Sample)
                   </span>
-                  <span className="text-xs font-bold text-emerald-400 bg-emerald-500/10 px-2 py-0.5 rounded">94/100 ICP</span>
+                  <span className="text-xs font-bold text-emerald-400 bg-emerald-500/10 px-2 py-0.5 rounded">Complete Contact</span>
                 </div>
                 <div className="space-y-2.5">
                   <div className="p-2.5 rounded-lg bg-white/[0.03] border border-white/[0.05]">
                     <div className="flex justify-between items-center mb-1">
-                      <span className="font-semibold text-sm text-white">Dental Care Specialists</span>
-                      <span className="text-[10px] text-amber-400 bg-amber-500/10 px-1.5 py-0.5 rounded font-mono">HIGH FIT</span>
+                      <span className="font-semibold text-sm text-white">Example Dental Clinic</span>
+                      <span className="text-[10px] text-amber-400 bg-amber-500/10 px-1.5 py-0.5 rounded font-mono">MX VALID</span>
                     </div>
-                    <p className="text-xs text-slate-400 mb-1.5">Healthcare & Dental Surgery • Lahore, PK</p>
+                    <p className="text-xs text-slate-400 mb-1.5">Healthcare Clinic • Sample Record</p>
                     <div className="flex gap-2 text-[10px] text-slate-300">
-                      <span className="bg-white/5 px-2 py-0.5 rounded">Website: Active</span>
-                      <span className="bg-white/5 px-2 py-0.5 rounded">Source: Google Verified</span>
+                      <span className="bg-white/5 px-2 py-0.5 rounded">Website: Listed</span>
+                      <span className="bg-white/5 px-2 py-0.5 rounded">Source URL Stored</span>
                     </div>
                   </div>
 
                   <div className="p-2.5 rounded-lg bg-white/[0.03] border border-white/[0.05]">
                     <div className="flex justify-between items-center mb-1">
-                      <span className="font-semibold text-sm text-white">Nexus Logistics Group</span>
-                      <span className="text-[10px] text-blue-400 bg-blue-500/10 px-1.5 py-0.5 rounded font-mono">VERIFIED</span>
+                      <span className="font-semibold text-sm text-white">Example Logistics Co.</span>
+                      <span className="text-[10px] text-blue-400 bg-blue-500/10 px-1.5 py-0.5 rounded font-mono">SYNTAX VALID</span>
                     </div>
-                    <p className="text-xs text-slate-400 mb-1.5">Commercial Freight & Fleet • Dubai, UAE</p>
+                    <p className="text-xs text-slate-400 mb-1.5">Commercial Freight • Sample Record</p>
                     <div className="flex gap-2 text-[10px] text-slate-300">
-                      <span className="bg-white/5 px-2 py-0.5 rounded">Decision Maker: Appended</span>
-                      <span className="bg-white/5 px-2 py-0.5 rounded">Fit Score: 86</span>
+                      <span className="bg-white/5 px-2 py-0.5 rounded">Phone: E.164 Check</span>
+                      <span className="bg-white/5 px-2 py-0.5 rounded">Deduplicated</span>
                     </div>
                   </div>
                 </div>
               </div>
 
-              {/* Col 2: CRM Pipeline & Revenue Metrics */}
+              {/* Col 2: Outreach & Export Capabilities */}
               <div className="rounded-xl border border-white/[0.08] bg-[#0c121e]/80 p-4">
                 <div className="flex items-center justify-between mb-3">
                   <span className="text-xs font-semibold uppercase tracking-wider text-slate-400 flex items-center gap-1.5">
-                    <LineChart className="h-3.5 w-3.5 text-purple-400" /> Pipeline & Deals
+                    <LineChart className="h-3.5 w-3.5 text-purple-400" /> Pipeline &amp; Exports
                   </span>
-                  <span className="text-xs font-bold text-white">Active Stage Flow</span>
+                  <span className="text-xs font-bold text-white">Workspace Controls</span>
                 </div>
                 <div className="grid grid-cols-2 gap-2 mb-3">
                   <div className="p-2 rounded-lg bg-white/[0.02] border border-white/[0.04]">
-                    <div className="text-[10px] text-slate-400">Pipeline Tracking</div>
-                    <div className="text-base font-bold text-emerald-400">9 Stages</div>
+                    <div className="text-[10px] text-slate-400">Export Formats</div>
+                    <div className="text-base font-bold text-emerald-400">XLSX / CSV</div>
                   </div>
                   <div className="p-2 rounded-lg bg-white/[0.02] border border-white/[0.04]">
-                    <div className="text-[10px] text-slate-400">Outreach Methods</div>
-                    <div className="text-base font-bold text-blue-400">Email & WA</div>
+                    <div className="text-[10px] text-slate-400">Report &amp; API</div>
+                    <div className="text-base font-bold text-blue-400">PDF / JSON</div>
                   </div>
                 </div>
-                {/* Visual Pipeline Bar */}
                 <div className="space-y-1.5">
                   <div className="flex justify-between text-xs text-slate-400">
-                    <span>Negotiation ($95K)</span>
-                    <span className="text-purple-400 font-semibold">90% Win Prob</span>
+                    <span>Basic Plan Daily Gmail Cap</span>
+                    <span className="text-purple-400 font-semibold">10 / UTC day</span>
                   </div>
                   <div className="h-2 w-full rounded-full bg-white/5 overflow-hidden">
-                    <div className="h-full bg-gradient-to-r from-blue-500 via-indigo-500 to-purple-500 w-[78%]" />
+                    <div className="h-full bg-gradient-to-r from-blue-500 via-indigo-500 to-purple-500 w-[40%]" />
                   </div>
                   <div className="flex justify-between text-xs text-slate-400 pt-1">
-                    <span>Proposal ($45K)</span>
-                    <span className="text-blue-400 font-semibold">65% Win Prob</span>
+                    <span>Lifetime Plan Gmail Cap</span>
+                    <span className="text-blue-400 font-semibold">Up to 500 / day</span>
                   </div>
                   <div className="h-2 w-full rounded-full bg-white/5 overflow-hidden">
-                    <div className="h-full bg-blue-500 w-[55%]" />
+                    <div className="h-full bg-blue-500 w-[85%]" />
                   </div>
                 </div>
               </div>
 
-              {/* Col 3: AI Copilot & Cadence Stream */}
+              {/* Col 3: AI Drafts & Suppression Guard */}
               <div className="rounded-xl border border-white/[0.08] bg-[#0c121e]/80 p-4 flex flex-col justify-between">
                 <div>
                   <div className="flex items-center justify-between mb-3">
                     <span className="text-xs font-semibold uppercase tracking-wider text-slate-400 flex items-center gap-1.5">
-                      <Bot className="h-3.5 w-3.5 text-cyan-400" /> AI Sales Copilot
+                      <Bot className="h-3.5 w-3.5 text-cyan-400" /> AI Outreach Helper
                     </span>
-                    <span className="text-[10px] text-slate-400 font-mono">Agent Active</span>
+                    <span className="text-[10px] text-slate-400 font-mono">Gemini Powered</span>
                   </div>
                   <div className="p-3 rounded-lg bg-blue-500/10 border border-blue-500/20 text-xs text-slate-200 mb-2">
-                    <div className="font-semibold text-blue-400 mb-1">Autonomous Opportunity Alert</div>
-                    Detected buying signal on Vanguard Health Systems. Suggested entry angle: AI Clinical Compliance automation.
+                    <div className="font-semibold text-blue-400 mb-1">Safe 1-to-1 Dispatch</div>
+                    Generate personalized email copy and enforce workspace suppression and 30-day duplicate outreach checks before sending.
                   </div>
                 </div>
                 <Link
@@ -457,7 +452,7 @@ export default function HomePage() {
                   <div className="space-y-2 text-slate-300">
                     <div>Module: <span className="text-blue-400">{showcase.id.toUpperCase()}</span></div>
                     <div>Verification: <span className="text-emerald-400">Source-Backed</span></div>
-                    <div>Security: <span className="text-purple-400">PBKDF2 / Argon2</span></div>
+                    <div>Security: <span className="text-purple-400">PBKDF2-SHA256 / AES-256-GCM</span></div>
                     <div>Isolation: <span className="text-white">Workspace Encrypted</span></div>
                   </div>
                 </div>

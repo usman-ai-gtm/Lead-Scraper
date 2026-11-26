@@ -12,6 +12,7 @@ import {
   isDuplicateOutreach,
   logAccountAudit,
 } from "@/lib/neon-db";
+import { consumeRateLimit, rateLimitExceededResponse } from "@/lib/rate-limit";
 
 export async function POST(request: Request) {
   const currentUser = getCurrentUserFromRequest(request);
@@ -25,6 +26,19 @@ export async function POST(request: Request) {
 
   const workspaceId = Number(authCheck.userRecord?.workspace_id || currentUser.workspace_id) || 1;
   const userId = Number(authCheck.userRecord?.id || currentUser.id) || 1;
+
+  const rl = await consumeRateLimit({
+    bucket: "gmail_send",
+    identifier: String(workspaceId),
+    limit: 30,
+    windowSeconds: 60,
+  });
+  if (!rl.allowed) {
+    return rateLimitExceededResponse(
+      rl.retryAfterSeconds,
+      `Sending bursts are throttled for deliverability protection. Retry in ${rl.retryAfterSeconds}s.`
+    );
+  }
   const planDailyLimit = authCheck.entitlements?.dailyEmailLimit ?? 10;
   const planLabel = authCheck.entitlements?.planLabel || "Active Plan";
 

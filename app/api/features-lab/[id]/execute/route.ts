@@ -1,14 +1,23 @@
-import { proxyToBackend } from "@/lib/backend-proxy";
+import { NextResponse } from "next/server";
+import { getCurrentUserFromRequest, verifyClientActiveSubscription } from "@/lib/serverless-auth";
 
-export async function POST(req: Request, { params }: { params: { id: string } }) {
-  const fallback = {
-    status: "success",
-    feature_id: Number(params.id),
-    execution_time_ms: 42,
-    result: {
-      message: `Feature #${params.id} executed successfully`,
-      data: { confidence: 0.96, state: "COMPLETE", details: "Bayesian pipeline calculation applied" }
-    }
-  };
-  return proxyToBackend(`/api/features-lab/${params.id}/execute`, req, fallback);
+export const dynamic = "force-dynamic";
+
+export async function POST(req: Request) {
+  const user = getCurrentUserFromRequest(req);
+  if (!user) {
+    return NextResponse.json({ detail: "Authentication required" }, { status: 401 });
+  }
+  const subCheck = await verifyClientActiveSubscription(user);
+  if (!subCheck.allowed) {
+    return NextResponse.json({ detail: subCheck.message }, { status: subCheck.statusCode || 403 });
+  }
+
+  return NextResponse.json(
+    {
+      status: "unavailable",
+      error: "This experimental endpoint has been retired. Use /app/leads/[id]/research or /app/leads for live execution.",
+    },
+    { status: 501 }
+  );
 }

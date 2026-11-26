@@ -46,6 +46,8 @@ export interface MapsLeadItem {
   phone: string;
   phone_source_url: string;
   phone_status: string;
+  last_verified_at?: string;
+  collection_timestamp?: string;
   country: string;
   city: string;
   address: string;
@@ -88,7 +90,7 @@ export interface MapsJobPayload {
 }
 
 export function resolveSerperKey(): string {
-  return (process.env.SERPER_API_KEY || "2baa9b7d5907ecc3fe3fceebb8c4b9b7e30e3297").trim();
+  return (process.env.SERPER_API_KEY || "").trim();
 }
 
 export function parseContactRequirement(raw?: any): ContactRequirement {
@@ -579,16 +581,32 @@ export async function processMapsBatchStep(
           `${c.title} ${c.place.address || locationLabel}`.trim()
         )}`;
 
+        const { verifyLeadEmailTruthfully, evaluatePhoneQualityTruthfully } = await import("@/lib/contact-verification");
+        const emailText = contactValidation.normalizedEmail || disc.email || "";
+        const emailCheck = emailText
+          ? await verifyLeadEmailTruthfully(emailText, { resolveMx: true })
+          : null;
+        const phoneCheck = evaluatePhoneQualityTruthfully(
+          contactValidation.normalizedPhone || c.phone || "",
+          task.country,
+          mapsLink
+        );
+        const finalEmail = emailCheck?.email || emailText;
+        const finalPhone = phoneCheck.normalized || contactValidation.normalizedPhone || c.phone || "";
+        const verifiedAtIso = emailCheck?.checkedAt || phoneCheck.checkedAt || new Date().toISOString();
+
         newLeads.push({
           business_name: c.title,
           website: c.rawWebsite || (c.domain ? `https://${c.domain}` : ""),
           domain: c.domain,
-          email: contactValidation.normalizedEmail || disc.email || "",
+          email: finalEmail,
           email_source_url: disc.emailSourceUrl || (c.domain ? `https://${c.domain}` : ""),
-          email_status: disc.email ? disc.emailStatus : "NOT FOUND",
-          phone: contactValidation.normalizedPhone || c.phone || "",
+          email_status: emailCheck ? emailCheck.displayLabel : "Not Found",
+          phone: finalPhone,
           phone_source_url: mapsLink,
-          phone_status: c.phoneValid ? "LISTED IN PLACES DATA" : "NOT LISTED",
+          phone_status: phoneCheck.displayLabel,
+          last_verified_at: verifiedAtIso,
+          collection_timestamp: verifiedAtIso,
           country: task.country,
           city: task.city || "",
           address: String(c.place.address || "").trim(),

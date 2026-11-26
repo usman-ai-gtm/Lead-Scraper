@@ -8,6 +8,7 @@ import {
   listPaymentMethods,
   validateProofUpload,
 } from "@/lib/payments-db";
+import { consumeRateLimit, rateLimitExceededResponse } from "@/lib/rate-limit";
 
 export const dynamic = "force-dynamic";
 export const fetchCache = "force-no-store";
@@ -69,6 +70,19 @@ export async function POST(req: Request) {
   try {
     const resolved = await resolveAuthenticatedCustomer(req);
     if (resolved.error) return resolved.error;
+
+    const rl = await consumeRateLimit({
+      bucket: "payment_submission",
+      identifier: String(resolved.userId),
+      limit: 10,
+      windowSeconds: 3600,
+    });
+    if (!rl.allowed) {
+      return rateLimitExceededResponse(
+        rl.retryAfterSeconds,
+        "Too many payment submissions uploaded recently. Please wait before submitting again."
+      );
+    }
 
     const formData = await req.formData();
     const file = formData.get("file");

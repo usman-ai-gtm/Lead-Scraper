@@ -17,6 +17,7 @@ import {
   MapsCountryStat,
   MapsLeadItem,
 } from "@/lib/maps-extractor";
+import { consumeRateLimit, rateLimitExceededResponse } from "@/lib/rate-limit";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 60;
@@ -69,6 +70,19 @@ export async function POST(req: Request) {
     const contactRequirement = parseContactRequirement(body.contact_requirement || body.contact_filter);
     const workspaceId = Number(subCheck.userRecord?.workspace_id || user.workspace_id) || 1;
     const userId = Number(subCheck.userRecord?.id || user.id) || 1;
+
+    const rl = await consumeRateLimit({
+      bucket: "maps_search",
+      identifier: String(workspaceId),
+      limit: 12,
+      windowSeconds: 60,
+    });
+    if (!rl.allowed) {
+      return rateLimitExceededResponse(
+        rl.retryAfterSeconds,
+        `Google Maps search rate limit reached. Please wait ${rl.retryAfterSeconds}s before launching another extraction.`
+      );
+    }
 
     const serperKey = resolveSerperKey();
     if (!serperKey) {

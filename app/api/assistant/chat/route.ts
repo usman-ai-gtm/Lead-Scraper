@@ -28,30 +28,30 @@ CORE CONSULTATIVE BEHAVIOR & METHODOLOGY:
    - For local services (plumbers, realtors, dentists, restaurants, contractors) -> Recommend the Google Maps Lead Extractor ($100 Lifetime Plan) to get verified emails, phone numbers, and addresses.
    - For B2B agencies, software companies, consultancies, wholesalers -> Recommend the AI-Powered Lead Search with Natural Language Queries + Gmail OAuth Cold Email with our 10 proven templates.
    - Emphasize our permanent Account-Level Lead Deduplication (leads they already received or saved will never be returned again, saving them wasted searches).
-3. PRICING & PLAN COMPARISON:
+3. PRICING & PLAN COMPARISON (TRUTHFUL LIMITS):
    - Basic Plan ($25 / 30 Days):
-     • 5,000 verified leads per month.
-     • Multi-source organic web search engine across 193 countries.
-     • Account-level lead deduplication.
-     • Direct personal Gmail cold outreach (500 free emails/day via Google OAuth).
+     • Multi-country web search engine (excludes Google Maps & AI Research Agent).
+     • Workspace-level lead deduplication & XLSX/PDF/CSV/JSON exports.
+     • Direct personal Gmail cold outreach (up to 10 cold emails per UTC day via Google OAuth).
      • Standard AI email copy generator.
-     • 30 days active access (locks automatically upon expiry until renewed).
+     • 30 days active access (locks automatically at exact expiry until renewed).
    - Lifetime Plan ($100 One-Time — BEST VALUE):
-     • Permanent lifetime access — zero monthly renewal fees forever!
-     • Unlimited search engine queries.
-     • EXCLUSIVE: Google Maps Business Lead Generator (extract local leads with website email discovery).
-     • EXCLUSIVE: AI Lead Research Agent (deep competitive intelligence).
+     • Permanent access — zero monthly renewal fees!
+     • Up to 500 cold emails per UTC day across connected Gmail accounts (Google fair-use cap).
+     • EXCLUSIVE: Google Maps Business Lead Generator (discover local places + website contact info).
+     • EXCLUSIVE: AI Lead Research Agent.
      • Multi-Gmail account rotation.
      • Priority direct WhatsApp consultation with the Founder.
+   - Custom Plans: Configurable duration, modules, and daily limits set by the Owner.
 4. HOW TO ACTIVATE / BUY:
    - New accounts start in LOCKED status for safety.
-   - To unlock or subscribe, message the Founder directly on WhatsApp at +923174383702 (https://wa.me/923174383702).
-   - Supported payment methods: Bank Transfer, EasyPaisa, JazzCash, Crypto (USDT/BTC), or Card.
-   - Instant manual activation after payment confirmation.
+   - Submit payment proof in Dashboard -> Usage & Subscription or message the Founder on WhatsApp at +923174383702 (https://wa.me/923174383702).
+   - Supported payment methods: Bank Transfer / Raast, EasyPaisa, JazzCash, or arranged international card/transfer.
+   - Fast manual activation after payment verification.
 5. OBJECTION HANDLING:
-   - "Why not Apollo or ZoomInfo?" -> USMAN AI GTM costs $100 ONCE for lifetime, versus $1,200+/year for Apollo. Plus, direct Gmail dispatch is free (500/day) with zero extra cold email tool costs.
-   - "Are the leads fresh?" -> We query live public web and Google sources at search time, with strict email validation. We never sell stale static CSV dumps.
-   - "Is my data private?" -> Strict tenant isolation. Your leads and Gmail connections are private to your workspace and never shared with other clients.
+   - "Why USMAN AI GTM?" -> Affordable $25/mo or $100 one-time Lifetime entry point, direct 1-to-1 Gmail OAuth dispatch, and transparent source URLs + MX validation without inflated data-broker claims.
+   - "Are the leads fresh?" -> We query live public web and Google sources at search time, run syntax & DNS MX domain checks, and never sell stale static CSV dumps.
+   - "Is my data private?" -> Workspace tenant isolation in PostgreSQL. Your leads and Gmail connections remain separated per workspace.
 6. MULTILINGUAL FLUENCY:
    - Always respond in the EXACT language used by the user:
      • Urdu (اردو رسم الخط): Use courteous, professional Urdu.
@@ -123,7 +123,7 @@ function detectUserLanguage(text: string): { code: string; label: string } {
 function getFallbackReply(message: string, langCode: string): { reply: string; suggested_actions: Array<{ label: string; url: string }> } {
   if (langCode === "ur") {
     return {
-      reply: `**عثمان اے آئی جی ٹی ایم (USMAN AI GTM) میں خوش آمدید!**\n\nمیں آپ کا بزنس گروتھ اور سیلز کنسلٹنٹ ہوں۔ میں آپ کی مدد کر سکتا ہوں:\n\n• **بیسک پلان ($25 / 30 دن)**: 5,000 تصدیق شدہ بی ٹو بی لیڈز، آرگینک سرچ انجن، اور جی میل کولڈ ای میل۔\n• **لائف ٹائم پلان ($100 مستقل)**: گوگل میپس لیڈ جنریٹر، لامحدود سرچ، اور لائف ٹائم فری ایکسس۔\n\nاپنے بزنس کے بارے میں بتائیں تا کہ میں آپ کے لیے بہترین حکمتِ عملی تجویز کروں۔\nاکاؤنٹ ایکٹیویشن کے لیے بانی عثمان سے واٹس ایپ پر رابطہ کریں: **+923174383702**`,
+      reply: `**عثمان اے آئی جی ٹی ایم (USMAN AI GTM) میں خوش آمدید!**\n\nمیں آپ کا بزنس گروتھ اور سیلز کنسلٹنٹ ہوں۔ میں آپ کی مدد کر سکتا ہوں:\n\n• **بیسک پلان ($25 / 30 دن)**: ویب لیڈ سرچ، روزانہ 10 کولڈ ای میلز (جی میل OAuth) اور XLSX/PDF/CSV/JSON ایکسپورٹس۔\n• **لائف ٹائم پلان ($100 مستقل)**: گوگل میپس لیڈ جنریٹر، اے آئی ریسرچ ایجنٹ، اور روزانہ 500 تک کولڈ ای میلز۔\n\nاپنے بزنس کے بارے میں بتائیں تا کہ میں آپ کے لیے بہترین حکمتِ عملی تجویز کروں۔\nاکاؤنٹ ایکٹیویشن کے لیے واٹس ایپ پر رابطہ کریں: **+923174383702**`,
       suggested_actions: [
         { label: "واٹس ایپ پر رابطہ کریں (+923174383702)", url: "https://wa.me/923174383702?text=Hello%20Usman%2C%20mujhe%20account%20activate%20krwana%20hai" },
         { label: "پلانز اور قیمت", url: "/pricing" }
@@ -133,7 +133,7 @@ function getFallbackReply(message: string, langCode: string): { reply: string; s
 
   if (langCode === "ur-Latn") {
     return {
-      reply: `**USMAN AI GTM Sales & Growth Consultant:**\n\nMain aapki help kar sakta hoon aapke business k mutabiq targeted leads dhoondne mein:\n\n• **Basic Plan ($25 / 30 Din)**: 5,000 verified leads, global web search, personal Gmail integration (500 free emails daily).\n• **Lifetime Plan ($100 One-Time)**: Google Maps Lead Generator, unlimited search, multi-Gmail rotation aur zero monthly fees!\n\nAap kis industry ya business k liye clients dhoond rahe hain? Mujhe batayein taakay main exact strategy suggest kar sakoon.\n\nAccount activate karwane k liye Founder se WhatsApp per rabta karein: **+923174383702**`,
+      reply: `**USMAN AI GTM Sales & Growth Consultant:**\n\nMain aapki help kar sakta hoon aapke business k mutabiq targeted leads dhoondne mein:\n\n• **Basic Plan ($25 / 30 Din)**: Web lead search, XLSX/PDF/CSV/JSON exports aur Gmail OAuth integration (daily 10 cold emails cap).\n• **Lifetime Plan ($100 One-Time)**: Google Maps Lead Generator, AI Research Agent, daily up to 500 cold emails aur zero monthly fees!\n\nAap kis industry ya business k liye clients dhoond rahe hain? Mujhe batayein taakay main exact strategy suggest kar sakoon.\n\nAccount activate karwane k liye Founder se WhatsApp per rabta karein: **+923174383702**`,
       suggested_actions: [
         { label: "WhatsApp per Rabta (+923174383702)", url: "https://wa.me/923174383702?text=Hi%20Usman%2C%20account%20activate%20krna%20hai" },
         { label: "View Pricing Plans", url: "/pricing" }
@@ -143,7 +143,7 @@ function getFallbackReply(message: string, langCode: string): { reply: string; s
 
   if (langCode === "tr") {
     return {
-      reply: `**USMAN AI GTM'e Hoş Geldiniz!**\n\nB2B büyüme ve potansiyel müşteri bulma platformumuz hakkında size yardımcı olmaktan memnuniyet duyarım.\n\n• **Temel Plan ($25 / 30 Gün)**: 5.000 doğrulanmış B2B müşteri adayı, genel web araması ve Gmail entegrasyonu (günde 500 ücretsiz e-posta).\n• **Ömür Boyu Plan ($100 Tek Seferlik)**: Google Haritalar Müşteri Oluşturucu, sınırsız arama ve aylık yenileme ücreti yok!\n\nİşletmenizi ve hedef kitlenizi anlatın, size en uygun stratejiyi sunalım. WhatsApp üzerinden kurucu Usman ile iletişime geçin: **+923174383702**`,
+      reply: `**USMAN AI GTM\'e Hoş Geldiniz!**\n\nB2B büyüme ve potansiyel müşteri bulma platformumuz hakkında size yardımcı olmaktan memnuniyet duyarım.\n\n• **Temel Plan ($25 / 30 Gün)**: Web araması, XLSX/PDF/CSV/JSON dışa aktarma ve Gmail OAuth entegrasyonu (günlük 10 e-posta limiti).\n• **Ömür Boyu Plan ($100 Tek Seferlik)**: Google Haritalar Müşteri Oluşturucu, AI Araştırma ve günde 500\'e kadar e-posta hakkı!\n\nİşletmenizi ve hedef kitlenizi anlatın, size en uygun stratejiyi sunalım. WhatsApp: **+923174383702**`,
       suggested_actions: [
         { label: "WhatsApp'tan Yazın (+923174383702)", url: "https://wa.me/923174383702" },
         { label: "Fiyatlandırma", url: "/pricing" }
@@ -152,7 +152,7 @@ function getFallbackReply(message: string, langCode: string): { reply: string; s
   }
 
   return {
-    reply: `**Welcome to USMAN AI GTM!**\n\nI am your dedicated B2B Growth Consultant. To give you the highest-converting strategy, could you tell me a little about your business:\n1. **What services or products do you offer?**\n2. **Who is your ideal customer profile (industry, location, size)?**\n\n**Quick Overview of Plans:**\n• **Basic Plan ($25 / 30 Days)**: 5,000 verified leads, multi-channel web search, 500 free daily cold emails via Google OAuth.\n• **Lifetime Plan ($100 One-Time — Most Popular)**: Unlimited searches, Google Maps Local Scraper with email discovery, multi-Gmail rotation, and zero monthly renewal fees forever.\n\nTo activate your account instantly or discuss custom requirements, chat with the Founder on WhatsApp: **+923174383702**.`,
+    reply: `**Welcome to USMAN AI GTM!**\n\nI am your dedicated B2B Growth Consultant. To give you the highest-converting strategy, could you tell me:\n1. **What services or products do you offer?**\n2. **Who is your ideal customer profile (industry, location, size)?**\n\n**Quick Overview of Plans:**\n• **Basic Plan ($25 / 30 Days)**: Multi-country web lead search, XLSX/PDF/CSV/JSON exports, and up to 10 cold emails/day via Gmail OAuth.\n• **Lifetime Plan ($100 One-Time)**: Permanent access, Google Maps Business Lead Generator, AI Research Agent, and up to 500 Gmail emails/day.\n\nTo activate or upgrade, chat with the Owner on WhatsApp: **+923174383702**.`,
     suggested_actions: [
       { label: "Message Founder on WhatsApp (+923174383702)", url: "https://wa.me/923174383702" },
       { label: "Compare Plans & Pricing", url: "/pricing" },

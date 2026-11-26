@@ -93,7 +93,7 @@ export default function SearchHistoryPage() {
   };
 
   // Export current snapshot
-  const handleExportSnapshot = async (format: "xlsx" | "pdf") => {
+  const handleExportSnapshot = async (format: "xlsx" | "pdf" | "csv" | "json") => {
     if (!activeRecord || !activeRecord.leads || activeRecord.leads.length === 0) return;
     setExportLoading(true);
     try {
@@ -297,7 +297,7 @@ export default function SearchHistoryPage() {
                 </h3>
               </div>
 
-              <div className="flex items-center gap-2">
+              <div className="flex items-center gap-2 flex-wrap">
                 <button
                   onClick={() => handleExportSnapshot("xlsx")}
                   disabled={exportLoading || !activeRecord.leads || activeRecord.leads.length === 0}
@@ -305,6 +305,22 @@ export default function SearchHistoryPage() {
                 >
                   <FileSpreadsheet className="h-3.5 w-3.5" />
                   <span>Excel</span>
+                </button>
+                <button
+                  onClick={() => handleExportSnapshot("csv")}
+                  disabled={exportLoading || !activeRecord.leads || activeRecord.leads.length === 0}
+                  className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-blue-600/20 hover:bg-blue-600/30 text-blue-300 border border-blue-500/30 text-xs font-bold transition-all disabled:opacity-40"
+                >
+                  <Download className="h-3.5 w-3.5" />
+                  <span>CSV</span>
+                </button>
+                <button
+                  onClick={() => handleExportSnapshot("json")}
+                  disabled={exportLoading || !activeRecord.leads || activeRecord.leads.length === 0}
+                  className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-amber-600/20 hover:bg-amber-600/30 text-amber-300 border border-amber-500/30 text-xs font-bold transition-all disabled:opacity-40"
+                >
+                  <Download className="h-3.5 w-3.5" />
+                  <span>JSON</span>
                 </button>
                 <button
                   onClick={() => handleExportSnapshot("pdf")}
@@ -316,6 +332,7 @@ export default function SearchHistoryPage() {
                 </button>
                 <button
                   onClick={() => setActiveRecord(null)}
+                  aria-label="Close snapshot modal"
                   className="p-1.5 text-slate-400 hover:text-white rounded-lg bg-white/5"
                 >
                   <X className="h-5 w-5" />
