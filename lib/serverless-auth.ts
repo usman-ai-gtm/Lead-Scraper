@@ -969,7 +969,7 @@ export async function verifyClientActiveSubscription(
         const rows = await sql.query(
           `SELECT id, username, email, role, account_type, workspace_id, status, plan, plan_type, plan_label,
                   custom_duration_value, custom_duration_unit, custom_price_usd, suggested_price_usd,
-                  daily_email_limit, google_maps_enabled, features_json,
+                  max_leads_quota, daily_email_limit, google_maps_enabled, features_json,
                   subscription_start, subscription_expires_at, subscription_status,
                   COALESCE(session_version, 1) AS session_version
            FROM users

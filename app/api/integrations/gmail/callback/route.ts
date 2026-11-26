@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { saveNeonGmailAccount, getNeonSql, isNeonConfigured, logAccountAudit } from "@/lib/neon-db";
 import { createJwtToken, verifyOAuthState, verifyClientActiveSubscription } from "@/lib/serverless-auth";
+import { classifyGoogleOAuthError } from "@/lib/google-oauth-diagnostics";
 
 export const dynamic = "force-dynamic";
 
@@ -58,11 +59,15 @@ export async function GET(request: Request) {
 
   // Handle cancelled or failed auth
   if (error || !code) {
-    const errorCode = String(error || "cancelled");
-    const errorMsg =
-      errorCode === "access_denied"
-        ? "Google blocked or cancelled access (Error 403 access_denied: either consent was declined or this app's gmail.send OAuth verification / Testing list in Google Cloud Console blocked the sign-in)."
-        : errorCode;
+    const rawErr = String(error || "consent_cancelled");
+    const rawDesc = String(url.searchParams.get("error_description") || "");
+    const diag = classifyGoogleOAuthError(
+      rawErr === "access_denied" ? (rawDesc || "access_denied") : rawErr,
+      rawDesc,
+      "callback"
+    );
+    const errorCode = diag.code;
+    const errorMsg = `${diag.headline} ${diag.nextAction}`;
     if (stateAction === "gmail_connect" && userId > 0) {
       await logAccountAudit({
         adminId: userId,
@@ -71,7 +76,7 @@ export async function GET(request: Request) {
         workspaceId,
         action: "GMAIL_CONNECT_FAILED",
         result: "FAILED",
-        details: { error_code: errorCode, reason: errorMsg },
+        details: { error_code: errorCode, raw_error: rawErr, reason: errorMsg },
       }).catch(() => {});
     }
     if (stateAction === "google_login") {
@@ -110,12 +115,15 @@ export async function GET(request: Request) {
 
     if (!tokenRes.ok) {
       const errJson = await tokenRes.json().catch(() => ({}));
-      console.error("[OAuth Callback] Token exchange failed:", errJson);
-      const errText = errJson.error_description || "Google token exchange failed.";
+      console.error("[OAuth Callback] Token exchange failed:", errJson?.error || tokenRes.status);
+      const diag = classifyGoogleOAuthError(errJson?.error, errJson?.error_description, "token_exchange");
+      const errText = `${diag.headline} ${diag.nextAction}`;
       if (stateAction === "google_login") {
         return NextResponse.redirect(`${appBase}/login?error=${encodeURIComponent(errText)}`);
       }
-      return NextResponse.redirect(`${appBase}/app/accounts?status=error&message=${encodeURIComponent(errText)}`);
+      return NextResponse.redirect(
+        `${appBase}/app/accounts?status=error&error_code=${encodeURIComponent(diag.code)}&message=${encodeURIComponent(errText)}`
+      );
     }
 
     const tokens = await tokenRes.json();

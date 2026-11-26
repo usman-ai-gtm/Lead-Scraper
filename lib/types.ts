@@ -19,6 +19,9 @@ export interface User {
   custom_duration_unit?: string | null;
   custom_price_usd?: number | null;
   suggested_price_usd?: number | null;
+  max_leads_quota?: number | null;
+  leads_used_in_period?: number;
+  remaining_leads_quota?: number | null;
   is_active?: boolean;
   isLocked?: boolean;
   isPreview?: boolean;

@@ -13,6 +13,7 @@ import {
   DurationUnit,
   FeatureMap,
 } from "@/lib/entitlements";
+import { resolvePlanLeadAllowance } from "@/lib/custom-plans";
 
 function getConnectionString(): string | null {
   let dbUrl = process.env.DATABASE_URL || process.env.POSTGRES_URL;
@@ -2489,24 +2490,33 @@ export async function getNeonClientDashboardMetrics(workspaceId: number) {
     );
     const totalLeadsFound = parseInt(searchRes[0]?.total_found || "0", 10);
 
-    // 8. Authoritative workspace owner/client plan entitlements
+    // 8. Authoritative workspace owner/client plan entitlements & quota state
     const wsUserRows = await sql.query(
-      `SELECT role, account_type, status, plan, plan_type, plan_label,
-              custom_duration_value, custom_duration_unit, daily_email_limit,
+      `SELECT id, role, account_type, status, plan, plan_type, plan_label,
+              custom_duration_value, custom_duration_unit, max_leads_quota, daily_email_limit,
               google_maps_enabled, features_json, subscription_start, subscription_expires_at
        FROM users WHERE workspace_id = $1 ORDER BY id ASC LIMIT 1`,
       [workspaceId]
     );
-    const wsEnt = wsUserRows[0] ? resolveUserEntitlements(wsUserRows[0]) : null;
+    const wsUser = wsUserRows[0] || null;
+    const wsEnt = wsUser ? resolveUserEntitlements(wsUser) : null;
+    const maxLeadsQuota = wsUser ? resolvePlanLeadAllowance(wsUser) : 2500;
+    const subStart = wsUser?.subscription_start ? new Date(wsUser.subscription_start).toISOString() : null;
 
-    // Quota limits
-    const maxLeadsQuota = 5000;
-    const remainingQuota = Math.max(0, maxLeadsQuota - totalSavedLeads);
+    const periodLeadsRes = await sql.query(
+      `SELECT COUNT(*)::int AS cnt FROM leads
+       WHERE workspace_id = $1
+         AND ($2::timestamptz IS NULL OR created_at::timestamptz >= $2::timestamptz)`,
+      [workspaceId, subStart]
+    );
+    const leadsUsedInPeriod = parseInt(periodLeadsRes[0]?.cnt || "0", 10);
+    const remainingQuota = maxLeadsQuota === null ? null : Math.max(0, maxLeadsQuota - leadsUsedInPeriod);
 
     return {
       workspace_id: workspaceId,
       total_leads_found: Math.max(totalLeadsFound, totalSavedLeads),
       saved_leads: totalSavedLeads,
+      leads_used_in_period: leadsUsedInPeriod,
       leads_with_email: availableEmailContacts,
       leads_with_phone: availablePhoneContacts,
       leads_with_both_contacts: leadsWithBothContacts,
@@ -2517,17 +2527,77 @@ export async function getNeonClientDashboardMetrics(workspaceId: number) {
       emails_sent_today: emailsSentToday,
       daily_email_limit: wsEnt ? wsEnt.dailyEmailLimit : 10,
       failed_emails: failedEmails,
-      remaining_quota: remainingQuota,
-      max_quota: maxLeadsQuota,
+      remaining_quota: remainingQuota === null ? 999999 : remainingQuota,
+      max_quota: maxLeadsQuota === null ? 999999 : maxLeadsQuota,
+      is_unlimited_quota: maxLeadsQuota === null,
       contact_rate: totalSavedLeads > 0 ? Math.round((availableEmailContacts / totalSavedLeads) * 100) : 0,
       google_maps_enabled: wsEnt ? wsEnt.googleMapsEnabled : false,
       plan_type: wsEnt ? wsEnt.planType : "BASIC",
       plan_label: wsEnt ? wsEnt.planLabel : "Basic Plan",
+      subscription_start: subStart,
+      subscription_expires_at: wsUser?.subscription_expires_at || null,
     };
   } catch (e) {
     console.error("Neon getNeonClientDashboardMetrics error:", e);
     return null;
   }
+}
+
+export async function getWorkspaceLeadQuotaState(
+  workspaceId: number,
+  userRecord?: any
+): Promise<{
+  maxLeadsQuota: number | null;
+  leadsUsedInPeriod: number;
+  remainingLeadsQuota: number | null;
+  subscriptionStart: string | null;
+}> {
+  const sql = getNeonSql();
+  if (!sql) {
+    return {
+      maxLeadsQuota: userRecord ? resolvePlanLeadAllowance(userRecord) : null,
+      leadsUsedInPeriod: 0,
+      remainingLeadsQuota: userRecord ? resolvePlanLeadAllowance(userRecord) : null,
+      subscriptionStart: null,
+    };
+  }
+
+  let u = userRecord;
+  if (!u || (u.max_leads_quota === undefined && u.plan_type === undefined)) {
+    const rows = await sql.query(
+      `SELECT id, role, account_type, status, plan, plan_type, plan_label,
+              custom_duration_value, custom_duration_unit, max_leads_quota,
+              subscription_start, subscription_expires_at
+       FROM users WHERE workspace_id = $1 ORDER BY id ASC LIMIT 1`,
+      [workspaceId]
+    );
+    u = rows?.[0] || u || {};
+  }
+
+  const maxLeadsQuota = resolvePlanLeadAllowance(u);
+  if (maxLeadsQuota === null) {
+    return {
+      maxLeadsQuota: null,
+      leadsUsedInPeriod: 0,
+      remainingLeadsQuota: null,
+      subscriptionStart: u?.subscription_start ? new Date(u.subscription_start).toISOString() : null,
+    };
+  }
+
+  const subStart = u?.subscription_start ? new Date(u.subscription_start).toISOString() : null;
+  const cntRes = await sql.query(
+    `SELECT COUNT(*)::int AS cnt FROM leads
+     WHERE workspace_id = $1
+       AND ($2::timestamptz IS NULL OR created_at::timestamptz >= $2::timestamptz)`,
+    [workspaceId, subStart]
+  );
+  const used = Number(cntRes?.[0]?.cnt || 0);
+  return {
+    maxLeadsQuota,
+    leadsUsedInPeriod: used,
+    remainingLeadsQuota: Math.max(0, maxLeadsQuota - used),
+    subscriptionStart: subStart,
+  };
 }
 
 /**

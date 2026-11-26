@@ -10,6 +10,7 @@ import {
   isNeonConfigured,
   getNeonSql,
   getNeonWorkspaceLeadSignatures,
+  getWorkspaceLeadQuotaState,
   acquireActiveSearchJob,
   completeActiveSearchJob,
   logAccountAudit,
@@ -61,7 +62,7 @@ export async function POST(req: Request) {
     const rawKeyword = String(body.keyword || body.query || body.natural_query || "").trim();
     const rawIndustry = String(body.industry || "").trim();
     const useBusinessProfile = Boolean(body.use_business_profile || body.use_profile);
-    const targetCount = Math.min(1000, Math.max(1, Number(body.target_count || body.limit) || 50));
+    let targetCount = Math.min(1000, Math.max(1, Number(body.target_count || body.limit) || 50));
 
     const geo = parseMapsCountriesAndCities(body);
     if (geo.error) {
@@ -86,6 +87,25 @@ export async function POST(req: Request) {
       );
     }
     const workspaceId = Number(authCheck.userRecord?.workspace_id || currentUser.workspace_id) || 1;
+
+    if (isNeonConfigured()) {
+      const quota = await getWorkspaceLeadQuotaState(workspaceId, authCheck.userRecord);
+      if (quota.remainingLeadsQuota !== null) {
+        if (quota.remainingLeadsQuota <= 0) {
+          return NextResponse.json(
+            {
+              status: "error",
+              code: "LEAD_QUOTA_EXCEEDED",
+              message: `Plan lead allowance exhausted (${quota.leadsUsedInPeriod}/${quota.maxLeadsQuota} leads generated in this subscription period). Upgrade or renew to generate more leads.`,
+              remaining_leads_quota: 0,
+              max_leads_quota: quota.maxLeadsQuota,
+            },
+            { status: 403 }
+          );
+        }
+        targetCount = Math.min(targetCount, quota.remainingLeadsQuota);
+      }
+    }
 
     const contactRequirement: ContactRequirement = ["EMAIL_AND_PHONE", "EMAIL_ONLY", "PHONE_ONLY", "EMAIL_OR_PHONE"].includes(body.contact_requirement)
       ? (body.contact_requirement as ContactRequirement)

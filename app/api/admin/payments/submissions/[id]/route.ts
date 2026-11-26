@@ -57,6 +57,7 @@ export async function POST(req: Request, { params }: RouteParams) {
         features: body.features,
         daily_email_limit: body.daily_email_limit,
         agreed_price_usd: body.agreed_price_usd,
+        lead_allowance: body.lead_allowance,
       }
     );
 

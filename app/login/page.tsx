@@ -60,8 +60,8 @@ function LoginForm() {
     setError(null);
     try {
       await login(email.trim(), password);
-      // Successful authentication: Chrome Password Manager will natively prompt to save
-      router.push("/app");
+      const nextTarget = searchParams.get("next");
+      router.push(nextTarget && nextTarget.startsWith("/app") ? nextTarget : "/app");
     } catch (err: any) {
       setError(err?.message || "Invalid email or password");
     } finally {
@@ -244,10 +244,19 @@ function LoginForm() {
           </form>
         </div>
 
-        {/* Assistance Information */}
-        <p className="text-center text-xs text-slate-400 mt-6">
-          Paid accounts are created directly by the Master Owner. Contact WhatsApp <strong className="text-emerald-400">+923174383702</strong> for activation ($25 Basic / $100 Lifetime).
-        </p>
+        {/* Registration & Assistance Information */}
+        <div className="text-center text-xs text-slate-400 mt-6 space-y-2">
+          <p>
+            New to USMAN AI GTM?{" "}
+            <Link href="/signup" className="text-blue-400 hover:text-blue-300 font-bold underline">
+              Create a free customer account
+            </Link>{" "}
+            to pick Basic ($25), Lifetime ($100), or a Custom plan &amp; submit payment proof.
+          </p>
+          <p>
+            WhatsApp Support: <strong className="text-emerald-400">+923174383702</strong>
+          </p>
+        </div>
 
         {/* Master Owner Portal Link */}
         <div className="text-center mt-4">

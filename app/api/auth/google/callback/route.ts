@@ -20,9 +20,11 @@ export async function GET(request: Request) {
   const clientId = process.env.GOOGLE_CLIENT_ID || process.env.NEXT_PUBLIC_GOOGLE_CLIENT_ID || "";
   const clientSecret = process.env.GOOGLE_CLIENT_SECRET || "";
   const isVercel = Boolean(process.env.VERCEL || process.env.NEXT_PUBLIC_VERCEL_ENV);
-  const redirectUri = isVercel
-    ? "https://lead-scraper-mxs5.vercel.app/api/auth/google/callback"
-    : `${origin}/api/auth/google/callback`;
+  const redirectUri = process.env.GOOGLE_GMAIL_REDIRECT_URI
+    ? process.env.GOOGLE_GMAIL_REDIRECT_URI
+    : isVercel
+    ? "https://lead-scraper-mxs5.vercel.app/api/integrations/gmail/callback"
+    : `${origin}/api/integrations/gmail/callback`;
 
   try {
     // 1. Exchange authorization code for Google tokens

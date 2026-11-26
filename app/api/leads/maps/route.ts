@@ -4,6 +4,7 @@ import {
   isNeonConfigured,
   saveNeonSearchRecordAndLeads,
   getNeonWorkspaceLeadSignatures,
+  getWorkspaceLeadQuotaState,
   acquireActiveSearchJob,
   completeActiveSearchJob,
 } from "@/lib/neon-db";
@@ -66,10 +67,27 @@ export async function POST(req: Request) {
       );
     }
 
-    const requestedQuantity = Math.min(Math.max(Number(body.requested_quantity) || 50, 1), 2000);
+    let requestedQuantity = Math.min(Math.max(Number(body.requested_quantity) || 50, 1), 2000);
     const contactRequirement = parseContactRequirement(body.contact_requirement || body.contact_filter);
     const workspaceId = Number(subCheck.userRecord?.workspace_id || user.workspace_id) || 1;
     const userId = Number(subCheck.userRecord?.id || user.id) || 1;
+
+    if (isNeonConfigured()) {
+      const quota = await getWorkspaceLeadQuotaState(workspaceId, subCheck.userRecord);
+      if (quota.remainingLeadsQuota !== null) {
+        if (quota.remainingLeadsQuota <= 0) {
+          return NextResponse.json(
+            {
+              status: "error",
+              code: "LEAD_QUOTA_EXCEEDED",
+              message: `Plan lead allowance exhausted (${quota.leadsUsedInPeriod}/${quota.maxLeadsQuota} leads generated in this subscription period). Upgrade or renew to continue.`,
+            },
+            { status: 403 }
+          );
+        }
+        requestedQuantity = Math.min(requestedQuantity, quota.remainingLeadsQuota);
+      }
+    }
 
     const rl = await consumeRateLimit({
       bucket: "maps_search",

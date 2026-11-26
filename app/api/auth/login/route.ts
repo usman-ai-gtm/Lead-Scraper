@@ -76,7 +76,7 @@ export async function POST(request: Request) {
             // Check authoritative account status & subscription timer
             if (!isAuthorizedOwner(user)) {
               const authoritative = computeAuthoritativeUserStatus(user);
-              if (authoritative.isLocked) {
+              if (authoritative.isLocked && authoritative.status !== "PREVIEW_ONLY") {
                 if (authoritative.status === "EXPIRED") {
                   return NextResponse.json(
                     { detail: "Your subscription has expired. Please renew to continue." },

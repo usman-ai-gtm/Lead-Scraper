@@ -50,11 +50,59 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
   const [commandPaletteOpen, setCommandPaletteOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
   const [notificationsOpen, setNotificationsOpen] = useState(false);
-  const [notifications] = useState([
-    { id: 1, title: "Search Engine Active", message: "Serper API and multi-platform scrapers ready.", time: "10m ago" },
-    { id: 2, title: "Tenant Isolation Guard", message: "Workspace scoping verified for all leads.", time: "1h ago" },
-    { id: 3, title: "Export Ready", message: "Native XLSX and Executive PDF export modules ready.", time: "2h ago" }
-  ]);
+  const [notifications, setNotifications] = useState<
+    Array<{
+      id: number;
+      title: string;
+      message: string;
+      type: string;
+      category: string;
+      is_read: boolean;
+      link?: string | null;
+      created_at: string;
+    }>
+  >([]);
+  const [unreadNotificationsCount, setUnreadNotificationsCount] = useState(0);
+  const [unreadPaymentRequestsCount, setUnreadPaymentRequestsCount] = useState(0);
+
+  const loadNotifications = async () => {
+    try {
+      const token = typeof window !== "undefined" ? localStorage.getItem("usman_gtm_token") : null;
+      if (!token) return;
+      const res = await fetch("/api/notifications?limit=20", {
+        headers: { Authorization: `Bearer ${token}` },
+        cache: "no-store",
+      });
+      if (!res.ok) return;
+      const data = await res.json();
+      setNotifications(Array.isArray(data.notifications) ? data.notifications : []);
+      setUnreadNotificationsCount(Number(data.unread_count || 0));
+      setUnreadPaymentRequestsCount(Number(data.unread_payment_requests_count || 0));
+    } catch {
+      // silent background poll error
+    }
+  };
+
+  const handleMarkNotificationsRead = async (ids?: number[]) => {
+    try {
+      const token = typeof window !== "undefined" ? localStorage.getItem("usman_gtm_token") : null;
+      if (!token) return;
+      const res = await fetch("/api/notifications", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify(ids ? { notification_ids: ids } : {}),
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setNotifications(Array.isArray(data.notifications) ? data.notifications : []);
+        setUnreadNotificationsCount(Number(data.unread_count || 0));
+        setUnreadPaymentRequestsCount(Number(data.unread_payment_requests_count || 0));
+      }
+    } catch {}
+  };
 
   const emailLower = String(user?.email || "").trim().toLowerCase();
   const isAdmin =
@@ -83,8 +131,17 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     if (user?.id) {
       void refreshUser();
+      void loadNotifications();
     }
-  }, [pathname]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [pathname, user?.id]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  useEffect(() => {
+    if (!user?.id) return;
+    const interval = setInterval(() => {
+      void loadNotifications();
+    }, 30000);
+    return () => clearInterval(interval);
+  }, [user?.id]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Command palette keyboard shortcut (Ctrl+K or Cmd+K)
   useEffect(() => {
@@ -254,7 +311,12 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
                       }`}
                     >
                       <Icon className={`h-4 w-4 ${isActive ? "text-rose-300" : "text-slate-400"}`} />
-                      <span>{item.name}</span>
+                      <span className="flex-1">{item.name}</span>
+                      {item.href === "/app/admin/payments" && unreadPaymentRequestsCount > 0 && (
+                        <span className="px-1.5 py-0.5 rounded-full bg-amber-500 text-black text-[10px] font-black">
+                          {unreadPaymentRequestsCount}
+                        </span>
+                      )}
                     </Link>
                   );
                 })}
@@ -319,33 +381,76 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
               <span className="text-white font-semibold">{activeWorkspace?.name || `Client #${user?.workspace_id || 1}`}</span>
             </div>
 
-            {/* Notifications Popover */}
+            {/* Real DB Notifications Popover */}
             <div className="relative">
               <button
-                onClick={() => setNotificationsOpen(!notificationsOpen)}
-                className="p-2 rounded-xl text-slate-400 hover:text-white hover:bg-white/5 relative"
+                onClick={() => {
+                  const next = !notificationsOpen;
+                  setNotificationsOpen(next);
+                  if (next) void loadNotifications();
+                }}
+                className="p-2 rounded-xl text-slate-400 hover:text-white hover:bg-white/5 relative cursor-pointer"
                 aria-label="Notifications"
               >
                 <Bell className="h-4 w-4" />
-                <span className="absolute top-1.5 right-1.5 h-2 w-2 rounded-full bg-blue-500 animate-pulse" />
+                {unreadNotificationsCount > 0 && (
+                  <span className="absolute -top-0.5 -right-0.5 min-w-[16px] h-4 px-1 rounded-full bg-rose-500 text-white text-[9px] font-black flex items-center justify-center">
+                    {unreadNotificationsCount > 99 ? "99+" : unreadNotificationsCount}
+                  </span>
+                )}
               </button>
 
               {notificationsOpen && (
-                <div className="absolute right-0 mt-2 w-80 rounded-2xl border border-white/10 bg-[#0c121e] p-4 shadow-glass z-50">
+                <div className="absolute right-0 mt-2 w-80 sm:w-96 rounded-2xl border border-white/10 bg-[#0c121e] p-4 shadow-glass z-50">
                   <div className="flex items-center justify-between border-b border-white/[0.08] pb-2 mb-3">
-                    <span className="text-xs font-bold text-white uppercase tracking-wider">System Alerts</span>
-                    <span className="text-[10px] text-blue-400">{notifications.length} Unread</span>
+                    <span className="text-xs font-bold text-white uppercase tracking-wider">
+                      Notifications ({unreadNotificationsCount} Unread)
+                    </span>
+                    {unreadNotificationsCount > 0 && (
+                      <button
+                        type="button"
+                        onClick={() => void handleMarkNotificationsRead()}
+                        className="text-[10px] font-bold text-blue-400 hover:text-blue-300 cursor-pointer"
+                      >
+                        Mark All Read
+                      </button>
+                    )}
                   </div>
-                  <div className="space-y-2.5">
-                    {notifications.map((n) => (
-                      <div key={n.id} className="p-2.5 rounded-xl bg-white/[0.02] border border-white/[0.04]">
-                        <div className="flex justify-between items-center mb-1">
-                          <span className="text-xs font-semibold text-white">{n.title}</span>
-                          <span className="text-[10px] text-slate-500">{n.time}</span>
+                  <div className="space-y-2 max-h-80 overflow-y-auto">
+                    {notifications.length === 0 ? (
+                      <p className="text-[11px] text-slate-400 py-3 text-center">
+                        No notifications yet. Payment proofs, plan activations, and expiry alerts appear here automatically.
+                      </p>
+                    ) : (
+                      notifications.map((n) => (
+                        <div
+                          key={n.id}
+                          onClick={() => {
+                            if (!n.is_read) void handleMarkNotificationsRead([n.id]);
+                            if (n.link) {
+                              setNotificationsOpen(false);
+                              router.push(n.link);
+                            }
+                          }}
+                          className={`p-2.5 rounded-xl border transition-all cursor-pointer ${
+                            n.is_read
+                              ? "bg-white/[0.015] border-white/[0.04]"
+                              : "bg-blue-500/10 border-blue-500/30 hover:bg-blue-500/15"
+                          }`}
+                        >
+                          <div className="flex justify-between items-start gap-2 mb-1">
+                            <span className="text-xs font-semibold text-white flex items-center gap-1.5">
+                              {!n.is_read && <span className="h-2 w-2 rounded-full bg-blue-400 shrink-0" />}
+                              <span>{n.title}</span>
+                            </span>
+                            <span className="text-[10px] text-slate-500 shrink-0">
+                              {new Date(n.created_at).toLocaleDateString()}
+                            </span>
+                          </div>
+                          <p className="text-[11px] text-slate-300 leading-relaxed">{n.message}</p>
                         </div>
-                        <p className="text-[11px] text-slate-400">{n.message}</p>
-                      </div>
-                    ))}
+                      ))
+                    )}
                   </div>
                 </div>
               )}

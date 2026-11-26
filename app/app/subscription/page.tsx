@@ -1,7 +1,8 @@
 "use client";
 
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, Suspense } from "react";
 import Link from "next/link";
+import { useSearchParams } from "next/navigation";
 import { useAuth } from "@/lib/auth-context";
 import { api } from "@/lib/api";
 import {
@@ -25,7 +26,22 @@ import {
   Eye,
   X,
   Send,
+  Landmark,
+  Info,
 } from "lucide-react";
+import { CustomPlanBuilder, PlanSelectionValue } from "@/components/payments/CustomPlanBuilder";
+import { BuilderDurationUnit, FixedOrCustomPlan } from "@/lib/custom-plans";
+
+interface BankTransferDetails {
+  bank_name?: string | null;
+  bank_address?: string | null;
+  beneficiary_name?: string | null;
+  account_number?: string | null;
+  routing_aba?: string | null;
+  swift_bic?: string | null;
+  account_type?: string | null;
+  supported_currency?: string | null;
+}
 
 interface PaymentMethodItem {
   id: number;
@@ -38,11 +54,13 @@ interface PaymentMethodItem {
   payment_link: string | null;
   qr_image_data: string | null;
   instructions: string | null;
+  details_json?: BankTransferDetails | null;
   is_active: boolean;
 }
 
 interface PaymentSubmissionItem {
   id: number;
+  request_code?: string;
   user_id: number;
   workspace_id: number;
   username: string;
@@ -50,7 +68,13 @@ interface PaymentSubmissionItem {
   requested_plan: string;
   plan_label?: string;
   agreed_price_usd: number;
+  original_price_usd?: number;
   currency: string;
+  exchange_rate?: number;
+  converted_amount?: number;
+  lead_allowance?: number | null;
+  custom_duration_value?: number | null;
+  custom_duration_unit?: string | null;
   payment_method_name: string;
   payment_reference?: string;
   customer_note?: string;
@@ -65,7 +89,7 @@ interface PaymentSubmissionItem {
 
 function formatCountdown(expiresAt?: string | null, isLifetime?: boolean, tickMs?: number): string {
   if (isLifetime) return "Permanent — No Expiry";
-  if (!expiresAt) return "No expiry set";
+  if (!expiresAt) return "No active expiry set";
   const expMs = new Date(expiresAt).getTime();
   if (Number.isNaN(expMs)) return "Invalid date";
   const diff = expMs - (tickMs || Date.now());
@@ -77,16 +101,39 @@ function formatCountdown(expiresAt?: string | null, isLifetime?: boolean, tickMs
   return `${days}d ${hours}h ${mins}m ${secs}s left`;
 }
 
-export default function SubscriptionPage() {
+function newIdempotencyKey(): string {
+  if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
+    return crypto.randomUUID();
+  }
+  return `idem-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
+}
+
+function SubscriptionPageInner() {
   const { user, refreshUser } = useAuth();
+  const searchParams = useSearchParams();
+
+  const qpPlanRaw = String(searchParams.get("plan") || "BASIC").toUpperCase();
+  const initialPlan: FixedOrCustomPlan =
+    qpPlanRaw === "LIFETIME" || qpPlanRaw === "CUSTOM" ? qpPlanRaw : "BASIC";
+  const qpUnitRaw = String(searchParams.get("unit") || "hours").toLowerCase();
+  const initialUnit: BuilderDurationUnit =
+    qpUnitRaw === "days" || qpUnitRaw === "weeks" || qpUnitRaw === "months" ? qpUnitRaw : "hours";
+  const initialQty = Math.max(1, parseInt(searchParams.get("qty") || "1", 10) || 1);
+  const initialCurrency = String(searchParams.get("currency") || "USD").toUpperCase();
+
   const [loading, setLoading] = useState(true);
   const [nowTick, setNowTick] = useState<number>(Date.now());
   const [profile, setProfile] = useState<any>(null);
+  const [viewPlanOpen, setViewPlanOpen] = useState(false);
+
   const [stats, setStats] = useState({
     leads_count: 0,
+    leads_used_in_period: 0,
     searches_count: 0,
     connected_accounts: 0,
-    max_leads: 5000,
+    max_leads: 2500,
+    remaining_leads: 2500,
+    is_unlimited_quota: false,
   });
 
   // Payment config & submissions
@@ -97,20 +144,34 @@ export default function SubscriptionPage() {
   const [submissions, setSubmissions] = useState<PaymentSubmissionItem[]>([]);
   const [copiedField, setCopiedField] = useState<string | null>(null);
 
-  // Payment proof upload form state
-  const [selectedPlan, setSelectedPlan] = useState<"BASIC" | "LIFETIME" | "CUSTOM">("BASIC");
-  const [agreedPrice, setAgreedPrice] = useState<string>("25");
-  const [currency, setCurrency] = useState<string>("USD");
+  // Selected plan order synced with CustomPlanBuilder
+  const [orderSelection, setOrderSelection] = useState<PlanSelectionValue>({
+    plan: initialPlan,
+    durationUnit: initialPlan === "CUSTOM" ? initialUnit : initialPlan === "LIFETIME" ? "lifetime" : "days",
+    durationValue: initialPlan === "CUSTOM" ? initialQty : initialPlan === "LIFETIME" ? null : 30,
+    includeGoogleMaps: initialPlan !== "BASIC",
+    priceUsd: initialPlan === "LIFETIME" ? 100 : initialPlan === "CUSTOM" ? initialQty : 25,
+    leadAllowance: initialPlan === "LIFETIME" ? 50000 : initialPlan === "CUSTOM" ? initialQty * 50 : 2500,
+    dailyEmailLimit: initialPlan === "LIFETIME" ? 500 : 10,
+    planLabel: initialPlan === "LIFETIME" ? "Lifetime Access ($100 One-Time)" : "Basic Plan ($25 / 30 Days)",
+    currency: initialCurrency,
+    exchangeRate: 1,
+    convertedAmount: initialPlan === "LIFETIME" ? 100 : 25,
+    fxAvailable: true,
+    fxSource: "Base Pricing Currency",
+  });
+
+  // Payment proof upload state
   const [selectedMethodId, setSelectedMethodId] = useState<string>("");
-  const [manualMethodName, setManualMethodName] = useState<string>("");
   const [paymentReference, setPaymentReference] = useState<string>("");
   const [customerNote, setCustomerNote] = useState<string>("");
   const [proofFile, setProofFile] = useState<File | null>(null);
+  const [idempotencyKey, setIdempotencyKey] = useState<string>(() => newIdempotencyKey());
   const [submittingProof, setSubmittingProof] = useState(false);
   const [uploadError, setUploadError] = useState<string | null>(null);
   const [lastSubmitted, setLastSubmitted] = useState<PaymentSubmissionItem | null>(null);
 
-  // Secure proof modal viewer (authenticated blob)
+  // Secure proof modal viewer
   const [viewerUrl, setViewerUrl] = useState<string | null>(null);
   const [viewerMime, setViewerMime] = useState<string>("image/png");
   const [viewerTitle, setViewerTitle] = useState<string>("");
@@ -129,12 +190,21 @@ export default function SubscriptionPage() {
         api.get<any>("/payments/submissions").catch(() => null),
       ]);
       if (meRes) setProfile(meRes);
-      if (metricsRes) {
+      if (metricsRes || meRes) {
+        const isUnlim = Boolean(metricsRes?.is_unlimited_quota) || meRes?.max_leads_quota === null;
+        const maxL = meRes?.max_leads_quota ?? metricsRes?.max_quota ?? 2500;
+        const remL =
+          meRes?.remaining_leads_quota !== undefined && meRes?.remaining_leads_quota !== null
+            ? meRes.remaining_leads_quota
+            : metricsRes?.remaining_quota ?? maxL;
         setStats({
-          leads_count: metricsRes.saved_leads ?? metricsRes.total_leads_found ?? 0,
-          searches_count: metricsRes.total_leads_found ?? 0,
-          connected_accounts: metricsRes.connected_gmail_accounts ?? 0,
-          max_leads: metricsRes.max_quota ?? 5000,
+          leads_count: metricsRes?.saved_leads ?? 0,
+          leads_used_in_period: meRes?.leads_used_in_period ?? metricsRes?.leads_used_in_period ?? 0,
+          searches_count: metricsRes?.total_leads_found ?? 0,
+          connected_accounts: metricsRes?.connected_gmail_accounts ?? 0,
+          max_leads: maxL,
+          remaining_leads: remL,
+          is_unlimited_quota: isUnlim,
         });
       }
       if (payCfgRes) {
@@ -145,7 +215,6 @@ export default function SubscriptionPage() {
         setMethods(list);
         if (list.length > 0 && !selectedMethodId) {
           setSelectedMethodId(String(list[0].id));
-          setCurrency(list[0].currency || "USD");
         }
       }
       if (subsRes && Array.isArray(subsRes.submissions)) {
@@ -176,7 +245,8 @@ export default function SubscriptionPage() {
     currentStatus === "LOCKED" ||
     currentStatus === "PENDING" ||
     currentStatus === "SUSPENDED" ||
-    currentStatus === "REVOKED";
+    currentStatus === "REVOKED" ||
+    currentStatus === "PREVIEW_ONLY";
   const isExpired = currentStatus === "EXPIRED";
   const isActive = currentStatus === "ACTIVE";
   const planTypeUpper = String(liveProfile?.plan_type || liveProfile?.plan || "").toUpperCase();
@@ -190,12 +260,18 @@ export default function SubscriptionPage() {
   const displayEmail = String(liveProfile?.email || displayUsername);
   const displayCurrentPlan = String(
     liveProfile?.plan_label ||
-      (isCustom ? "Custom Plan" : isLifetime ? "Lifetime Plan ($100)" : isActive ? "Basic Plan ($25 / 30 Days)" : "Free Preview / Inactive")
+      (isCustom
+        ? "Custom Plan"
+        : isLifetime
+        ? "Lifetime Plan ($100)"
+        : isActive
+        ? "Basic Plan ($25 / 30 Days)"
+        : "Free Preview / Inactive")
   );
   const waDigits = whatsappNumber.replace(/[^0-9]/g, "") || "923174383702";
 
   const WHATSAPP_LINK = `https://wa.me/${waDigits}?text=${encodeURIComponent(
-    `Hello Usman, I need help with my Lead Scraper subscription.\nMy registered username: ${displayUsername}\nMy registered email: ${displayEmail}\nMy current subscription: ${displayCurrentPlan}`
+    `Hello Usman, I need help with my Lead Scraper subscription.\nUsername: ${displayUsername}\nCurrent Plan: ${displayCurrentPlan}`
   )}`;
 
   const supportMailtoHref =
@@ -203,7 +279,7 @@ export default function SubscriptionPage() {
       ? `mailto:${encodeURIComponent(supportEmail)}?subject=${encodeURIComponent(
           "Lead Scraper — Subscription Support"
         )}&body=${encodeURIComponent(
-          `Hello Usman,\n\nI need help with my Lead Scraper subscription.\n\nMy registered username: ${displayUsername}\n\nMy registered email: ${displayEmail}\n\nMy current subscription: ${displayCurrentPlan}\n\nPlease contact me regarding subscription activation or payment.\n\nThank you.`
+          `Hello Usman,\n\nI need help with my Lead Scraper subscription.\n\nUsername: ${displayUsername}\nCurrent Plan: ${displayCurrentPlan}\n\nThank you.`
         )}`
       : null;
 
@@ -213,24 +289,22 @@ export default function SubscriptionPage() {
     setTimeout(() => setCopiedField(null), 1800);
   };
 
-  const handlePlanSelect = (plan: "BASIC" | "LIFETIME" | "CUSTOM") => {
-    setSelectedPlan(plan);
-    if (plan === "BASIC") setAgreedPrice("25");
-    else if (plan === "LIFETIME") setAgreedPrice("100");
-    document.getElementById("payment-proof-upload")?.scrollIntoView({ behavior: "smooth" });
-  };
-
   const handleUploadProof = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (submittingProof) return;
     setUploadError(null);
+
     if (!proofFile) {
       setUploadError("Please select a payment screenshot or PDF receipt (JPG, JPEG, PNG, WebP, or PDF).");
       return;
     }
     const activeMethod = methods.find((m) => String(m.id) === selectedMethodId);
-    const methodName = activeMethod ? activeMethod.name : manualMethodName.trim();
-    if (!methodName) {
-      setUploadError("Please select an active payment method or specify the payment method used.");
+    if (!activeMethod) {
+      setUploadError(
+        methods.length === 0
+          ? "No payment method is currently configured by the Owner. Please contact WhatsApp support."
+          : "Please select an active payment method above."
+      );
       return;
     }
 
@@ -238,11 +312,17 @@ export default function SubscriptionPage() {
     try {
       const formData = new FormData();
       formData.append("file", proofFile);
-      formData.append("requested_plan", selectedPlan);
-      formData.append("agreed_price_usd", agreedPrice || "25");
-      formData.append("currency", currency || "USD");
-      if (activeMethod) formData.append("payment_method_id", String(activeMethod.id));
-      formData.append("payment_method_name", methodName);
+      formData.append("username", displayUsername);
+      formData.append("requested_plan", orderSelection.plan);
+      formData.append("currency", orderSelection.currency || "USD");
+      formData.append("include_google_maps", orderSelection.includeGoogleMaps ? "true" : "false");
+      if (orderSelection.plan === "CUSTOM") {
+        formData.append("custom_duration_unit", orderSelection.durationUnit);
+        formData.append("custom_duration_value", String(orderSelection.durationValue || 1));
+      }
+      formData.append("payment_method_id", String(activeMethod.id));
+      formData.append("payment_method_name", activeMethod.name);
+      formData.append("idempotency_key", idempotencyKey);
       if (paymentReference.trim()) formData.append("payment_reference", paymentReference.trim());
       if (customerNote.trim()) formData.append("customer_note", customerNote.trim());
 
@@ -261,6 +341,7 @@ export default function SubscriptionPage() {
       setProofFile(null);
       setPaymentReference("");
       setCustomerNote("");
+      setIdempotencyKey(newIdempotencyKey());
       await loadSubscriptionData();
       void refreshUser();
     } catch (err: any) {
@@ -283,7 +364,7 @@ export default function SubscriptionPage() {
       const blob = await res.blob();
       const objUrl = URL.createObjectURL(blob);
       setViewerMime(sub.screenshot_mime || blob.type || "image/png");
-      setViewerTitle(`Payment Proof #${sub.id} (${sub.screenshot_filename})`);
+      setViewerTitle(`Payment Proof ${sub.request_code || `#${sub.id}`} (${sub.screenshot_filename})`);
       setViewerUrl(objUrl);
     } catch (err: any) {
       setUploadError(err?.message || "Failed to preview proof.");
@@ -295,55 +376,26 @@ export default function SubscriptionPage() {
     setViewerUrl(null);
   };
 
-  const buildProofWhatsAppUrl = (sub: PaymentSubmissionItem) => {
-    const msg =
-      `Hello Usman, I uploaded payment proof #${sub.id}.\n` +
-      `Username: ${sub.username}\n` +
-      `Registered Email: ${sub.email}\n` +
-      `Selected Plan: ${sub.requested_plan}\n` +
-      `Agreed Price: ${sub.agreed_price_usd} ${sub.currency}\n` +
-      `Payment Method: ${sub.payment_method_name}\n` +
-      `Payment Reference: ${sub.payment_reference || "Provided in screenshot"}\n` +
-      `Proof Reference: #SUB-${sub.id} (${sub.screenshot_filename})\n\n` +
-      `(Attaching my payment screenshot in this chat now)`;
-    return `https://wa.me/${waDigits}?text=${encodeURIComponent(msg)}`;
-  };
-
-  const buildProofMailtoUrl = (sub: PaymentSubmissionItem) => {
-    if (!supportEmailConfigured || !supportEmail) return null;
-    const body =
-      `Hello Usman,\n\nI have submitted a payment proof for my Lead Scraper subscription.\n\n` +
-      `Customer username: ${sub.username}\n` +
-      `Registered email: ${sub.email}\n` +
-      `Selected plan: ${sub.requested_plan}\n` +
-      `Agreed price: ${sub.agreed_price_usd} ${sub.currency}\n` +
-      `Payment reference: ${sub.payment_reference || "See attached screenshot"}\n` +
-      `Payment submission date: ${new Date(sub.created_at).toUTCString()}\n` +
-      `Submission ID: #${sub.id}\n\n` +
-      `Note: I am attaching my payment screenshot manually to this email.\n\nThank you.`;
-    return `mailto:${encodeURIComponent(supportEmail)}?subject=${encodeURIComponent(
-      "Lead Scraper — Payment Proof"
-    )}&body=${encodeURIComponent(body)}`;
-  };
-
   const liveCountdownText = formatCountdown(liveProfile?.subscription_expires_at, isLifetime, nowTick);
+  const selectedMethodObj = methods.find((m) => String(m.id) === selectedMethodId) || methods[0] || null;
+  const activeFeaturesList = Object.entries(liveProfile?.features || {}).filter(([, val]) => Boolean(val));
 
   return (
-    <div className="space-y-6 max-w-5xl mx-auto pb-16">
-      {/* 1. Header */}
+    <div className="space-y-7 max-w-6xl mx-auto pb-16">
+      {/* Header */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
           <div className="flex items-center gap-2 mb-1">
             <span className="text-[10px] font-bold uppercase tracking-wider text-blue-400 bg-blue-500/10 px-2.5 py-0.5 rounded border border-blue-500/20">
-              Workspace Billing &amp; Quota
+              Usage &amp; Subscription
             </span>
             <span className="text-xs text-slate-400 font-mono">
-              User: {displayUsername} • Workspace #{user?.workspace_id || 1}
+              @{displayUsername} • Workspace #{user?.workspace_id || 1}
             </span>
           </div>
-          <h1 className="text-2xl font-extrabold text-white">Subscription &amp; Payment Center</h1>
+          <h1 className="text-2xl font-extrabold text-white">Your Plan, Usage &amp; Billing Center</h1>
           <p className="text-xs text-slate-400">
-            View your live subscription timer, contact support, review Owner-configured payment details, and upload payment proof for verification.
+            Real database-verified plan details, remaining lead allowances, custom package builder, and payment proof tracking.
           </p>
         </div>
 
@@ -356,399 +408,463 @@ export default function SubscriptionPage() {
           className="self-start sm:self-auto inline-flex items-center gap-1.5 px-3 py-2 rounded-xl bg-white/[0.04] hover:bg-white/[0.08] border border-white/10 text-xs font-semibold text-slate-300 cursor-pointer"
         >
           <RefreshCw className={`h-3.5 w-3.5 ${loading ? "animate-spin text-blue-400" : ""}`} />
-          <span>Sync Status</span>
+          <span>Sync DB Status</span>
         </button>
       </div>
 
-      {/* 2. Current Subscription, Account Status, Expiry Date & Remaining Time */}
+      {/* REQUIREMENT TWO: MISTAKEN-PROOF CURRENT ACTIVE PLAN HERO CARD */}
       <div
-        className={`rounded-2xl border p-6 ${
+        className={`rounded-2xl border-2 p-6 shadow-xl ${
           isActive
-            ? "border-emerald-500/30 bg-gradient-to-r from-emerald-500/10 via-[#0e1628] to-[#090d16]"
+            ? "border-emerald-500/50 bg-gradient-to-r from-emerald-500/15 via-[#0e1628] to-[#090d16]"
             : isExpired
-            ? "border-rose-500/30 bg-gradient-to-r from-rose-500/10 via-[#0e1628] to-[#090d16]"
-            : "border-amber-500/30 bg-gradient-to-r from-amber-500/10 via-[#0e1628] to-[#090d16]"
+            ? "border-rose-500/50 bg-gradient-to-r from-rose-500/15 via-[#0e1628] to-[#090d16]"
+            : "border-amber-500/50 bg-gradient-to-r from-amber-500/15 via-[#0e1628] to-[#090d16]"
         }`}
       >
-        <div className="grid grid-cols-1 md:grid-cols-4 gap-4 items-center">
-          <div className="md:col-span-2 flex items-start gap-3.5">
+        <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 border-b border-white/[0.08] pb-4 mb-4">
+          <div className="flex items-start gap-3.5">
             <div
               className={`p-3 rounded-xl shrink-0 ${
                 isActive
-                  ? "bg-emerald-500/20 text-emerald-400"
+                  ? "bg-emerald-500/20 text-emerald-300"
                   : isExpired
-                  ? "bg-rose-500/20 text-rose-400"
-                  : "bg-amber-500/20 text-amber-400"
+                  ? "bg-rose-500/20 text-rose-300"
+                  : "bg-amber-500/20 text-amber-300"
               }`}
             >
               {isActive ? <ShieldCheck className="h-6 w-6" /> : <Lock className="h-6 w-6" />}
             </div>
-            <div className="space-y-1">
-              <div className="text-[11px] text-slate-400">1. Current Subscription</div>
-              <div className="text-base font-black text-white">{displayCurrentPlan}</div>
-              <div className="flex items-center gap-2 flex-wrap">
-                <span className="text-[11px] text-slate-400">2. Account Status:</span>
+            <div>
+              <div className="flex flex-wrap items-center gap-2">
+                <span className="text-[10px] font-black uppercase tracking-widest px-2.5 py-0.5 rounded-full bg-white/10 text-white border border-white/20">
+                  {isActive ? "CURRENT ACTIVE PLAN" : `ACCOUNT STATUS: ${currentStatus}`}
+                </span>
                 <span
-                  className={`text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded border ${
+                  className={`text-[10px] font-black px-2 py-0.5 rounded-full ${
                     isActive
-                      ? "text-emerald-400 bg-emerald-500/10 border-emerald-500/20"
+                      ? "bg-emerald-500/20 text-emerald-300 border border-emerald-500/30"
                       : isExpired
-                      ? "text-rose-400 bg-rose-500/10 border-rose-500/20"
-                      : "text-amber-400 bg-amber-500/10 border-amber-500/20"
+                      ? "bg-rose-500/20 text-rose-300 border border-rose-500/30"
+                      : "bg-amber-500/20 text-amber-300 border border-amber-500/30"
                   }`}
                 >
                   {currentStatus}
                 </span>
               </div>
+              <h2 className="text-xl font-black text-white mt-1.5">{displayCurrentPlan}</h2>
+              <p className="text-xs text-slate-300 mt-0.5">
+                {isActive
+                  ? "All permitted features inside your plan below are active cleanly from database verification."
+                  : isExpired
+                  ? "Your timed subscription has expired. Choose a fixed or custom package below to renew without losing saved leads."
+                  : "Free Preview / Locked state. Pick Basic ($25), Lifetime ($100), or a Custom package below and upload payment proof to activate this account."}
+              </p>
             </div>
           </div>
 
-          <div className="p-3 rounded-xl bg-black/30 border border-white/[0.06] space-y-1">
-            <div className="text-[10px] uppercase font-semibold text-slate-400">3. Expiry Date (UTC)</div>
-            <div className="text-xs font-mono font-bold text-white">
+          <button
+            type="button"
+            onClick={() => setViewPlanOpen(true)}
+            className="px-4 py-2.5 rounded-xl bg-white/[0.08] hover:bg-white/[0.15] border border-white/20 text-white text-xs font-bold inline-flex items-center gap-2 cursor-pointer shrink-0"
+          >
+            <Eye className="h-4 w-4 text-blue-300" />
+            <span>View Plan</span>
+          </button>
+        </div>
+
+        {/* Live Authoritative Fields */}
+        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3 text-xs">
+          <div className="p-3 rounded-xl bg-black/35 border border-white/10 space-y-0.5">
+            <div className="text-[10px] text-slate-400">Activation Date</div>
+            <div className="font-mono font-bold text-white text-[11px]">
+              {liveProfile?.subscription_start
+                ? new Date(liveProfile.subscription_start).toLocaleDateString()
+                : "Not activated"}
+            </div>
+          </div>
+
+          <div className="p-3 rounded-xl bg-black/35 border border-white/10 space-y-0.5">
+            <div className="text-[10px] text-slate-400">Expiry / Validity</div>
+            <div className="font-mono font-bold text-white text-[11px]">
               {isLifetime
-                ? "Never / Permanent"
+                ? "Lifetime (No Expiry)"
                 : liveProfile?.subscription_expires_at
-                ? new Date(liveProfile.subscription_expires_at).toUTCString()
-                : "Not active"}
+                ? new Date(liveProfile.subscription_expires_at).toLocaleString()
+                : "Not set"}
             </div>
           </div>
 
-          <div className="p-3 rounded-xl bg-black/30 border border-white/[0.06] space-y-1">
-            <div className="text-[10px] uppercase font-semibold text-slate-400">4. Remaining Time</div>
-            <div
-              className={`text-xs font-mono font-extrabold ${
-                isLifetime ? "text-amber-300" : isActive && !isExpired ? "text-emerald-300" : "text-rose-300"
-              }`}
-            >
+          <div className="p-3 rounded-xl bg-black/35 border border-white/10 space-y-0.5">
+            <div className="text-[10px] text-slate-400">Remaining Time</div>
+            <div className={`font-mono font-extrabold text-[11px] ${isActive ? "text-emerald-300" : "text-rose-300"}`}>
               {isActive || isLifetime ? liveCountdownText : currentStatus}
             </div>
           </div>
-        </div>
 
-        <p className="text-xs text-slate-300 mt-4 pt-3 border-t border-white/[0.06]">
-          {isActive
-            ? `Google Maps: ${(liveProfile?.google_maps_enabled || isLifetime) ? "Included" : "Excluded"} • Daily Cold Email Limit: ${liveProfile?.daily_email_limit ?? (isLifetime ? 500 : 10)}/day (UTC).`
-            : isExpired
-            ? "Your subscription has expired. Paid search and outreach features are locked until you renew with the Owner."
-            : "Account currently in locked/preview mode. Use the manual payment instructions and upload proof below, or contact Owner support."}
-        </p>
+          <div className="p-3 rounded-xl bg-black/35 border border-white/10 space-y-0.5">
+            <div className="text-[10px] text-slate-400">Lead Allowance Left</div>
+            <div className="font-mono font-bold text-purple-300 text-[11px]">
+              {stats.is_unlimited_quota
+                ? "Unlimited (Owner)"
+                : `${stats.remaining_leads.toLocaleString()} / ${stats.max_leads.toLocaleString()}`}
+            </div>
+          </div>
+
+          <div className="p-3 rounded-xl bg-black/35 border border-white/10 space-y-0.5">
+            <div className="text-[10px] text-slate-400">Google Maps Leads</div>
+            <div
+              className={`font-bold text-[11px] ${
+                isActive && (liveProfile?.google_maps_enabled || isLifetime) ? "text-amber-300" : "text-rose-300"
+              }`}
+            >
+              {isActive && (liveProfile?.google_maps_enabled || isLifetime) ? "Included" : "Not Included"}
+            </div>
+          </div>
+
+          <div className="p-3 rounded-xl bg-black/35 border border-white/10 space-y-0.5">
+            <div className="text-[10px] text-slate-400">Email Allowance</div>
+            <div className="font-mono font-bold text-emerald-300 text-[11px]">
+              {isActive ? `${liveProfile?.daily_email_limit ?? (isLifetime ? 500 : 10)} / day (UTC)` : "0 / day (Locked)"}
+            </div>
+          </div>
+        </div>
       </div>
 
-      {/* Usage & Quota Grid */}
+      {/* Live Usage Metrics Row */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-        <div className="rounded-2xl border border-white/[0.08] bg-[#0c1017] p-5 space-y-2">
+        <div className="rounded-2xl border border-white/[0.08] bg-[#0c1017] p-5 space-y-1.5">
           <div className="flex items-center justify-between text-xs text-slate-400">
-            <span>Saved Leads</span>
-            <Database className="h-4 w-4 text-blue-400" />
+            <span>Generated This Cycle</span>
+            <Database className="h-4 w-4 text-purple-400" />
           </div>
           <div className="text-2xl font-black text-white">
-            {stats.leads_count} <span className="text-xs font-normal text-slate-500">/ 5,000</span>
+            {stats.leads_used_in_period.toLocaleString()}{" "}
+            <span className="text-xs font-normal text-slate-400">
+              / {stats.is_unlimited_quota ? "Unlimited" : stats.max_leads.toLocaleString()}
+            </span>
           </div>
-          <div className="text-[10px] text-slate-400">Workspace #{user?.workspace_id || 1}</div>
+          <div className="text-[10px] text-slate-400">{stats.leads_count.toLocaleString()} total saved in workspace</div>
         </div>
 
-        <div className="rounded-2xl border border-white/[0.08] bg-[#0c1017] p-5 space-y-2">
+        <div className="rounded-2xl border border-white/[0.08] bg-[#0c1017] p-5 space-y-1.5">
           <div className="flex items-center justify-between text-xs text-slate-400">
-            <span>Lead Searches</span>
-            <Search className="h-4 w-4 text-purple-400" />
+            <span>Total Leads Found</span>
+            <Search className="h-4 w-4 text-blue-400" />
           </div>
-          <div className="text-2xl font-black text-white">
-            {stats.searches_count} <span className="text-xs font-normal text-emerald-400">Active</span>
-          </div>
+          <div className="text-2xl font-black text-white">{stats.searches_count.toLocaleString()}</div>
           <div className="text-[10px] text-slate-400">Multi-country B2B discovery</div>
         </div>
 
-        <div className="rounded-2xl border border-white/[0.08] bg-[#0c1017] p-5 space-y-2">
+        <div className="rounded-2xl border border-white/[0.08] bg-[#0c1017] p-5 space-y-1.5">
           <div className="flex items-center justify-between text-xs text-slate-400">
             <span>Connected Gmail</span>
-            <CreditCard className="h-4 w-4 text-emerald-400" />
+            <Mail className="h-4 w-4 text-emerald-400" />
           </div>
           <div className="text-2xl font-black text-white">{stats.connected_accounts}</div>
-          <div className="text-[10px] text-slate-400">Per-workspace OAuth isolation</div>
+          <div className="text-[10px] text-slate-400">Workspace OAuth isolated mailboxes</div>
         </div>
 
-        <div className="rounded-2xl border border-white/[0.08] bg-[#0c1017] p-5 space-y-2">
+        <div className="rounded-2xl border border-white/[0.08] bg-[#0c1017] p-5 space-y-1.5">
           <div className="flex items-center justify-between text-xs text-slate-400">
-            <span>Daily Email Allowance</span>
+            <span>Daily Outreach Cap</span>
             <Sparkles className="h-4 w-4 text-amber-400" />
           </div>
           <div className="text-2xl font-black text-emerald-400">
-            {liveProfile?.daily_email_limit ?? (isLifetime ? 500 : 10)} / day
+            {isActive ? liveProfile?.daily_email_limit ?? (isLifetime ? 500 : 10) : 0} / day
           </div>
-          <div className="text-[10px] text-slate-400">Reset daily at 00:00 UTC</div>
+          <div className="text-[10px] text-slate-400">Resets daily at 00:00 UTC</div>
         </div>
       </div>
 
-      {/* 5. Upgrade / Renew Plans */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-        <div
-          className={`p-5 rounded-2xl border transition-all ${
-            isActive && !isLifetime && !isCustom
-              ? "border-blue-500/50 bg-[#0e1628]"
-              : "border-white/[0.08] bg-[#0c1017]"
-          }`}
-        >
-          <div className="flex items-center justify-between mb-2">
-            <span className="text-[10px] font-bold text-blue-400 uppercase tracking-wider">30 Days</span>
-            <span className="text-xl font-extrabold text-white">$25</span>
-          </div>
-          <h3 className="text-sm font-bold text-white mb-2">Basic Plan</h3>
-          <ul className="space-y-1 text-[11px] text-slate-300 mb-4">
-            <li>• Find Leads + Saved Leads + Search History</li>
-            <li>• XLSX &amp; PDF Exports + AI Assistant</li>
-            <li>• 10 cold emails/UTC day (Maps excluded)</li>
-          </ul>
-          <button
-            type="button"
-            onClick={() => handlePlanSelect("BASIC")}
-            className="w-full py-2 rounded-xl bg-blue-600 hover:bg-blue-500 text-white font-bold text-xs cursor-pointer"
-          >
-            Select Basic ($25) for Payment
-          </button>
-        </div>
-
-        <div
-          className={`p-5 rounded-2xl border transition-all ${
-            isLifetime && !isCustom
-              ? "border-amber-500/60 bg-[#191508]"
-              : "border-amber-500/30 bg-gradient-to-b from-[#14120a] to-[#0c1017]"
-          }`}
-        >
-          <div className="flex items-center justify-between mb-2">
-            <span className="text-[10px] font-bold text-amber-400 uppercase tracking-wider">One-Time</span>
-            <span className="text-xl font-extrabold text-amber-300">$100</span>
-          </div>
-          <h3 className="text-sm font-bold text-amber-200 mb-2">Lifetime Access Plan</h3>
-          <ul className="space-y-1 text-[11px] text-slate-300 mb-4">
-            <li>• Everything in Basic with NO expiry</li>
-            <li>• Google Maps + AI Lead Research included</li>
-            <li>• Up to 500 cold emails/UTC day</li>
-          </ul>
-          <button
-            type="button"
-            onClick={() => handlePlanSelect("LIFETIME")}
-            className="w-full py-2 rounded-xl bg-gradient-to-r from-amber-400 to-yellow-500 hover:from-amber-300 hover:to-yellow-400 text-black font-bold text-xs cursor-pointer"
-          >
-            Select Lifetime ($100) for Payment
-          </button>
-        </div>
-
-        <div
-          className={`p-5 rounded-2xl border transition-all ${
-            isCustom ? "border-purple-500/50 bg-[#140e24]" : "border-white/[0.08] bg-[#0c1017]"
-          }`}
-        >
-          <div className="flex items-center justify-between mb-2">
-            <span className="text-[10px] font-bold text-purple-300 uppercase tracking-wider">Negotiated Deal</span>
-            <span className="text-sm font-extrabold text-purple-300">Custom Price</span>
-          </div>
-          <h3 className="text-sm font-bold text-white mb-2">Custom Subscription</h3>
-          <ul className="space-y-1 text-[11px] text-slate-300 mb-4">
-            <li>• Final price &amp; modules agreed directly with Owner</li>
-            <li>• Custom hours / days / months / lifetime duration</li>
-            <li>• Enter your agreed amount below</li>
-          </ul>
-          <button
-            type="button"
-            onClick={() => handlePlanSelect("CUSTOM")}
-            className="w-full py-2 rounded-xl bg-purple-600/30 hover:bg-purple-600/50 border border-purple-500/40 text-purple-200 font-bold text-xs cursor-pointer"
-          >
-            Submit Custom Deal Proof
-          </button>
-        </div>
-      </div>
-
-      {/* 6 & 7. Need Help or Want to Subscribe? (WhatsApp Support + Support via Email) */}
-      <div className="rounded-2xl border border-white/[0.08] bg-[#0c1017] p-6 space-y-4">
+      {/* SECTION A: FIXED PLANS + CUSTOM PLAN BUILDER + CURRENCY CONVERSION */}
+      <div className="space-y-3">
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
-          <div className="flex items-center gap-2">
-            <MessageCircle className="h-5 w-5 text-emerald-400" />
-            <h3 className="text-sm font-bold text-white">Need help or want to subscribe?</h3>
-          </div>
-          <span className="text-xs font-mono text-emerald-400">{whatsappNumber}</span>
-        </div>
-
-        <p className="text-xs text-slate-400">
-          Payments are manually negotiated and verified by the Owner so you get the exact agreed deal for your workspace (<strong className="text-slate-200">{displayUsername}</strong>). Contact us via WhatsApp or Email below.
-        </p>
-
-        <div className="flex flex-wrap items-center gap-3">
-          <a
-            href={WHATSAPP_LINK}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="px-5 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs shadow-md transition-all inline-flex items-center gap-2 cursor-pointer"
-          >
-            <MessageCircle className="h-4 w-4" />
-            <span>WhatsApp Support ({whatsappNumber})</span>
-          </a>
-
-          {supportMailtoHref ? (
-            <a
-              href={supportMailtoHref}
-              className="px-5 py-2.5 rounded-xl bg-blue-600 hover:bg-blue-500 text-white font-bold text-xs shadow-md transition-all inline-flex items-center gap-2 cursor-pointer"
-            >
-              <Mail className="h-4 w-4" />
-              <span>Support via Email</span>
-            </a>
-          ) : (
-            <div className="px-4 py-2.5 rounded-xl bg-white/[0.03] border border-amber-500/30 text-amber-300 text-xs flex items-center gap-2">
-              <Mail className="h-4 w-4 shrink-0" />
-              <span>
-                Support via Email is waiting on server <code className="font-mono text-amber-200">OWNER_SUPPORT_EMAIL</code> configuration — please use WhatsApp above.
-              </span>
-            </div>
-          )}
-
-          <Link
-            href="/pricing"
-            className="px-4 py-2.5 rounded-xl bg-white/[0.03] hover:bg-white/[0.06] text-slate-300 font-semibold text-xs border border-white/10 inline-flex items-center gap-1.5"
-          >
-            <span>Full Plan Overview</span>
-            <ExternalLink className="h-3 w-3" />
-          </Link>
-        </div>
-      </div>
-
-      {/* 8. Available Configured Payment Methods */}
-      <div className="rounded-2xl border border-white/[0.08] bg-[#0c1017] p-6 space-y-4">
-        <div className="flex items-center justify-between flex-wrap gap-2 border-b border-white/[0.06] pb-3">
           <div>
-            <h3 className="text-sm font-bold text-white flex items-center gap-2">
-              <CreditCard className="h-4 w-4 text-blue-400" />
-              <span>Official Payment Methods</span>
-            </h3>
-            <p className="text-[11px] text-slate-400">
-              Only active payment methods verified and configured by the Owner are displayed below.
+            <h2 className="text-lg font-extrabold text-white">
+              {isActive ? "Upgrade, Extend, or Build a Custom Package" : "Choose a Plan & Calculate Your Price"}
+            </h2>
+            <p className="text-xs text-slate-400">
+              Selecting any plan below automatically updates the Payment Instructions and Submit Payment Proof form right underneath.
             </p>
           </div>
-          <span className="text-[11px] font-mono text-slate-400">{methods.length} Active Method(s)</span>
+        </div>
+
+        <CustomPlanBuilder
+          initialPlan={initialPlan}
+          initialUnit={initialUnit}
+          initialQty={initialQty}
+          initialCurrency={initialCurrency}
+          activePlanType={isActive ? planTypeUpper : null}
+          onChange={(sel) => setOrderSelection(sel)}
+        />
+      </div>
+
+      {/* SECTION B: OWNER-CONFIGURED PAYMENT METHODS WITH COPY BUTTONS */}
+      <div className="rounded-2xl border border-white/[0.08] bg-[#0c1017] p-6 space-y-5">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-white/[0.06] pb-3">
+          <div>
+            <h3 className="text-base font-bold text-white flex items-center gap-2">
+              <Landmark className="h-4 w-4 text-blue-400" />
+              <span>Payment Methods &amp; Exact Transfer Instructions</span>
+            </h3>
+            <p className="text-xs text-slate-400 mt-0.5">
+              Click any payment method to view exact transfer details configured by the Owner, copy fields cleanly, and transfer{" "}
+              <strong className="text-emerald-300">
+                {orderSelection.currency === "USD" || !orderSelection.fxAvailable
+                  ? `$${orderSelection.priceUsd.toFixed(2)} USD`
+                  : `${orderSelection.convertedAmount.toLocaleString()} ${orderSelection.currency} ($${orderSelection.priceUsd} USD)`}
+              </strong>.
+            </p>
+          </div>
+
+          <button
+            type="button"
+            onClick={() =>
+              copyValue(
+                orderSelection.currency === "USD" || !orderSelection.fxAvailable
+                  ? String(orderSelection.priceUsd.toFixed(2))
+                  : String(orderSelection.convertedAmount),
+                "due-amt"
+              )
+            }
+            className="px-3 py-1.5 rounded-xl bg-emerald-500/15 hover:bg-emerald-500/25 border border-emerald-500/30 text-xs font-bold text-emerald-300 inline-flex items-center gap-1.5 cursor-pointer self-start"
+          >
+            {copiedField === "due-amt" ? <Check className="h-3.5 w-3.5" /> : <Copy className="h-3.5 w-3.5" />}
+            <span>
+              Copy Amount: {orderSelection.convertedAmount.toLocaleString()} {orderSelection.currency}
+            </span>
+          </button>
         </div>
 
         {methods.length === 0 ? (
-          <div className="p-5 rounded-xl bg-white/[0.02] border border-dashed border-white/10 text-xs text-slate-300 space-y-2">
-            <div className="font-bold text-white">No payment receiving details are currently published here.</div>
-            <p className="text-slate-400">
-              To avoid outdated transfer details, contact the Owner via WhatsApp ({whatsappNumber}) or Support via Email to confirm today&apos;s receiving account (Payoneer, Binance, Trust Wallet, JazzCash, Easypaisa, Meezan Bank, NayaPay, or bank transfer) and agreed price before transferring.
-            </p>
+          <div className="p-4 rounded-xl bg-amber-500/10 border border-amber-500/25 text-xs text-amber-200 flex items-start gap-2.5">
+            <Info className="h-4 w-4 shrink-0 mt-0.5 text-amber-400" />
+            <span>
+              No receiving payment method is currently active in the Owner Dashboard. Contact WhatsApp ({whatsappNumber}) or wait for the Owner to enable receiving methods in Payments Settings.
+            </span>
           </div>
         ) : (
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            {methods.map((m) => (
-              <div
-                key={m.id}
-                onClick={() => {
-                  setSelectedMethodId(String(m.id));
-                  setCurrency(m.currency || "USD");
-                }}
-                className={`p-4 rounded-xl border cursor-pointer transition-all space-y-2.5 text-xs ${
-                  selectedMethodId === String(m.id)
-                    ? "border-blue-500/60 bg-blue-500/[0.06]"
-                    : "border-white/[0.08] bg-white/[0.02] hover:bg-white/[0.04]"
-                }`}
-              >
-                <div className="flex items-center justify-between gap-2">
-                  <div className="font-bold text-white text-sm">{m.name}</div>
-                  <div className="flex items-center gap-1.5 text-[10px] font-mono">
-                    <span className="px-2 py-0.5 rounded bg-white/[0.05] text-slate-300 border border-white/10">{m.region}</span>
-                    <span className="px-2 py-0.5 rounded bg-emerald-500/15 text-emerald-300 border border-emerald-500/30 font-bold">
-                      {m.currency}
-                    </span>
+            {methods.map((m) => {
+              const isSelected = String(m.id) === selectedMethodId;
+              const bd = m.details_json;
+              const structuredFields = bd
+                ? [
+                    { label: "Bank Name", val: bd.bank_name, key: `bname-${m.id}` },
+                    { label: "Bank Address", val: bd.bank_address, key: `baddr-${m.id}` },
+                    { label: "Beneficiary Name", val: bd.beneficiary_name, key: `ben-${m.id}` },
+                    { label: "Account Number / IBAN", val: bd.account_number, key: `anum-${m.id}` },
+                    { label: "Routing / ABA Number", val: bd.routing_aba, key: `aba-${m.id}` },
+                    { label: "SWIFT / BIC", val: bd.swift_bic, key: `swift-${m.id}` },
+                    { label: "Account Type", val: bd.account_type, key: `atype-${m.id}` },
+                    { label: "Supported Currency", val: bd.supported_currency, key: `scur-${m.id}` },
+                  ].filter((f) => f.val && String(f.val).trim())
+                : [];
+
+              return (
+                <div
+                  key={m.id}
+                  onClick={() => setSelectedMethodId(String(m.id))}
+                  className={`p-4 rounded-2xl border space-y-3 cursor-pointer transition-all ${
+                    isSelected
+                      ? "border-blue-500 bg-blue-500/10 shadow-md"
+                      : "border-white/[0.08] bg-white/[0.02] hover:border-white/25"
+                  }`}
+                >
+                  <div className="flex items-center justify-between gap-2">
+                    <div className="flex items-center gap-2">
+                      <span className="font-bold text-white text-sm">{m.name}</span>
+                      {isSelected && (
+                        <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-blue-600 text-white">
+                          SELECTED
+                        </span>
+                      )}
+                    </div>
+                    <div className="flex items-center gap-1.5 text-[10px] font-mono">
+                      <span className="px-2 py-0.5 rounded bg-white/[0.05] text-slate-300 border border-white/10">
+                        {m.region}
+                      </span>
+                      <span className="px-2 py-0.5 rounded bg-emerald-500/15 text-emerald-300 border border-emerald-500/30 font-bold">
+                        {m.currency}
+                      </span>
+                    </div>
                   </div>
+
+                  {/* Structured Bank Transfer Fields with Copy buttons */}
+                  {structuredFields.length > 0 ? (
+                    <div className="space-y-1.5">
+                      {structuredFields.map((f) => (
+                        <div
+                          key={f.key}
+                          className="flex items-center justify-between gap-2 p-2 rounded-lg bg-black/40 border border-white/[0.06] text-[11px]"
+                        >
+                          <div className="min-w-0">
+                            <span className="text-slate-400 text-[10px] block">{f.label}</span>
+                            <span className="font-mono text-blue-200 break-all">{f.val}</span>
+                          </div>
+                          <button
+                            type="button"
+                            onClick={(ev) => {
+                              ev.stopPropagation();
+                              copyValue(String(f.val), f.key);
+                            }}
+                            className="p-1.5 rounded-md bg-white/5 hover:bg-white/10 text-slate-300 hover:text-white shrink-0 cursor-pointer"
+                            title={`Copy ${f.label}`}
+                          >
+                            {copiedField === f.key ? (
+                              <Check className="h-3.5 w-3.5 text-emerald-400" />
+                            ) : (
+                              <Copy className="h-3.5 w-3.5" />
+                            )}
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  ) : (
+                    <>
+                      {m.account_holder_name && (
+                        <div className="flex items-center justify-between gap-2 p-2 rounded-lg bg-black/40 border border-white/[0.06] text-[11px]">
+                          <div>
+                            <span className="text-slate-400 text-[10px] block">Account Holder</span>
+                            <strong className="text-white">{m.account_holder_name}</strong>
+                          </div>
+                          <button
+                            type="button"
+                            onClick={(ev) => {
+                              ev.stopPropagation();
+                              copyValue(m.account_holder_name!, `holder-${m.id}`);
+                            }}
+                            className="p-1.5 rounded-md bg-white/5 hover:bg-white/10 text-slate-300 shrink-0 cursor-pointer"
+                          >
+                            {copiedField === `holder-${m.id}` ? (
+                              <Check className="h-3.5 w-3.5 text-emerald-400" />
+                            ) : (
+                              <Copy className="h-3.5 w-3.5" />
+                            )}
+                          </button>
+                        </div>
+                      )}
+
+                      {m.account_identifier && (
+                        <div className="flex items-center justify-between gap-2 p-2 rounded-lg bg-black/40 border border-white/[0.06] font-mono text-[11px]">
+                          <div className="min-w-0">
+                            <span className="text-slate-400 text-[10px] block font-sans">Account / ID / Phone</span>
+                            <span className="text-blue-200 break-all">{m.account_identifier}</span>
+                          </div>
+                          <button
+                            type="button"
+                            onClick={(ev) => {
+                              ev.stopPropagation();
+                              copyValue(m.account_identifier!, `acc-${m.id}`);
+                            }}
+                            className="p-1.5 rounded-md bg-white/5 hover:bg-white/10 text-slate-300 shrink-0 cursor-pointer"
+                          >
+                            {copiedField === `acc-${m.id}` ? (
+                              <Check className="h-3.5 w-3.5 text-emerald-400" />
+                            ) : (
+                              <Copy className="h-3.5 w-3.5" />
+                            )}
+                          </button>
+                        </div>
+                      )}
+
+                      {m.wallet_address && (
+                        <div className="flex items-center justify-between gap-2 p-2 rounded-lg bg-black/40 border border-white/[0.06] font-mono text-[11px]">
+                          <div className="min-w-0">
+                            <span className="text-slate-400 text-[10px] block font-sans">Wallet Address</span>
+                            <span className="text-amber-200 break-all">{m.wallet_address}</span>
+                          </div>
+                          <button
+                            type="button"
+                            onClick={(ev) => {
+                              ev.stopPropagation();
+                              copyValue(m.wallet_address!, `wal-${m.id}`);
+                            }}
+                            className="p-1.5 rounded-md bg-white/5 hover:bg-white/10 text-slate-300 shrink-0 cursor-pointer"
+                          >
+                            {copiedField === `wal-${m.id}` ? (
+                              <Check className="h-3.5 w-3.5 text-emerald-400" />
+                            ) : (
+                              <Copy className="h-3.5 w-3.5" />
+                            )}
+                          </button>
+                        </div>
+                      )}
+                    </>
+                  )}
+
+                  {m.payment_link && (
+                    <a
+                      href={m.payment_link}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      onClick={(ev) => ev.stopPropagation()}
+                      className="inline-flex items-center gap-1.5 text-xs text-blue-400 hover:text-blue-300 font-semibold"
+                    >
+                      <ExternalLink className="h-3.5 w-3.5" />
+                      <span>Open Payment Link</span>
+                    </a>
+                  )}
+
+                  {m.qr_image_data && (
+                    <img
+                      src={m.qr_image_data}
+                      alt={`${m.name} QR Code`}
+                      className="h-28 w-28 object-contain rounded-lg bg-white p-1 border border-white/10"
+                    />
+                  )}
+
+                  {m.instructions && <p className="text-[11px] text-slate-300 leading-relaxed">{m.instructions}</p>}
                 </div>
-
-                {m.account_holder_name && (
-                  <div className="text-[11px] text-slate-300">
-                    <span className="text-slate-500">Account Holder:</span>{" "}
-                    <strong className="text-white">{m.account_holder_name}</strong>
-                  </div>
-                )}
-
-                {m.account_identifier && (
-                  <div className="flex items-center justify-between gap-2 p-2 rounded-lg bg-black/40 border border-white/[0.05] font-mono text-[11px]">
-                    <span className="truncate text-blue-200">{m.account_identifier}</span>
-                    <button
-                      type="button"
-                      onClick={(ev) => {
-                        ev.stopPropagation();
-                        copyValue(m.account_identifier!, `acc-${m.id}`);
-                      }}
-                      className="text-slate-400 hover:text-white shrink-0 flex items-center gap-1 cursor-pointer"
-                    >
-                      {copiedField === `acc-${m.id}` ? <Check className="h-3 w-3 text-emerald-400" /> : <Copy className="h-3 w-3" />}
-                    </button>
-                  </div>
-                )}
-
-                {m.wallet_address && (
-                  <div className="flex items-center justify-between gap-2 p-2 rounded-lg bg-black/40 border border-white/[0.05] font-mono text-[11px]">
-                    <span className="truncate text-amber-200">{m.wallet_address}</span>
-                    <button
-                      type="button"
-                      onClick={(ev) => {
-                        ev.stopPropagation();
-                        copyValue(m.wallet_address!, `wal-${m.id}`);
-                      }}
-                      className="text-slate-400 hover:text-white shrink-0 flex items-center gap-1 cursor-pointer"
-                    >
-                      {copiedField === `wal-${m.id}` ? <Check className="h-3 w-3 text-emerald-400" /> : <Copy className="h-3 w-3" />}
-                    </button>
-                  </div>
-                )}
-
-                {m.payment_link && (
-                  <a
-                    href={m.payment_link}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    onClick={(ev) => ev.stopPropagation()}
-                    className="inline-flex items-center gap-1 text-[11px] font-bold text-blue-400 hover:underline"
-                  >
-                    <span>Open Payment Link</span>
-                    <ExternalLink className="h-3 w-3" />
-                  </a>
-                )}
-
-                {m.qr_image_data && (
-                  <div className="pt-1">
-                    <img src={m.qr_image_data} alt={`${m.name} QR`} className="h-28 w-28 rounded-lg border border-white/10 bg-white p-1 object-contain" />
-                  </div>
-                )}
-
-                {m.instructions && <p className="text-[11px] text-slate-400 leading-relaxed">{m.instructions}</p>}
-              </div>
-            ))}
+              );
+            })}
           </div>
         )}
       </div>
 
-      {/* 9. Payment Proof Upload Section */}
+      {/* SECTION C: SUBMIT PAYMENT PROOF FORM */}
       <div id="payment-proof-upload" className="rounded-2xl border border-white/[0.08] bg-[#0c1017] p-6 space-y-5">
         <div className="border-b border-white/[0.06] pb-3">
-          <h3 className="text-sm font-bold text-white flex items-center gap-2">
+          <h3 className="text-base font-bold text-white flex items-center gap-2">
             <Upload className="h-4 w-4 text-emerald-400" />
-            <span>Submit Payment Proof for Owner Verification</span>
+            <span>Submit Payment Proof Form</span>
           </h3>
-          <p className="text-[11px] text-slate-400">
-            Uploading your screenshot sends your payment proof directly to the Owner Dashboard. Subscriptions are activated only after Owner verification.
+          <p className="text-xs text-slate-400 mt-0.5">
+            Uploading proof creates a PENDING payment request in the Owner Dashboard. Your account activates only after actual Owner verification of funds.
           </p>
         </div>
 
-        {/* Account identity confirmation strip */}
-        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 text-xs font-mono">
-          <div className="p-2.5 rounded-xl bg-white/[0.02] border border-white/[0.06]">
-            <span className="text-[10px] text-slate-400 block">Account Username</span>
+        {/* Auto-Populated Verified Summary */}
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3 text-xs font-mono">
+          <div className="p-3 rounded-xl bg-white/[0.03] border border-white/10">
+            <span className="text-[10px] text-slate-400 font-sans block">1. Account Username *</span>
             <strong className="text-white">{displayUsername}</strong>
           </div>
-          <div className="p-2.5 rounded-xl bg-white/[0.02] border border-white/[0.06]">
-            <span className="text-[10px] text-slate-400 block">Registered Email</span>
-            <strong className="text-white break-all">{displayEmail}</strong>
+          <div className="p-3 rounded-xl bg-white/[0.03] border border-white/10">
+            <span className="text-[10px] text-slate-400 font-sans block">2. Selected Plan</span>
+            <strong className="text-blue-300">{orderSelection.plan}</strong>
           </div>
-          <div className="p-2.5 rounded-xl bg-white/[0.02] border border-white/[0.06]">
-            <span className="text-[10px] text-slate-400 block">Selected Plan &amp; Price</span>
+          <div className="p-3 rounded-xl bg-white/[0.03] border border-white/10">
+            <span className="text-[10px] text-slate-400 font-sans block">3. Duration &amp; Leads</span>
+            <strong className="text-purple-300">
+              {orderSelection.durationUnit === "lifetime"
+                ? "Lifetime"
+                : `${orderSelection.durationValue} ${orderSelection.durationUnit}`}{" "}
+              ({orderSelection.leadAllowance.toLocaleString()})
+            </strong>
+          </div>
+          <div className="p-3 rounded-xl bg-white/[0.03] border border-white/10">
+            <span className="text-[10px] text-slate-400 font-sans block">4. Currency &amp; Rate</span>
+            <strong className="text-white">
+              {orderSelection.currency} (1 USD = {orderSelection.exchangeRate})
+            </strong>
+          </div>
+          <div className="p-3 rounded-xl bg-emerald-500/15 border border-emerald-500/35">
+            <span className="text-[10px] text-emerald-200 font-sans block">5. Amount Due</span>
             <strong className="text-emerald-300">
-              {selectedPlan} • {agreedPrice || "0"} {currency}
+              {orderSelection.convertedAmount.toLocaleString()} {orderSelection.currency}
+              {orderSelection.currency !== "USD" ? ` ($${orderSelection.priceUsd} USD)` : ""}
             </strong>
           </div>
         </div>
@@ -766,177 +882,87 @@ export default function SubscriptionPage() {
         )}
 
         {lastSubmitted && (
-          <div className="p-4 rounded-xl bg-emerald-500/10 border border-emerald-500/30 space-y-3 text-xs">
+          <div className="p-4 rounded-xl bg-emerald-500/10 border border-emerald-500/30 space-y-2 text-xs">
             <div className="flex items-center gap-2 font-bold text-emerald-300">
               <CheckCircle2 className="h-4 w-4 shrink-0" />
-              <span>Payment proof submitted successfully. Awaiting Owner verification.</span>
-            </div>
-            <p className="text-[11px] text-slate-300">
-              Submission <strong>#{lastSubmitted.id}</strong> ({lastSubmitted.agreed_price_usd} {lastSubmitted.currency} via {lastSubmitted.payment_method_name}) has been recorded securely in the Owner Dashboard.
-            </p>
-            <div className="flex flex-wrap items-center gap-2.5 pt-1">
-              <a
-                href={buildProofWhatsAppUrl(lastSubmitted)}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="px-3.5 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs inline-flex items-center gap-1.5"
-              >
-                <MessageCircle className="h-3.5 w-3.5" />
-                <span>Send via WhatsApp</span>
-              </a>
-
-              {buildProofMailtoUrl(lastSubmitted) ? (
-                <a
-                  href={buildProofMailtoUrl(lastSubmitted)!}
-                  className="px-3.5 py-2 rounded-xl bg-blue-600 hover:bg-blue-500 text-white font-bold text-xs inline-flex items-center gap-1.5"
-                >
-                  <Mail className="h-3.5 w-3.5" />
-                  <span>Send via Email</span>
-                </a>
-              ) : (
-                <span className="text-[11px] text-amber-300 px-3 py-1.5 rounded-xl bg-white/[0.03] border border-amber-500/25">
-                  Send via Email unavailable (OWNER_SUPPORT_EMAIL env not set)
-                </span>
-              )}
-
-              <span className="px-3.5 py-2 rounded-xl bg-emerald-500/20 text-emerald-200 border border-emerald-500/30 font-bold text-xs inline-flex items-center gap-1.5">
-                <Send className="h-3.5 w-3.5" />
-                <span>Submitted to Owner (#{lastSubmitted.id})</span>
+              <span>
+                Payment proof submitted ({lastSubmitted.request_code || `#${lastSubmitted.id}`}) — Status: PENDING Verification
               </span>
             </div>
-            <p className="text-[10px] text-slate-400">
-              Note: WhatsApp Web and mailto email links cannot attach screenshot files automatically — if you notify via WhatsApp or Email, please attach your screenshot manually in your message.
+            <p className="text-[11px] text-slate-300">
+              Amount recorded: ${lastSubmitted.agreed_price_usd} USD ({lastSubmitted.converted_amount ?? lastSubmitted.agreed_price_usd}{" "}
+              {lastSubmitted.currency}) via {lastSubmitted.payment_method_name}. You will receive an in-app notification once the Owner approves or requests details.
             </p>
           </div>
         )}
 
-        <form onSubmit={handleUploadProof} className="space-y-4">
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 text-xs">
+        <form onSubmit={handleUploadProof} className="space-y-4 text-xs">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <div>
-              <label className="block font-semibold text-slate-300 mb-1">Selected Plan *</label>
+              <label className="block font-semibold text-slate-300 mb-1">6. Payment Method *</label>
               <select
-                value={selectedPlan}
-                onChange={(e) => handlePlanSelect(e.target.value as "BASIC" | "LIFETIME" | "CUSTOM")}
-                className="w-full rounded-xl border border-white/10 bg-[#121824] px-3 py-2 text-xs text-white"
+                required
+                value={selectedMethodId}
+                onChange={(e) => setSelectedMethodId(e.target.value)}
+                className="w-full rounded-xl border border-white/10 bg-[#121824] px-3 py-2.5 text-white"
               >
-                <option value="BASIC">Basic ($25 / 30 Days)</option>
-                <option value="LIFETIME">Lifetime ($100 One-Time)</option>
-                <option value="CUSTOM">Custom Agreed Plan</option>
+                {methods.length === 0 ? (
+                  <option value="">No configured method available yet</option>
+                ) : (
+                  methods.map((m) => (
+                    <option key={m.id} value={String(m.id)}>
+                      {m.name} ({m.region} • {m.currency})
+                    </option>
+                  ))
+                )}
               </select>
             </div>
 
             <div>
-              <label className="block font-semibold text-slate-300 mb-1">Final Agreed Price *</label>
-              <input
-                type="number"
-                step="0.01"
-                min="0.01"
-                required
-                value={agreedPrice}
-                onChange={(e) => setAgreedPrice(e.target.value)}
-                className="w-full rounded-xl border border-white/10 bg-[#121824] px-3 py-2 text-xs text-white font-mono"
-              />
-            </div>
-
-            <div>
-              <label className="block font-semibold text-slate-300 mb-1">Currency *</label>
-              <input
-                type="text"
-                required
-                value={currency}
-                onChange={(e) => setCurrency(e.target.value.toUpperCase())}
-                placeholder="USD / PKR / USDT"
-                className="w-full rounded-xl border border-white/10 bg-[#121824] px-3 py-2 text-xs text-white font-mono"
-              />
-            </div>
-
-            <div>
-              <label className="block font-semibold text-slate-300 mb-1">Payment Method Used *</label>
-              {methods.length > 0 ? (
-                <select
-                  value={selectedMethodId}
-                  onChange={(e) => {
-                    setSelectedMethodId(e.target.value);
-                    const found = methods.find((m) => String(m.id) === e.target.value);
-                    if (found?.currency) setCurrency(found.currency);
-                  }}
-                  className="w-full rounded-xl border border-white/10 bg-[#121824] px-3 py-2 text-xs text-white"
-                >
-                  {methods.map((m) => (
-                    <option key={m.id} value={String(m.id)}>
-                      {m.name} ({m.currency})
-                    </option>
-                  ))}
-                  <option value="">Other (Agreed with Owner)</option>
-                </select>
-              ) : (
-                <input
-                  type="text"
-                  required
-                  value={manualMethodName}
-                  onChange={(e) => setManualMethodName(e.target.value)}
-                  placeholder="e.g. Payoneer / Meezan / JazzCash"
-                  className="w-full rounded-xl border border-white/10 bg-[#121824] px-3 py-2 text-xs text-white"
-                />
-              )}
-            </div>
-          </div>
-
-          {methods.length > 0 && !selectedMethodId && (
-            <div className="text-xs">
-              <label className="block font-semibold text-slate-300 mb-1">Specify Agreed Payment Method *</label>
-              <input
-                type="text"
-                required
-                value={manualMethodName}
-                onChange={(e) => setManualMethodName(e.target.value)}
-                placeholder="e.g. Bank Transfer / Payoneer"
-                className="w-full rounded-xl border border-white/10 bg-[#121824] px-3 py-2 text-xs text-white"
-              />
-            </div>
-          )}
-
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs">
-            <div>
-              <label className="block font-semibold text-slate-300 mb-1">Transaction / Payment Reference</label>
-              <input
-                type="text"
-                value={paymentReference}
-                onChange={(e) => setPaymentReference(e.target.value)}
-                placeholder="e.g. TRX-8924103 or Last 4 digits"
-                className="w-full rounded-xl border border-white/10 bg-[#121824] px-3 py-2 text-xs text-white font-mono"
-              />
-            </div>
-
-            <div>
               <label className="block font-semibold text-slate-300 mb-1">
-                Payment Screenshot / PDF Receipt * <span className="text-slate-500 font-normal">(JPG, JPEG, PNG, WebP, PDF • max 5MB)</span>
+                7. Payment Screenshot *{" "}
+                <span className="text-slate-500 font-normal">(JPG, JPEG, PNG, WebP, PDF • max 5MB)</span>
               </label>
               <input
                 type="file"
                 accept=".jpg,.jpeg,.png,.webp,.pdf,image/jpeg,image/png,image/webp,application/pdf"
                 required
                 onChange={(e) => setProofFile(e.target.files?.[0] || null)}
-                className="w-full rounded-xl border border-white/10 bg-[#121824] px-3 py-1.5 text-xs text-slate-300 file:mr-3 file:py-1 file:px-2.5 file:rounded-lg file:border-0 file:text-xs file:font-bold file:bg-blue-600 file:text-white cursor-pointer"
+                className="w-full rounded-xl border border-white/10 bg-[#121824] px-3 py-2 text-xs text-slate-300 file:mr-3 file:py-1 file:px-2.5 file:rounded-lg file:border-0 file:text-xs file:font-bold file:bg-blue-600 file:text-white cursor-pointer"
               />
             </div>
           </div>
 
-          <div className="text-xs">
-            <label className="block font-semibold text-slate-300 mb-1">Notes for Owner (Optional)</label>
-            <input
-              type="text"
-              value={customerNote}
-              onChange={(e) => setCustomerNote(e.target.value)}
-              placeholder="e.g. Agreed $20 discount on WhatsApp / Custom 7-day Maps bundle"
-              className="w-full rounded-xl border border-white/10 bg-[#121824] px-3 py-2 text-xs text-white"
-            />
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <div>
+              <label className="block font-semibold text-slate-300 mb-1">
+                8. Transfer Receipt / Transaction Reference (Optional)
+              </label>
+              <input
+                type="text"
+                value={paymentReference}
+                onChange={(e) => setPaymentReference(e.target.value)}
+                placeholder="e.g. TRX-8924103 or sender bank account"
+                className="w-full rounded-xl border border-white/10 bg-[#121824] px-3 py-2 text-white font-mono"
+              />
+            </div>
+
+            <div>
+              <label className="block font-semibold text-slate-300 mb-1">9. Note for Owner (Optional)</label>
+              <input
+                type="text"
+                value={customerNote}
+                onChange={(e) => setCustomerNote(e.target.value)}
+                placeholder="Any extra context about your transfer..."
+                className="w-full rounded-xl border border-white/10 bg-[#121824] px-3 py-2 text-white"
+              />
+            </div>
           </div>
 
           <button
             type="submit"
-            disabled={submittingProof}
-            className="px-6 py-2.5 rounded-xl bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white font-bold text-xs shadow-glow-sm inline-flex items-center gap-2 cursor-pointer disabled:opacity-50"
+            disabled={submittingProof || methods.length === 0}
+            className="w-full py-3 rounded-xl bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white font-bold text-xs flex items-center justify-center gap-2 cursor-pointer disabled:opacity-50"
           >
             {submittingProof ? (
               <>
@@ -946,21 +972,21 @@ export default function SubscriptionPage() {
             ) : (
               <>
                 <Upload className="h-4 w-4" />
-                <span>Upload Payment Proof (Submit to Owner)</span>
+                <span>Submit Payment Proof for Owner Verification</span>
               </>
             )}
           </button>
         </form>
       </div>
 
-      {/* 10. Payment Submission Status */}
+      {/* SECTION D: SUBMISSION HISTORY */}
       <div className="rounded-2xl border border-white/[0.08] bg-[#0c1017] p-6 space-y-4">
         <div className="flex items-center justify-between border-b border-white/[0.06] pb-3">
           <h3 className="text-sm font-bold text-white flex items-center gap-2">
             <FileText className="h-4 w-4 text-purple-400" />
-            <span>Your Payment Submission Status</span>
+            <span>Your Payment Request History</span>
           </h3>
-          <span className="text-xs font-mono text-slate-400">{submissions.length} Submission(s)</span>
+          <span className="text-xs font-mono text-slate-400">{submissions.length} Request(s)</span>
         </div>
 
         {submissions.length === 0 ? (
@@ -974,10 +1000,11 @@ export default function SubscriptionPage() {
               >
                 <div className="space-y-1">
                   <div className="flex items-center gap-2 flex-wrap">
-                    <span className="font-mono font-bold text-white">#{s.id}</span>
-                    <span className="font-bold text-blue-300">{s.requested_plan}</span>
+                    <span className="font-mono font-bold text-white">{s.request_code || `#${s.id}`}</span>
+                    <span className="font-bold text-blue-300">{s.plan_label || s.requested_plan}</span>
                     <span className="font-mono text-emerald-300 font-bold">
-                      {s.agreed_price_usd} {s.currency}
+                      {s.converted_amount ?? s.agreed_price_usd} {s.currency}
+                      {s.currency !== "USD" ? ` ($${s.agreed_price_usd} USD)` : ""}
                     </span>
                     <span className="text-slate-400">via {s.payment_method_name}</span>
                     <span
@@ -1005,23 +1032,133 @@ export default function SubscriptionPage() {
                   )}
                 </div>
 
-                <div className="flex items-center gap-2 shrink-0">
-                  <button
-                    type="button"
-                    onClick={() => openProofViewer(s)}
-                    className="px-3 py-1.5 rounded-lg bg-white/[0.04] hover:bg-white/[0.08] border border-white/10 text-slate-200 text-[11px] font-semibold inline-flex items-center gap-1.5 cursor-pointer"
-                  >
-                    <Eye className="h-3.5 w-3.5" />
-                    <span>View Screenshot</span>
-                  </button>
-                </div>
+                <button
+                  type="button"
+                  onClick={() => openProofViewer(s)}
+                  className="px-3 py-1.5 rounded-lg bg-white/[0.04] hover:bg-white/[0.08] border border-white/10 text-slate-200 text-[11px] font-semibold inline-flex items-center gap-1.5 cursor-pointer shrink-0"
+                >
+                  <Eye className="h-3.5 w-3.5" />
+                  <span>View Screenshot</span>
+                </button>
               </div>
             ))}
           </div>
         )}
       </div>
 
-      {/* Secure Authenticated Screenshot Modal */}
+      {/* Direct Support Links */}
+      <div className="rounded-2xl border border-white/[0.08] bg-[#0c1017] p-5 flex flex-wrap items-center justify-between gap-3 text-xs">
+        <div className="text-slate-300">
+          Need assistance with your payment or existing subscription? Reach support anytime:
+        </div>
+        <div className="flex flex-wrap items-center gap-2.5">
+          <a
+            href={WHATSAPP_LINK}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-bold inline-flex items-center gap-1.5"
+          >
+            <MessageCircle className="h-4 w-4" />
+            <span>WhatsApp Support ({whatsappNumber})</span>
+          </a>
+          {supportMailtoHref && (
+            <a
+              href={supportMailtoHref}
+              className="px-4 py-2 rounded-xl bg-blue-600 hover:bg-blue-500 text-white font-bold inline-flex items-center gap-1.5"
+            >
+              <Mail className="h-4 w-4" />
+              <span>Email Support</span>
+            </a>
+          )}
+        </div>
+      </div>
+
+      {/* VIEW PLAN MODAL */}
+      {viewPlanOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm p-4">
+          <div className="w-full max-w-lg rounded-2xl border border-white/15 bg-[#0c1017] p-6 space-y-4 text-xs">
+            <div className="flex items-center justify-between border-b border-white/10 pb-3">
+              <h3 className="text-base font-extrabold text-white">Current Active Plan Details (Database)</h3>
+              <button onClick={() => setViewPlanOpen(false)} className="text-slate-400 hover:text-white cursor-pointer">
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+
+            <div className="grid grid-cols-2 gap-2.5">
+              <div className="p-2.5 rounded-xl bg-white/[0.03] border border-white/10">
+                <span className="text-[10px] text-slate-400 block">Plan Name</span>
+                <strong className="text-white">{displayCurrentPlan}</strong>
+              </div>
+              <div className="p-2.5 rounded-xl bg-white/[0.03] border border-white/10">
+                <span className="text-[10px] text-slate-400 block">Status</span>
+                <strong className={isActive ? "text-emerald-300" : "text-rose-300"}>{currentStatus}</strong>
+              </div>
+              <div className="p-2.5 rounded-xl bg-white/[0.03] border border-white/10">
+                <span className="text-[10px] text-slate-400 block">Activation Date</span>
+                <strong className="text-white font-mono">
+                  {liveProfile?.subscription_start
+                    ? new Date(liveProfile.subscription_start).toUTCString()
+                    : "Not activated"}
+                </strong>
+              </div>
+              <div className="p-2.5 rounded-xl bg-white/[0.03] border border-white/10">
+                <span className="text-[10px] text-slate-400 block">Expiry Date</span>
+                <strong className="text-white font-mono">
+                  {isLifetime
+                    ? "Permanent — No Expiry"
+                    : liveProfile?.subscription_expires_at
+                    ? new Date(liveProfile.subscription_expires_at).toUTCString()
+                    : "N/A"}
+                </strong>
+              </div>
+              <div className="p-2.5 rounded-xl bg-white/[0.03] border border-white/10">
+                <span className="text-[10px] text-slate-400 block">Lead Quota (Used / Cap)</span>
+                <strong className="text-purple-300 font-mono">
+                  {stats.is_unlimited_quota
+                    ? "Unlimited (Owner)"
+                    : `${stats.leads_used_in_period.toLocaleString()} / ${stats.max_leads.toLocaleString()} (${stats.remaining_leads.toLocaleString()} left)`}
+                </strong>
+              </div>
+              <div className="p-2.5 rounded-xl bg-white/[0.03] border border-white/10">
+                <span className="text-[10px] text-slate-400 block">Daily Gmail Sending Cap</span>
+                <strong className="text-emerald-300 font-mono">
+                  {isActive ? `${liveProfile?.daily_email_limit ?? 10} emails / day` : "Locked"}
+                </strong>
+              </div>
+            </div>
+
+            <div className="p-3 rounded-xl bg-white/[0.02] border border-white/10 space-y-2">
+              <div className="font-bold text-slate-200">Enabled Modules on Your Account:</div>
+              {activeFeaturesList.length === 0 ? (
+                <p className="text-slate-400">No paid modules currently unlocked.</p>
+              ) : (
+                <div className="flex flex-wrap gap-1.5">
+                  {activeFeaturesList.map(([k]) => (
+                    <span
+                      key={k}
+                      className="px-2 py-0.5 rounded bg-emerald-500/15 border border-emerald-500/30 text-emerald-300 font-mono text-[10px]"
+                    >
+                      {k.replace(/_/g, " ")}
+                    </span>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            <div className="flex justify-end">
+              <button
+                type="button"
+                onClick={() => setViewPlanOpen(false)}
+                className="px-4 py-2 rounded-xl bg-blue-600 hover:bg-blue-500 text-white font-bold cursor-pointer"
+              >
+                Close
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* SECURE SCREENSHOT VIEWER MODAL */}
       {viewerUrl && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/85 backdrop-blur-sm p-4">
           <div className="w-full max-w-3xl rounded-2xl border border-white/15 bg-[#0c1017] p-4 space-y-3">
@@ -1042,5 +1179,13 @@ export default function SubscriptionPage() {
         </div>
       )}
     </div>
+  );
+}
+
+export default function SubscriptionPage() {
+  return (
+    <Suspense fallback={<div className="p-8 text-xs text-slate-400">Loading subscription center...</div>}>
+      <SubscriptionPageInner />
+    </Suspense>
   );
 }

@@ -57,6 +57,10 @@ export async function GET(request: Request) {
 
   return NextResponse.json({
     configured: isConfigured,
+    error_code: isConfigured ? null : "credentials_missing",
+    error: isConfigured
+      ? undefined
+      : "OAuth credentials are missing on server (GOOGLE_CLIENT_ID / GOOGLE_CLIENT_SECRET).",
     redirect_uri: redirectUri,
     auth_url: authUrl,
     scopes: ["https://www.googleapis.com/auth/gmail.send", "https://www.googleapis.com/auth/userinfo.email"],

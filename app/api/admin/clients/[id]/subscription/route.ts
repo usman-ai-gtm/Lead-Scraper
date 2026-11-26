@@ -13,6 +13,8 @@ import {
   formatDurationLabel,
   calculateSuggestedCustomPrice,
 } from "@/lib/entitlements";
+import { FIXED_PLAN_SPECS, CUSTOM_UNIT_PRICING, normalizeBuilderUnit } from "@/lib/custom-plans";
+import { createSystemNotification } from "@/lib/notifications-db";
 
 export const dynamic = "force-dynamic";
 
@@ -109,6 +111,7 @@ export async function POST(req: Request, { params }: RouteParams) {
                custom_duration_unit = 'days',
                custom_price_usd = 25,
                suggested_price_usd = 25,
+               max_leads_quota = $5,
                daily_email_limit = $1,
                google_maps_enabled = FALSE,
                features_json = $2::jsonb,
@@ -118,7 +121,7 @@ export async function POST(req: Request, { params }: RouteParams) {
                subscription_notes = COALESCE($3, subscription_notes),
                updated_at = NOW()::text
            WHERE id = $4`,
-          [BASIC_DAILY_EMAIL_LIMIT, basicFeaturesStr, notes, clientId]
+          [BASIC_DAILY_EMAIL_LIMIT, basicFeaturesStr, notes, clientId, FIXED_PLAN_SPECS.BASIC.leadAllowance]
         );
         break;
       }
@@ -137,6 +140,7 @@ export async function POST(req: Request, { params }: RouteParams) {
                custom_duration_unit = 'lifetime',
                custom_price_usd = 100,
                suggested_price_usd = 100,
+               max_leads_quota = $5,
                daily_email_limit = $1,
                google_maps_enabled = TRUE,
                features_json = $2::jsonb,
@@ -146,7 +150,7 @@ export async function POST(req: Request, { params }: RouteParams) {
                subscription_notes = COALESCE($3, subscription_notes),
                updated_at = NOW()::text
            WHERE id = $4`,
-          [LIFETIME_GMAIL_DAILY_SAFE_CAP, allFeaturesStr, notes, clientId]
+          [LIFETIME_GMAIL_DAILY_SAFE_CAP, allFeaturesStr, notes, clientId, FIXED_PLAN_SPECS.LIFETIME.leadAllowance]
         );
         break;
       }
@@ -217,6 +221,14 @@ export async function POST(req: Request, { params }: RouteParams) {
             ? Number(Number(body.custom_price_usd).toFixed(2))
             : suggestedPriceUsd;
 
+        const builderUnit = normalizeBuilderUnit(durationUnit);
+        const computedMaxLeadsQuota =
+          body.max_leads_quota !== undefined && body.max_leads_quota !== null && Number(body.max_leads_quota) > 0
+            ? Math.floor(Number(body.max_leads_quota))
+            : builderUnit && durationValue
+            ? durationValue * CUSTOM_UNIT_PRICING[builderUnit].leadsPerUnit
+            : FIXED_PLAN_SPECS.LIFETIME.leadAllowance;
+
         const deltaSec = getDurationSeconds(durationValue, durationUnit);
         const durLabel = formatDurationLabel(durationValue, durationUnit);
         const planLabel =
@@ -278,6 +290,7 @@ export async function POST(req: Request, { params }: RouteParams) {
                  daily_email_limit = $6,
                  google_maps_enabled = $7,
                  features_json = $8::jsonb,
+                 max_leads_quota = $14,
                  subscription_status = 'ACTIVE',
                  subscription_start = CASE WHEN $9 THEN NOW() ELSE COALESCE(subscription_start, NOW()) END,
                  subscription_expires_at = CASE
@@ -302,6 +315,7 @@ export async function POST(req: Request, { params }: RouteParams) {
               deltaSec,
               notes,
               clientId,
+              computedMaxLeadsQuota,
             ]
           );
         }
@@ -489,6 +503,23 @@ export async function POST(req: Request, { params }: RouteParams) {
         notes,
       },
     });
+
+    const isActivationAction =
+      action.startsWith("ACTIVATE_") || action === "EXTEND_30" || action === "RENEW" || action === "EXTEND_CUSTOM" || action === "UNLOCK" || action === "RESTORE";
+    await createSystemNotification({
+      workspaceId: Number(client.workspace_id) || 1,
+      userId: Number(client.id),
+      isAdminTarget: false,
+      title: isActivationAction ? "Subscription Updated & Activated" : `Account Status Updated (${authoritative.status})`,
+      message: isActivationAction
+        ? `Your ${verifiedEnt.planLabel} is now ${authoritative.status}. (${authoritative.remainingDetailed}).`
+        : `Account status changed to ${authoritative.status} by Administrator.`,
+      type: authoritative.isLocked ? "warning" : "success",
+      category: isActivationAction ? "subscription_activated" : "account_status",
+      link: "/app/subscription",
+      refType: "user",
+      refId: String(client.id),
+    }).catch(() => {});
 
     const msg =
       (action === "UNLOCK" || action === "ACTIVATE" || action === "RESTORE") && authoritative.status === "EXPIRED"

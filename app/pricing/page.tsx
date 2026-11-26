@@ -1,273 +1,134 @@
 "use client";
 
-import React from "react";
+import React, { useState } from "react";
 import Link from "next/link";
 import { Header } from "@/components/marketing/Header";
 import { Footer } from "@/components/marketing/Footer";
 import {
-  Check, Sparkles, MessageCircle, ShieldCheck, Mail, Database,
-  Search, ArrowRight, Zap, CreditCard, Lock, CheckCircle2, Crown
+  Sparkles,
+  MessageCircle,
+  CreditCard,
+  ArrowRight,
+  UserPlus,
+  LogIn,
 } from "lucide-react";
+import { CustomPlanBuilder, PlanSelectionValue } from "@/components/payments/CustomPlanBuilder";
 
 export default function PricingPage() {
   const WHATSAPP_NUMBER = "+923174383702";
-  const WHATSAPP_LINK = "https://wa.me/923174383702?text=Hello%20Usman%20AI%20GTM,%20I%20want%20to%20activate%20my%20subscription%20($25/mo%20or%20$100%20Lifetime)%20for%20my%20registered%20email:";
+  const [selectedOrder, setSelectedOrder] = useState<PlanSelectionValue | null>(null);
+
+  const buildOrderQuery = (sel: PlanSelectionValue) => {
+    const params = new URLSearchParams({
+      plan: sel.plan,
+      currency: sel.currency,
+    });
+    if (sel.plan === "CUSTOM" && sel.durationUnit !== "lifetime" && sel.durationValue) {
+      params.set("unit", sel.durationUnit);
+      params.set("qty", String(sel.durationValue));
+      params.set("maps", sel.includeGoogleMaps ? "1" : "0");
+    }
+    return `/app/subscription?${params.toString()}`;
+  };
 
   return (
     <div className="min-h-screen bg-[#07090e] text-slate-100 flex flex-col selection:bg-blue-600 selection:text-white">
       <Header />
 
-      <section className="py-16 sm:py-24 relative overflow-hidden">
-        {/* Subtle Background Glows */}
+      <section className="py-16 sm:py-20 relative overflow-hidden">
         <div className="absolute top-1/4 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[600px] h-[350px] bg-blue-600/10 blur-[130px] rounded-full pointer-events-none" />
 
-        <div className="mx-auto max-w-6xl px-4 sm:px-6 lg:px-8 text-center relative z-10">
-          <div className="inline-flex items-center gap-2 rounded-full border border-blue-500/30 bg-blue-500/10 px-4 py-1.5 text-xs font-semibold text-blue-400 mb-6">
-            <Sparkles className="h-3.5 w-3.5" />
-            <span>TRANSPARENT, AFFORDABLE B2B SAAS</span>
-          </div>
-
-          <h1 className="text-3xl sm:text-5xl font-extrabold text-white tracking-tight mb-4">
-            Transparent B2B Lead Generation &amp; Outreach Pricing
-          </h1>
-
-          <p className="text-sm sm:text-base text-slate-400 max-w-2xl mx-auto mb-12">
-            Simple, honest plans with server-enforced daily sending caps and zero hidden renewals. Connect your Google account via OAuth 2.0, discover public commercial contacts, and export in XLSX, PDF, CSV, and JSON.
-          </p>
-
-          {/* TWO PRICING CARDS: $25/MO & $100 LIFETIME */}
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-8 max-w-4xl mx-auto text-left">
-            {/* MONTHLY STARTER PLAN: $25/MO */}
-            <div className="rounded-3xl border border-blue-500/40 bg-gradient-to-b from-[#0e1628] to-[#090d16] p-8 shadow-2xl relative flex flex-col justify-between">
-              <div className="absolute -top-3.5 left-8 bg-blue-600 text-white text-[11px] font-extrabold uppercase tracking-wider py-1 px-3.5 rounded-full shadow-lg">
-                Monthly Subscription
-              </div>
-
-              <div>
-                <div className="flex items-baseline justify-between gap-4 mb-4 border-b border-white/[0.08] pb-5 pt-2">
-                  <div>
-                    <h3 className="text-2xl font-black text-white">Starter Monthly</h3>
-                    <p className="text-xs text-slate-400 mt-1">Flexible monthly subscription</p>
-                  </div>
-                  <div className="text-right">
-                    <span className="text-4xl font-black text-white">$25</span>
-                    <span className="text-xs text-slate-400 font-medium block">/ month (~7,000 PKR)</span>
-                  </div>
-                </div>
-
-                {/* Quota Highlights */}
-                <div className="grid grid-cols-2 gap-2.5 mb-6">
-                  <div className="p-3 rounded-xl bg-white/[0.03] border border-white/[0.06]">
-                    <div className="text-[10px] uppercase font-bold text-slate-400 mb-0.5">Gmail Outreach Cap</div>
-                    <div className="text-sm font-extrabold text-white">10 emails / day</div>
-                  </div>
-                  <div className="p-3 rounded-xl bg-white/[0.03] border border-white/[0.06]">
-                    <div className="text-[10px] uppercase font-bold text-slate-400 mb-0.5">Access Duration</div>
-                    <div className="text-sm font-extrabold text-blue-400">30 Days Exact</div>
-                  </div>
-                </div>
-
-                {/* Feature List */}
-                <div className="space-y-2.5 text-xs text-slate-300 mb-8">
-                  <div className="flex items-center gap-2">
-                    <Check className="h-4 w-4 text-emerald-400 shrink-0" />
-                    <span>Multi-Country Web Lead Search (Rate-Limited Fair Use)</span>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <Check className="h-4 w-4 text-emerald-400 shrink-0" />
-                    <span>Public Email &amp; Phone Extraction + MX Domain Check</span>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <Check className="h-4 w-4 text-emerald-400 shrink-0" />
-                    <span>Up to 10 Individual 1-to-1 Gmail Outreach Emails / Day</span>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <Check className="h-4 w-4 text-emerald-400 shrink-0" />
-                    <span>Gemini AI Email Personalization Assistant</span>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <Check className="h-4 w-4 text-emerald-400 shrink-0" />
-                    <span>Excel (.xlsx), PDF, CSV &amp; JSON Exports</span>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <Check className="h-4 w-4 text-emerald-400 shrink-0" />
-                    <span>Search History &amp; Snapshots (Excludes Google Maps)</span>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <Check className="h-4 w-4 text-emerald-400 shrink-0" />
-                    <span>Private Workspace Isolation (Auto-Locks at Day 30)</span>
-                  </div>
-                </div>
-              </div>
-
-              <div className="space-y-2.5 pt-4 border-t border-white/[0.08]">
-                <a
-                  href="https://wa.me/923174383702?text=Assalamualaikum.%20I%20want%20to%20buy%20the%20$25%20Basic%20Plan%20(30%20Days)%20for%20my%20registered%20email%3A"
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="w-full py-3.5 rounded-xl bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-500 hover:to-indigo-500 text-white font-extrabold text-xs shadow-lg shadow-blue-900/30 flex items-center justify-center gap-2 transition-all cursor-pointer"
-                >
-                  <MessageCircle className="h-4 w-4" />
-                  <span>Choose Basic ($25 / 30 Days)</span>
-                </a>
-              </div>
+        <div className="mx-auto max-w-6xl px-4 sm:px-6 lg:px-8 relative z-10 space-y-12">
+          <div className="text-center">
+            <div className="inline-flex items-center gap-2 rounded-full border border-blue-500/30 bg-blue-500/10 px-4 py-1.5 text-xs font-semibold text-blue-400 mb-5">
+              <Sparkles className="h-3.5 w-3.5" />
+              <span>TRANSPARENT B2B SAAS PRICING &amp; CUSTOM BUILDER</span>
             </div>
 
-            {/* LIFETIME ACCESS PLAN: $100 */}
-            <div className="rounded-3xl border border-amber-500/50 bg-gradient-to-b from-[#191508] via-[#0f1118] to-[#090d16] p-8 shadow-2xl relative flex flex-col justify-between">
-              <div className="absolute -top-3.5 left-8 bg-gradient-to-r from-amber-500 to-yellow-500 text-black text-[11px] font-black uppercase tracking-wider py-1 px-3.5 rounded-full shadow-lg flex items-center gap-1.5">
-                <Crown className="h-3.5 w-3.5" />
-                <span>Best Value — Lifetime Deal</span>
-              </div>
+            <h1 className="text-3xl sm:text-5xl font-extrabold text-white tracking-tight mb-4">
+              Choose Fixed Plans or Pay-As-You-Need Access
+            </h1>
 
-              <div>
-                <div className="flex items-baseline justify-between gap-4 mb-4 border-b border-white/[0.08] pb-5 pt-2">
-                  <div>
-                    <h3 className="text-2xl font-black text-amber-200">Lifetime Access</h3>
-                    <p className="text-xs text-slate-400 mt-1">Pay once, keep forever</p>
-                  </div>
-                  <div className="text-right">
-                    <span className="text-4xl font-black text-amber-300">$100</span>
-                    <span className="text-xs text-slate-400 font-medium block">One-time (~28,000 PKR)</span>
-                  </div>
-                </div>
-
-                {/* Quota Highlights */}
-                <div className="grid grid-cols-2 gap-2.5 mb-6">
-                  <div className="p-3 rounded-xl bg-amber-500/10 border border-amber-500/20">
-                    <div className="text-[10px] uppercase font-bold text-amber-300 mb-0.5">Recurring Fees</div>
-                    <div className="text-sm font-extrabold text-white">$0 / Month</div>
-                  </div>
-                  <div className="p-3 rounded-xl bg-amber-500/10 border border-amber-500/20">
-                    <div className="text-[10px] uppercase font-bold text-amber-300 mb-0.5">Access Duration</div>
-                    <div className="text-sm font-extrabold text-amber-300">Lifetime</div>
-                  </div>
-                </div>
-
-                {/* Feature List */}
-                <div className="space-y-2.5 text-xs text-slate-300 mb-8">
-                  <div className="flex items-center gap-2">
-                    <Check className="h-4 w-4 text-amber-400 shrink-0" />
-                    <span className="font-semibold text-white">Up to 500 Gmail Outreach Emails / Day (Google Fair-Use Cap)</span>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <Check className="h-4 w-4 text-amber-400 shrink-0" />
-                    <span className="font-semibold text-amber-300">Exclusive Google Maps Business Lead Generator</span>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <Check className="h-4 w-4 text-amber-400 shrink-0" />
-                    <span className="font-semibold text-amber-300">Exclusive AI Lead Research Agent (Company Briefs &amp; Proposals)</span>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <Check className="h-4 w-4 text-amber-400 shrink-0" />
-                    <span>Multi-Gmail Sender Account Rotation</span>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <Check className="h-4 w-4 text-amber-400 shrink-0" />
-                    <span>XLSX, Executive PDF, CSV &amp; JSON Formula-Safe Exports</span>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <Check className="h-4 w-4 text-amber-400 shrink-0" />
-                    <span>Priority WhatsApp Owner Support (+923174383702)</span>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <Check className="h-4 w-4 text-amber-400 shrink-0" />
-                    <span>Permanent Workspace Access — Zero Monthly Renewals</span>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <Check className="h-4 w-4 text-amber-400 shrink-0" />
-                    <span>Custom Plans Available Upon Owner Agreement</span>
-                  </div>
-                </div>
-              </div>
-
-              <div className="space-y-2.5 pt-4 border-t border-white/[0.08]">
-                <a
-                  href="https://wa.me/923174383702?text=Assalamualaikum.%20I%20want%20to%20buy%20the%20$100%20Lifetime%20Plan%20for%20my%20registered%20email%3A"
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="w-full py-3.5 rounded-xl bg-gradient-to-r from-amber-500 via-yellow-500 to-amber-600 hover:from-amber-400 hover:to-yellow-400 text-black font-black text-xs shadow-lg shadow-amber-900/40 flex items-center justify-center gap-2 transition-all cursor-pointer"
-                >
-                  <Crown className="h-4 w-4" />
-                  <span>Choose Lifetime ($100 One-Time)</span>
-                </a>
-              </div>
-            </div>
+            <p className="text-sm sm:text-base text-slate-400 max-w-2xl mx-auto">
+              Start with Basic ($25 / 30 days, Google Maps excluded), unlock permanent Lifetime Access ($100 one-time, Google Maps included), or customize hourly, daily, weekly, or monthly access in your currency.
+            </p>
           </div>
 
-          <div className="mt-8">
-            <Link
-              href="/login"
-              className="inline-flex items-center gap-2 px-6 py-2.5 rounded-xl bg-white/[0.04] hover:bg-white/[0.08] text-slate-300 hover:text-white font-semibold text-xs border border-white/10 transition-all"
-            >
-              <span>Sign In with Google (Free Preview Mode)</span>
-              <ArrowRight className="h-3.5 w-3.5" />
-            </Link>
-          </div>
+          <CustomPlanBuilder
+            initialPlan="BASIC"
+            onChange={(sel) => setSelectedOrder(sel)}
+            ctaSlot={(sel) => {
+              const targetUrl = buildOrderQuery(sel);
+              const signupHref = `/signup?next=${encodeURIComponent(targetUrl)}`;
+              const whatsappText = encodeURIComponent(
+                `Hello Usman AI GTM, I selected ${sel.planLabel} (${sel.currency}) and created my account.`
+              );
+              return (
+                <div className="flex flex-wrap items-center gap-3 pt-2">
+                  <Link
+                    href={signupHref}
+                    className="px-5 py-3 rounded-xl bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-500 hover:to-indigo-500 text-white font-bold text-xs shadow-glow-sm inline-flex items-center gap-2 transition-all"
+                  >
+                    <UserPlus className="h-4 w-4" />
+                    <span>Create Account &amp; Proceed to Payment</span>
+                    <ArrowRight className="h-3.5 w-3.5" />
+                  </Link>
 
-          {/* PAYMENT METHODS & ACTIVATION WORKFLOW */}
-          <div className="mt-16 max-w-4xl mx-auto rounded-2xl border border-white/[0.08] bg-[#0c1017] p-8 text-left space-y-6">
+                  <Link
+                    href={`/login?next=${encodeURIComponent(targetUrl)}`}
+                    className="px-4 py-3 rounded-xl bg-white/[0.05] hover:bg-white/[0.1] border border-white/10 text-slate-200 font-semibold text-xs inline-flex items-center gap-2 transition-all"
+                  >
+                    <LogIn className="h-4 w-4 text-blue-400" />
+                    <span>Existing Customer: Open Payment Page</span>
+                  </Link>
+
+                  <a
+                    href={`https://wa.me/923174383702?text=${whatsappText}`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="px-4 py-3 rounded-xl bg-emerald-600/20 hover:bg-emerald-600/35 border border-emerald-500/40 text-emerald-300 font-semibold text-xs inline-flex items-center gap-2 transition-all"
+                  >
+                    <MessageCircle className="h-4 w-4" />
+                    <span>Questions? WhatsApp ({WHATSAPP_NUMBER})</span>
+                  </a>
+                </div>
+              );
+            }}
+          />
+
+          {/* Transparent Activation Policy */}
+          <div className="max-w-4xl mx-auto rounded-2xl border border-white/[0.08] bg-[#0c1017] p-8 text-left space-y-5">
             <div>
               <div className="flex items-center gap-2 text-xs font-bold uppercase tracking-wider text-emerald-400 mb-1">
                 <CreditCard className="h-4 w-4" />
-                <span>Transparent Payment Policy & Supported Methods</span>
+                <span>How Purchase &amp; Same-Account Activation Works</span>
               </div>
-              <h4 className="text-lg font-bold text-white">How Account Activation Works</h4>
+              <h2 className="text-lg font-bold text-white">Simple 6-Step Owner-Verified Activation</h2>
               <p className="text-xs text-slate-400 mt-1">
-                To guarantee zero fake fees, zero unauthorized recurring debits, and full compatibility across Pakistan and international cards, we operate a direct, owner-verified activation workflow.
+                {selectedOrder
+                  ? `Selected preview: ${selectedOrder.planLabel}. Sign up or sign in to view live Owner-configured bank/payment methods, copy exact transfer details, and upload payment proof cleanly.`
+                  : "Sign up or sign in inside your customer dashboard to view Owner-configured payment details and upload proof."}
               </p>
             </div>
 
-            {/* Supported Payment Channels */}
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs">
-              <div className="p-3.5 rounded-xl bg-white/[0.02] border border-white/[0.05]">
-                <div className="font-bold text-white mb-1">🇵🇰 Pakistani Bank Transfer / Raast</div>
-                <div className="text-slate-400">Instant direct transfer via Raast ID or IBAN with 0 transaction fees.</div>
-              </div>
-              <div className="p-3.5 rounded-xl bg-white/[0.02] border border-white/[0.05]">
-                <div className="font-bold text-white mb-1">📱 JazzCash & Easypaisa</div>
-                <div className="text-slate-400">Fast mobile wallet payment with direct reference verification.</div>
-              </div>
-              <div className="p-3.5 rounded-xl bg-white/[0.02] border border-white/[0.05]">
-                <div className="font-bold text-white mb-1">💳 International Visa & Mastercard</div>
-                <div className="text-slate-400">Direct wire or approved international payment link upon request.</div>
-              </div>
-              <div className="p-3.5 rounded-xl bg-white/[0.02] border border-white/[0.05]">
-                <div className="font-bold text-white mb-1">🔒 Super-Admin Verification</div>
-                <div className="text-slate-400">The owner reviews payment and activates your account within minutes.</div>
-              </div>
-            </div>
-
-            {/* 6-Step Workflow */}
-            <div className="border-t border-white/[0.08] pt-6">
-              <div className="text-xs font-bold uppercase tracking-wider text-slate-400 mb-3">6-Step Subscription Process:</div>
-              <ol className="space-y-2 text-xs text-slate-300">
-                <li className="flex items-start gap-2">
-                  <span className="font-mono font-bold text-blue-400">1.</span>
-                  <span>Sign in to USMAN AI GTM using your official Google account. Your account starts in Preview Mode.</span>
-                </li>
-                <li className="flex items-start gap-2">
-                  <span className="font-mono font-bold text-blue-400">2.</span>
-                  <span>Click <strong>Contact Us on WhatsApp ({WHATSAPP_NUMBER})</strong>.</span>
-                </li>
-                <li className="flex items-start gap-2">
-                  <span className="font-mono font-bold text-blue-400">3.</span>
-                  <span>Share your registered Google email and choose either the <strong>$25/mo Monthly Plan</strong> or <strong>$100 Lifetime Access Deal</strong>.</span>
-                </li>
-                <li className="flex items-start gap-2">
-                  <span className="font-mono font-bold text-blue-400">4.</span>
-                  <span>Transfer the chosen fee ($25 or $100) using your preferred method (Raast, Bank, JazzCash, Easypaisa, or Card).</span>
-                </li>
-                <li className="flex items-start gap-2">
-                  <span className="font-mono font-bold text-blue-400">5.</span>
-                  <span>Share your payment confirmation or transaction ID on WhatsApp.</span>
-                </li>
-                <li className="flex items-start gap-2">
-                  <span className="font-mono font-bold text-blue-400">6.</span>
-                  <span>The owner immediately verifies the transfer and unlocks your account in the system. All paid features become active immediately.</span>
-                </li>
-              </ol>
-            </div>
+            <ol className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs text-slate-300">
+              <li className="p-3.5 rounded-xl bg-white/[0.02] border border-white/[0.05]">
+                <strong className="text-white block mb-1">1. Register Your Account</strong>
+                Create your isolated workspace with Username &amp; Password or Continue with Google.
+              </li>
+              <li className="p-3.5 rounded-xl bg-white/[0.02] border border-white/[0.05]">
+                <strong className="text-white block mb-1">2. Pick Plan &amp; Currency</strong>
+                Choose Basic ($25), Lifetime ($100), or Custom Hourly ($1/hr, 50 leads/hr), Daily, Weekly, or Monthly access.
+              </li>
+              <li className="p-3.5 rounded-xl bg-white/[0.02] border border-white/[0.05]">
+                <strong className="text-white block mb-1">3. Copy Exact Transfer Details</strong>
+                Inside Usage &amp; Subscription, select an active configured payment method (Bank Transfer, Payoneer, Binance, Trust Wallet, JazzCash, Easypaisa) and transfer the displayed amount.
+              </li>
+              <li className="p-3.5 rounded-xl bg-white/[0.02] border border-white/[0.05]">
+                <strong className="text-white block mb-1">4. Submit Proof &amp; Receive Activation</strong>
+                Upload your transfer screenshot inside your account. The Owner verifies receipt of funds and activates your exact existing account with a notification.
+              </li>
+            </ol>
           </div>
         </div>
       </section>

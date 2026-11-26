@@ -48,7 +48,13 @@ export const Header: React.FC = () => {
         </nav>
 
         {/* CTA Actions */}
-        <div className="hidden sm:flex items-center gap-4">
+        <div className="hidden sm:flex items-center gap-3">
+          <Link
+            href="/signup"
+            className="rounded-xl border border-white/15 bg-white/[0.04] hover:bg-white/[0.08] px-4 py-2 text-xs font-semibold text-slate-200 hover:text-white transition-all"
+          >
+            Create Account
+          </Link>
           <Link
             href="/login"
             className="group relative inline-flex items-center gap-2 overflow-hidden rounded-xl bg-gradient-to-r from-blue-600 via-indigo-600 to-purple-600 px-5 py-2.5 text-sm font-semibold text-white shadow-glow-sm transition-all hover:scale-[1.02] hover:shadow-glow-md"

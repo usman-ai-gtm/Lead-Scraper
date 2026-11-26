@@ -11,8 +11,21 @@ import {
   formatDurationLabel,
   calculateSuggestedCustomPrice,
 } from "@/lib/entitlements";
+import { FIXED_PLAN_SPECS, CUSTOM_UNIT_PRICING, normalizeBuilderUnit } from "@/lib/custom-plans";
+import { createSystemNotification } from "@/lib/notifications-db";
 
 export type PaymentSubmissionStatus = "PENDING" | "APPROVED" | "REJECTED" | "MORE_INFO_REQUIRED";
+
+export interface BankTransferDetails {
+  bank_name?: string | null;
+  bank_address?: string | null;
+  beneficiary_name?: string | null;
+  account_number?: string | null;
+  routing_aba?: string | null;
+  swift_bic?: string | null;
+  account_type?: string | null;
+  supported_currency?: string | null;
+}
 
 export interface PaymentMethodRecord {
   id: number;
@@ -25,6 +38,7 @@ export interface PaymentMethodRecord {
   payment_link: string | null;
   qr_image_data: string | null;
   instructions: string | null;
+  details_json: BankTransferDetails | null;
   is_active: boolean;
   is_configured: boolean;
   sort_order: number;
@@ -44,29 +58,60 @@ export function getOfficialWhatsAppNumber(): string {
   return String(process.env.OWNER_WHATSAPP_NUMBER || "+923174383702").trim() || "+923174383702";
 }
 
+function hasBankDetailsConfigured(details: any): boolean {
+  if (!details || typeof details !== "object") return false;
+  return Boolean(
+    String(details.bank_name || "").trim() &&
+      String(details.beneficiary_name || "").trim() &&
+      String(details.account_number || "").trim()
+  );
+}
+
 export function isPaymentMethodConfigured(m: any): boolean {
   if (!m) return false;
+  let parsedDetails = m.details_json;
+  if (typeof parsedDetails === "string") {
+    try {
+      parsedDetails = JSON.parse(parsedDetails);
+    } catch {
+      parsedDetails = null;
+    }
+  }
   return Boolean(
     String(m.account_identifier || "").trim() ||
       String(m.wallet_address || "").trim() ||
       String(m.payment_link || "").trim() ||
-      String(m.qr_image_data || "").trim()
+      String(m.qr_image_data || "").trim() ||
+      hasBankDetailsConfigured(parsedDetails)
   );
 }
 
 function mapPaymentMethod(row: any): PaymentMethodRecord {
-  const configured = isPaymentMethodConfigured(row);
+  let details: BankTransferDetails | null = null;
+  if (row.details_json) {
+    if (typeof row.details_json === "string") {
+      try {
+        details = JSON.parse(row.details_json);
+      } catch {
+        details = null;
+      }
+    } else if (typeof row.details_json === "object") {
+      details = row.details_json;
+    }
+  }
+  const configured = isPaymentMethodConfigured({ ...row, details_json: details });
   return {
     id: Number(row.id),
     name: String(row.name || ""),
     region: String(row.region || "Worldwide"),
     currency: String(row.currency || "USD"),
-    account_holder_name: row.account_holder_name || null,
-    account_identifier: row.account_identifier || null,
+    account_holder_name: row.account_holder_name || details?.beneficiary_name || null,
+    account_identifier: row.account_identifier || details?.account_number || null,
     wallet_address: row.wallet_address || null,
     payment_link: row.payment_link || null,
     qr_image_data: row.qr_image_data || null,
     instructions: row.instructions || null,
+    details_json: details,
     is_active: Boolean(row.is_active) && configured,
     is_configured: configured,
     sort_order: Number(row.sort_order ?? 10),
@@ -80,7 +125,7 @@ export async function listPaymentMethods(includeInactive = false): Promise<Payme
   if (!sql) return [];
   const rows = await sql.query(
     `SELECT id, name, region, currency, account_holder_name, account_identifier,
-            wallet_address, payment_link, qr_image_data, instructions, is_active,
+            wallet_address, payment_link, qr_image_data, instructions, details_json, is_active,
             sort_order, created_at, updated_at
      FROM payment_methods
      ORDER BY sort_order ASC, id ASC`
@@ -114,6 +159,7 @@ export async function upsertPaymentMethod(input: {
   payment_link?: string | null;
   qr_image_data?: string | null;
   instructions?: string | null;
+  details_json?: BankTransferDetails | null;
   is_active?: boolean;
   sort_order?: number;
 }): Promise<PaymentMethodRecord> {
@@ -124,10 +170,32 @@ export async function upsertPaymentMethod(input: {
   if (name.length < 2) {
     throw new Error("Payment method name is required.");
   }
+
+  let detailsClean: BankTransferDetails | null = null;
+  if (input.details_json && typeof input.details_json === "object") {
+    detailsClean = {
+      bank_name: input.details_json.bank_name ? String(input.details_json.bank_name).trim() : null,
+      bank_address: input.details_json.bank_address ? String(input.details_json.bank_address).trim() : null,
+      beneficiary_name: input.details_json.beneficiary_name ? String(input.details_json.beneficiary_name).trim() : null,
+      account_number: input.details_json.account_number ? String(input.details_json.account_number).trim() : null,
+      routing_aba: input.details_json.routing_aba ? String(input.details_json.routing_aba).trim() : null,
+      swift_bic: input.details_json.swift_bic ? String(input.details_json.swift_bic).trim() : null,
+      account_type: input.details_json.account_type ? String(input.details_json.account_type).trim() : null,
+      supported_currency: input.details_json.supported_currency ? String(input.details_json.supported_currency).trim().toUpperCase() : null,
+    };
+  }
+
   const region = String(input.region || "Worldwide").trim() || "Worldwide";
-  const currency = String(input.currency || "USD").trim().toUpperCase() || "USD";
-  const accountHolder = input.account_holder_name ? String(input.account_holder_name).trim() : null;
-  const accountId = input.account_identifier ? String(input.account_identifier).trim() : null;
+  const currency =
+    String(detailsClean?.supported_currency || input.currency || "USD").trim().toUpperCase() || "USD";
+  const accountHolder =
+    (input.account_holder_name ? String(input.account_holder_name).trim() : null) ||
+    detailsClean?.beneficiary_name ||
+    null;
+  const accountId =
+    (input.account_identifier ? String(input.account_identifier).trim() : null) ||
+    detailsClean?.account_number ||
+    null;
   const wallet = input.wallet_address ? String(input.wallet_address).trim() : null;
   const link = input.payment_link ? String(input.payment_link).trim() : null;
   if (link && !/^https?:\/\//i.test(link)) {
@@ -137,24 +205,26 @@ export async function upsertPaymentMethod(input: {
   const instructions = input.instructions ? String(input.instructions).trim() : null;
   const sortOrder = Math.max(0, Math.floor(Number(input.sort_order ?? 10)));
 
-  const hasDetail = Boolean(accountId || wallet || link || qr);
+  const hasDetail = Boolean(accountId || wallet || link || qr || hasBankDetailsConfigured(detailsClean));
   const isActive = Boolean(input.is_active);
   if (isActive && !hasDetail) {
     throw new Error(
-      "Cannot mark a payment method Active without configuring at least one real receiving detail (Account ID/IBAN, Wallet address, Payment link, or QR image)."
+      "Cannot mark a payment method Active without configuring at least one real receiving detail (Bank details, Account ID/IBAN, Wallet address, Payment link, or QR image)."
     );
   }
+
+  const detailsStr = detailsClean ? JSON.stringify(detailsClean) : "{}";
 
   if (input.id && Number(input.id) > 0) {
     const rows = await sql.query(
       `UPDATE payment_methods
        SET name = $1, region = $2, currency = $3, account_holder_name = $4,
            account_identifier = $5, wallet_address = $6, payment_link = $7,
-           qr_image_data = $8, instructions = $9, is_active = $10,
-           sort_order = $11, updated_at = NOW()
-       WHERE id = $12
+           qr_image_data = $8, instructions = $9, details_json = $10::jsonb, is_active = $11,
+           sort_order = $12, updated_at = NOW()
+       WHERE id = $13
        RETURNING *`,
-      [name, region, currency, accountHolder, accountId, wallet, link, qr, instructions, isActive, sortOrder, Number(input.id)]
+      [name, region, currency, accountHolder, accountId, wallet, link, qr, instructions, detailsStr, isActive, sortOrder, Number(input.id)]
     );
     if (!rows || rows.length === 0) throw new Error("Payment method not found.");
     return mapPaymentMethod(rows[0]);
@@ -163,10 +233,10 @@ export async function upsertPaymentMethod(input: {
   const rows = await sql.query(
     `INSERT INTO payment_methods (
        name, region, currency, account_holder_name, account_identifier,
-       wallet_address, payment_link, qr_image_data, instructions, is_active, sort_order
-     ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+       wallet_address, payment_link, qr_image_data, instructions, details_json, is_active, sort_order
+     ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10::jsonb, $11, $12)
      RETURNING *`,
-    [name, region, currency, accountHolder, accountId, wallet, link, qr, instructions, isActive, sortOrder]
+    [name, region, currency, accountHolder, accountId, wallet, link, qr, instructions, detailsStr, isActive, sortOrder]
   );
   return mapPaymentMethod(rows[0]);
 }
@@ -255,6 +325,10 @@ export async function createPaymentSubmission(input: {
   planLabel?: string;
   agreedPriceUsd: number;
   currency: string;
+  exchangeRate?: number;
+  convertedAmount?: number;
+  leadAllowance?: number | null;
+  idempotencyKey?: string | null;
   paymentMethodId?: number | null;
   paymentMethodName: string;
   paymentReference?: string;
@@ -270,34 +344,95 @@ export async function createPaymentSubmission(input: {
   const sql = getNeonSql();
   if (!sql) throw new Error("Database unavailable");
 
+  // Duplicate / double-click submission prevention
+  if (input.idempotencyKey) {
+    const existingKeyRows = await sql.query(
+      `SELECT id, user_id, workspace_id, username, email, request_code, requested_plan, plan_label,
+              agreed_price_usd, original_price_usd, currency, exchange_rate, converted_amount, lead_allowance,
+              payment_method_id, payment_method_name, payment_reference, customer_note,
+              screenshot_filename, screenshot_mime, screenshot_size, status, admin_notes, created_at
+       FROM payment_submissions
+       WHERE user_id = $1 AND idempotency_key = $2
+       LIMIT 1`,
+      [input.userId, input.idempotencyKey]
+    );
+    if (existingKeyRows && existingKeyRows.length > 0) {
+      const existing = existingKeyRows[0];
+  return {
+    ...(existing as Record<string, any>),
+    agreed_price_usd: Number(existing.agreed_price_usd),
+    original_price_usd: existing.original_price_usd != null ? Number(existing.original_price_usd) : Number(existing.agreed_price_usd),
+    exchange_rate: Number(existing.exchange_rate || 1),
+    converted_amount: existing.converted_amount != null ? Number(existing.converted_amount) : Number(existing.agreed_price_usd),
+    duplicate_suppressed: true,
+  } as Record<string, any>;
+    }
+  }
+
+  // Prevent rapid accidental double submit within 15 seconds with identical plan/amount/method
+  const rapidDup = await sql.query(
+    `SELECT id FROM payment_submissions
+     WHERE user_id = $1
+       AND requested_plan = $2
+       AND agreed_price_usd = $3::numeric
+       AND currency = $4
+       AND payment_method_name = $5
+       AND status = 'PENDING'
+       AND created_at > NOW() - INTERVAL '15 seconds'
+     LIMIT 1`,
+    [
+      input.userId,
+      input.requestedPlan,
+      Number(input.agreedPriceUsd).toFixed(2),
+      String(input.currency || "USD").toUpperCase(),
+      input.paymentMethodName,
+    ]
+  );
+  if (rapidDup && rapidDup.length > 0) {
+    throw new Error(
+      `Duplicate submission prevented: payment request #${rapidDup[0].id} was just submitted seconds ago and is already PENDING verification.`
+    );
+  }
+
+  const requestCode = `PAY-${Date.now().toString(36).toUpperCase()}-${Math.floor(1000 + Math.random() * 9000)}`;
   const hex = "\\x" + input.buffer.toString("hex");
   const rows = await sql.query(
     `INSERT INTO payment_submissions (
-       user_id, workspace_id, username, email, requested_plan, plan_label,
-       agreed_price_usd, currency, payment_method_id, payment_method_name,
+       user_id, workspace_id, username, email, request_code, requested_plan, plan_label,
+       agreed_price_usd, original_price_usd, currency, exchange_rate, converted_amount, lead_allowance,
+       idempotency_key, payment_method_id, payment_method_name,
        payment_reference, customer_note, custom_duration_value, custom_duration_unit,
        custom_features_json, screenshot_filename, screenshot_mime, screenshot_size,
        screenshot_data, status
      ) VALUES (
-       $1, $2, $3, $4, $5, $6,
-       $7::numeric, $8, $9, $10,
-       $11, $12, $13, $14,
-       $15::jsonb, $16, $17, $18,
-       $19::bytea, 'PENDING'
+       $1, $2, $3, $4, $5, $6, $7,
+       $8::numeric, $9::numeric, $10, $11::numeric, $12::numeric, $13,
+       $14, $15, $16,
+       $17, $18, $19, $20,
+       $21::jsonb, $22, $23, $24,
+       $25::bytea, 'PENDING'
      )
-     RETURNING id, user_id, workspace_id, username, email, requested_plan, plan_label,
-               agreed_price_usd, currency, payment_method_id, payment_method_name,
-               payment_reference, customer_note, screenshot_filename, screenshot_mime,
+     RETURNING id, user_id, workspace_id, username, email, request_code, requested_plan, plan_label,
+               agreed_price_usd, original_price_usd, currency, exchange_rate, converted_amount, lead_allowance,
+               payment_method_id, payment_method_name,
+               payment_reference, customer_note, custom_duration_value, custom_duration_unit,
+               screenshot_filename, screenshot_mime,
                screenshot_size, status, admin_notes, created_at`,
     [
       input.userId,
       input.workspaceId,
       input.username,
       input.email,
+      requestCode,
       input.requestedPlan,
       input.planLabel || input.requestedPlan,
       Number(input.agreedPriceUsd).toFixed(2),
+      Number(input.agreedPriceUsd).toFixed(2),
       String(input.currency || "USD").toUpperCase(),
+      Number(input.exchangeRate ?? 1).toFixed(4),
+      Number(input.convertedAmount ?? input.agreedPriceUsd).toFixed(2),
+      input.leadAllowance ?? null,
+      input.idempotencyKey || null,
       input.paymentMethodId || null,
       input.paymentMethodName,
       input.paymentReference || null,
@@ -322,26 +457,47 @@ export async function createPaymentSubmission(input: {
     action: "PAYMENT_PROOF_SUBMITTED",
     details: {
       submission_id: sub.id,
+      request_code: sub.request_code,
       requested_plan: sub.requested_plan,
       agreed_price_usd: Number(sub.agreed_price_usd),
       currency: sub.currency,
+      converted_amount: Number(sub.converted_amount),
+      lead_allowance: sub.lead_allowance,
       payment_method_name: sub.payment_method_name,
       payment_reference: sub.payment_reference,
     },
   });
 
+  // Notify Master Owner in real Neon notifications
+  await createSystemNotification({
+    workspaceId: 1,
+    userId: null,
+    isAdminTarget: true,
+    title: `New Payment Proof: ${sub.username} (${sub.request_code})`,
+    message: `${sub.username} submitted ${sub.plan_label || sub.requested_plan} via ${sub.payment_method_name} — $${Number(sub.agreed_price_usd).toFixed(2)} USD (${Number(sub.converted_amount)} ${sub.currency}). Verify funds before approving.`,
+    type: "info",
+    category: "new_payment_proof",
+    link: "/app/admin/payments",
+    refType: "payment_submission",
+    refId: String(sub.id),
+  }).catch(() => {});
+
   return {
-    ...sub,
+    ...(sub as Record<string, any>),
     agreed_price_usd: Number(sub.agreed_price_usd),
-  };
+    original_price_usd: sub.original_price_usd != null ? Number(sub.original_price_usd) : Number(sub.agreed_price_usd),
+    exchange_rate: Number(sub.exchange_rate || 1),
+    converted_amount: sub.converted_amount != null ? Number(sub.converted_amount) : Number(sub.agreed_price_usd),
+  } as Record<string, any>;
 }
 
 export async function listCustomerPaymentSubmissions(userId: number, workspaceId: number) {
   const sql = getNeonSql();
   if (!sql) return [];
   const rows = await sql.query(
-    `SELECT id, user_id, workspace_id, username, email, requested_plan, plan_label,
-            agreed_price_usd, currency, payment_method_id, payment_method_name,
+    `SELECT id, user_id, workspace_id, username, email, request_code, requested_plan, plan_label,
+            agreed_price_usd, original_price_usd, currency, exchange_rate, converted_amount, lead_allowance,
+            custom_duration_value, custom_duration_unit, payment_method_id, payment_method_name,
             payment_reference, customer_note, screenshot_filename, screenshot_mime,
             screenshot_size, status, admin_notes, reviewed_by, reviewed_at, created_at, updated_at
      FROM payment_submissions
@@ -352,6 +508,9 @@ export async function listCustomerPaymentSubmissions(userId: number, workspaceId
   return (rows || []).map((r: any) => ({
     ...r,
     agreed_price_usd: Number(r.agreed_price_usd),
+    original_price_usd: r.original_price_usd != null ? Number(r.original_price_usd) : Number(r.agreed_price_usd),
+    exchange_rate: Number(r.exchange_rate || 1),
+    converted_amount: r.converted_amount != null ? Number(r.converted_amount) : Number(r.agreed_price_usd),
   }));
 }
 
@@ -359,8 +518,9 @@ export async function listAdminPaymentSubmissions() {
   const sql = getNeonSql();
   if (!sql) return [];
   const rows = await sql.query(
-    `SELECT ps.id, ps.user_id, ps.workspace_id, ps.username, ps.email,
-            ps.requested_plan, ps.plan_label, ps.agreed_price_usd, ps.currency,
+    `SELECT ps.id, ps.user_id, ps.workspace_id, ps.username, ps.email, ps.request_code,
+            ps.requested_plan, ps.plan_label, ps.agreed_price_usd, ps.original_price_usd,
+            ps.currency, ps.exchange_rate, ps.converted_amount, ps.lead_allowance,
             ps.payment_method_id, ps.payment_method_name, ps.payment_reference,
             ps.customer_note, ps.custom_duration_value, ps.custom_duration_unit,
             ps.custom_features_json, ps.screenshot_filename, ps.screenshot_mime,
@@ -381,6 +541,9 @@ export async function listAdminPaymentSubmissions() {
   return (rows || []).map((r: any) => ({
     ...r,
     agreed_price_usd: Number(r.agreed_price_usd),
+    original_price_usd: r.original_price_usd != null ? Number(r.original_price_usd) : Number(r.agreed_price_usd),
+    exchange_rate: Number(r.exchange_rate || 1),
+    converted_amount: r.converted_amount != null ? Number(r.converted_amount) : Number(r.agreed_price_usd),
   }));
 }
 
@@ -409,6 +572,7 @@ export async function reviewPaymentSubmission(
     features?: any;
     daily_email_limit?: number;
     agreed_price_usd?: number;
+    lead_allowance?: number | null;
   }
 ) {
   const sql = getNeonSql();
@@ -419,6 +583,12 @@ export async function reviewPaymentSubmission(
     throw new Error("Payment submission not found.");
   }
   const sub = subRows[0];
+  const currentSubStatus = String(sub.status || "").toUpperCase();
+  if (action === "APPROVE" && currentSubStatus !== "PENDING" && currentSubStatus !== "MORE_INFO_REQUIRED") {
+    throw new Error(
+      `Cannot approve payment #${submissionId}: current status is already ${currentSubStatus}. Only PENDING or MORE_INFO_REQUIRED requests can be approved.`
+    );
+  }
   const adminActor = admin.email || admin.username || "master_owner";
   const adminNotes = options?.admin_notes ? String(options.admin_notes).trim() : null;
 
@@ -432,8 +602,8 @@ export async function reviewPaymentSubmission(
            reviewed_at = NOW(),
            updated_at = NOW()
        WHERE id = $4
-       RETURNING id, user_id, workspace_id, username, email, requested_plan, plan_label,
-                 agreed_price_usd, currency, payment_method_name, payment_reference,
+       RETURNING id, user_id, workspace_id, username, email, request_code, requested_plan, plan_label,
+                 agreed_price_usd, currency, converted_amount, lead_allowance, payment_method_name, payment_reference,
                  status, admin_notes, reviewed_by, reviewed_at, created_at`,
       [nextStatus, adminNotes, adminActor, submissionId]
     );
@@ -448,6 +618,22 @@ export async function reviewPaymentSubmission(
       details: { submission_id: submissionId, admin_notes: adminNotes },
     });
 
+    await createSystemNotification({
+      workspaceId: Number(sub.workspace_id) || 1,
+      userId: Number(sub.user_id),
+      isAdminTarget: false,
+      title: nextStatus === "REJECTED" ? `Payment Request Rejected (${sub.request_code || `#${submissionId}`})` : `More Info Requested (${sub.request_code || `#${submissionId}`})`,
+      message:
+        nextStatus === "REJECTED"
+          ? `Your payment proof (${sub.plan_label || sub.requested_plan}) could not be confirmed. ${adminNotes ? `Note: ${adminNotes}. ` : ""}Your current plan was kept unchanged; you may submit a corrected payment proof anytime.`
+          : `The Owner requested additional transfer details for ${sub.request_code || `#${submissionId}`}. ${adminNotes || "Please reply or upload clearer proof."}`,
+      type: nextStatus === "REJECTED" ? "error" : "warning",
+      category: nextStatus === "REJECTED" ? "payment_rejected" : "payment_more_info",
+      link: "/app/subscription",
+      refType: "payment_submission",
+      refId: String(submissionId),
+    }).catch(() => {});
+
     return {
       submission: {
         ...(updated[0] as Record<string, any>),
@@ -460,7 +646,7 @@ export async function reviewPaymentSubmission(
   // APPROVE: Verify exact existing user (never Master Owner, never duplicate user/workspace)
   const userRows = await sql.query(
     `SELECT id, username, email, role, account_type, workspace_id, status, plan, plan_type,
-            plan_label, google_maps_enabled, daily_email_limit, features_json,
+            plan_label, google_maps_enabled, daily_email_limit, features_json, max_leads_quota,
             custom_duration_value, custom_duration_unit, custom_price_usd, suggested_price_usd,
             subscription_start, subscription_expires_at, subscription_status
      FROM users
@@ -496,6 +682,7 @@ export async function reviewPaymentSubmission(
            custom_duration_unit = 'lifetime',
            custom_price_usd = $2,
            suggested_price_usd = 100,
+           max_leads_quota = $7,
            daily_email_limit = $3,
            google_maps_enabled = TRUE,
            features_json = $4::jsonb,
@@ -512,6 +699,7 @@ export async function reviewPaymentSubmission(
         allFeaturesStr,
         adminNotes || `Approved payment proof #${submissionId}`,
         client.id,
+        FIXED_PLAN_SPECS.LIFETIME.leadAllowance,
       ]
     );
   } else if (reqPlan === "CUSTOM") {
@@ -532,12 +720,28 @@ export async function reviewPaymentSubmission(
       features.saved_leads = true;
     }
     const mapsEnabled = Boolean(features.google_maps);
+    const builderUnit = normalizeBuilderUnit(durationUnit);
+    const resolvedLeadQuota =
+      options?.lead_allowance !== undefined && options.lead_allowance !== null && Number(options.lead_allowance) > 0
+        ? Math.floor(Number(options.lead_allowance))
+        : sub.lead_allowance != null && Number(sub.lead_allowance) > 0
+        ? Number(sub.lead_allowance)
+        : builderUnit && durationValue
+        ? durationValue * CUSTOM_UNIT_PRICING[builderUnit].leadsPerUnit
+        : FIXED_PLAN_SPECS.BASIC.leadAllowance;
+
     const dailyLimit = features.cold_email
-      ? Math.max(1, Math.min(MAX_GMAIL_DAILY_SAFE_CAP, Number(options?.daily_email_limit ?? currentEnt.dailyEmailLimit) || BASIC_DAILY_EMAIL_LIMIT))
+      ? Math.max(
+          1,
+          Math.min(
+            MAX_GMAIL_DAILY_SAFE_CAP,
+            Number(options?.daily_email_limit ?? (builderUnit ? CUSTOM_UNIT_PRICING[builderUnit].dailyEmailLimit : currentEnt.dailyEmailLimit)) || BASIC_DAILY_EMAIL_LIMIT
+          )
+        )
       : 0;
     const calc = calculateSuggestedCustomPrice({ features, durationValue, durationUnit, dailyEmailLimit: dailyLimit });
     const durLabel = formatDurationLabel(durationValue, durationUnit);
-    const label = sub.plan_label || `Custom (${durLabel} • $${finalPrice})`;
+    const label = sub.plan_label || `Custom (${durLabel} • $${finalPrice} • ${resolvedLeadQuota.toLocaleString()} Leads)`;
     const secMap: Record<Exclude<DurationUnit, "lifetime">, number> = {
       hours: 3600,
       days: 86400,
@@ -563,6 +767,7 @@ export async function reviewPaymentSubmission(
            daily_email_limit = $6,
            google_maps_enabled = $7,
            features_json = $8::jsonb,
+           max_leads_quota = $${durationUnit === "lifetime" ? 11 : 12},
            subscription_status = 'ACTIVE',
            subscription_start = NOW(),
            subscription_expires_at = ${durationUnit === "lifetime" ? "NULL" : `NOW() + ($9::bigint * INTERVAL '1 second')`},
@@ -581,6 +786,7 @@ export async function reviewPaymentSubmission(
             JSON.stringify(features),
             adminNotes || `Approved payment proof #${submissionId}`,
             client.id,
+            resolvedLeadQuota,
           ]
         : [
             label,
@@ -594,6 +800,7 @@ export async function reviewPaymentSubmission(
             deltaSec,
             adminNotes || `Approved payment proof #${submissionId}`,
             client.id,
+            resolvedLeadQuota,
           ]
     );
   } else {
@@ -611,6 +818,7 @@ export async function reviewPaymentSubmission(
            custom_duration_unit = 'days',
            custom_price_usd = $2,
            suggested_price_usd = 25,
+           max_leads_quota = $7,
            daily_email_limit = $3,
            google_maps_enabled = FALSE,
            features_json = $4::jsonb,
@@ -627,6 +835,7 @@ export async function reviewPaymentSubmission(
         basicFeaturesStr,
         adminNotes || `Approved payment proof #${submissionId}`,
         client.id,
+        FIXED_PLAN_SPECS.BASIC.leadAllowance,
       ]
     );
   }
@@ -634,7 +843,7 @@ export async function reviewPaymentSubmission(
   // Re-fetch authoritative user post-commit before marking submission APPROVED
   const verifiedUsers = await sql.query(
     `SELECT id, username, email, role, account_type, workspace_id, status, plan, plan_type, plan_label,
-            custom_duration_value, custom_duration_unit, custom_price_usd, suggested_price_usd,
+            custom_duration_value, custom_duration_unit, custom_price_usd, suggested_price_usd, max_leads_quota,
             daily_email_limit, google_maps_enabled, features_json, subscription_start, subscription_expires_at,
             COALESCE(session_version, 1) AS session_version
      FROM users WHERE id = $1 LIMIT 1`,
@@ -654,8 +863,8 @@ export async function reviewPaymentSubmission(
          reviewed_at = NOW(),
          updated_at = NOW()
      WHERE id = $3
-     RETURNING id, user_id, workspace_id, username, email, requested_plan, plan_label,
-               agreed_price_usd, currency, payment_method_name, payment_reference,
+     RETURNING id, user_id, workspace_id, username, email, request_code, requested_plan, plan_label,
+               agreed_price_usd, currency, converted_amount, lead_allowance, payment_method_name, payment_reference,
                status, admin_notes, reviewed_by, reviewed_at, created_at`,
     [adminNotes, adminActor, submissionId]
   );
@@ -669,14 +878,30 @@ export async function reviewPaymentSubmission(
     action: "PAYMENT_SUBMISSION_APPROVED",
     details: {
       submission_id: submissionId,
+      request_code: sub.request_code || null,
       target_plan: reqPlan,
       agreed_price_usd: finalPrice,
       verified_status: authoritative.status,
       verified_plan: authoritative.plan_type,
+      max_leads_quota: verifiedUser.max_leads_quota,
       verified_expires_at: verifiedUser.subscription_expires_at,
       session_version: verifiedUser.session_version,
     },
   });
+
+  // Notify customer of Payment Approval & Subscription Activation
+  await createSystemNotification({
+    workspaceId: Number(client.workspace_id) || 1,
+    userId: Number(client.id),
+    isAdminTarget: false,
+    title: `Payment Approved & Plan Activated (${sub.request_code || `#${submissionId}`})`,
+    message: `Your payment of $${finalPrice.toFixed(2)} USD was verified by the Owner. Your ${authoritative.plan_label} is now ACTIVE (${authoritative.remainingDetailed}).`,
+    type: "success",
+    category: "payment_approved",
+    link: "/app/subscription",
+    refType: "payment_submission",
+    refId: String(submissionId),
+  }).catch(() => {});
 
   return {
     submission: {

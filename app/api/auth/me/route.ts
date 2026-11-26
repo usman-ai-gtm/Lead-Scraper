@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { unstable_noStore as noStore } from "next/cache";
-import { verifyJwtToken } from "@/lib/serverless-auth";
-import { getNeonSql, isNeonConfigured, computeAuthoritativeUserStatus } from "@/lib/neon-db";
+import { verifyJwtToken, isAuthorizedOwner } from "@/lib/serverless-auth";
+import { getNeonSql, isNeonConfigured, computeAuthoritativeUserStatus, getWorkspaceLeadQuotaState } from "@/lib/neon-db";
 import { resolveUserEntitlements } from "@/lib/entitlements";
 
 export const dynamic = "force-dynamic";
@@ -40,7 +40,7 @@ export async function GET(request: Request) {
             const users = await sql`
               SELECT id, username, email, full_name, role, account_type, workspace_id, status, plan,
                      plan_type, plan_label, custom_duration_value, custom_duration_unit,
-                     custom_price_usd, suggested_price_usd, daily_email_limit, google_maps_enabled,
+                     custom_price_usd, suggested_price_usd, max_leads_quota, daily_email_limit, google_maps_enabled,
                      features_json, subscription_start, subscription_expires_at, subscription_status,
                      must_change_password, COALESCE(session_version, 1) AS session_version
               FROM users
@@ -66,6 +66,9 @@ export async function GET(request: Request) {
                 );
               }
               const authoritative = computeAuthoritativeUserStatus(u);
+              const quotaState = isOwner
+                ? { maxLeadsQuota: null, leadsUsedInPeriod: 0, remainingLeadsQuota: null }
+                : await getWorkspaceLeadQuotaState(Number(u.workspace_id) || 1, u);
 
               const effectiveRole = isOwner ? "SUPER_ADMIN" : (u.role || "CLIENT");
               const effectiveAccountType = isOwner ? "MASTER_OWNER" : (u.account_type || "CLIENT");
@@ -90,6 +93,9 @@ export async function GET(request: Request) {
                 custom_duration_unit: ent.customDurationUnit,
                 custom_price_usd: ent.customPriceUsd,
                 suggested_price_usd: ent.suggestedPriceUsd,
+                max_leads_quota: quotaState.maxLeadsQuota,
+                leads_used_in_period: quotaState.leadsUsedInPeriod,
+                remaining_leads_quota: quotaState.remainingLeadsQuota,
                 is_active: isOwner ? true : authoritative.status === "ACTIVE",
                 is_locked: isOwner ? false : authoritative.isLocked,
                 isLocked: isOwner ? false : authoritative.isLocked,

@@ -4,6 +4,7 @@ import {
   isNeonConfigured,
   saveNeonSearchRecordAndLeads,
   getNeonWorkspaceLeadSignatures,
+  getWorkspaceLeadQuotaState,
   acquireActiveSearchJob,
   updateActiveSearchJobProgress,
   getActiveSearchJobById,
@@ -185,7 +186,23 @@ export async function POST(req: Request) {
         );
       }
 
-      const requestedQuantity = Math.min(Math.max(Number(body.requested_quantity) || 50, 1), 2000);
+      let requestedQuantity = Math.min(Math.max(Number(body.requested_quantity) || 50, 1), 2000);
+      if (isNeonConfigured()) {
+        const quota = await getWorkspaceLeadQuotaState(workspaceId, subCheck.userRecord);
+        if (quota.remainingLeadsQuota !== null) {
+          if (quota.remainingLeadsQuota <= 0) {
+            return NextResponse.json(
+              {
+                status: "error",
+                code: "LEAD_QUOTA_EXCEEDED",
+                message: `Plan lead allowance exhausted (${quota.leadsUsedInPeriod}/${quota.maxLeadsQuota} leads used in this subscription period). Upgrade or renew to generate more leads.`,
+              },
+              { status: 403 }
+            );
+          }
+          requestedQuantity = Math.min(requestedQuantity, quota.remainingLeadsQuota);
+        }
+      }
       const contactRequirement = parseContactRequirement(body.contact_requirement || body.contact_filter);
       const queue = buildInitialMapsQueue(geo.countries, geo.specificCitiesEnabled, geo.cities);
       const searchRecordId = `SR-MAPS-${Date.now()}`;
@@ -287,11 +304,35 @@ export async function POST(req: Request) {
       const seenEmails = new Set<string>([...Array.from(wsSignatures.emails), ...(payload.seen_emails || [])]);
       const seenPhones = new Set<string>([...Array.from(wsSignatures.phones), ...(payload.seen_phones || [])]);
 
+      let effectiveRequestedQty = payload.requested_quantity || jobRow.target_count || 50;
+      if (isNeonConfigured()) {
+        const quota = await getWorkspaceLeadQuotaState(workspaceId, subCheck.userRecord);
+        if (quota.remainingLeadsQuota !== null) {
+          if (quota.remainingLeadsQuota <= 0) {
+            await completeActiveSearchJob(
+              jobId,
+              "COMPLETED",
+              payload.eligible_count || 0,
+              payload.search_record_id,
+              undefined,
+              payload,
+              `Stopped at plan lead allowance limit (${quota.leadsUsedInPeriod}/${quota.maxLeadsQuota} leads generated).`
+            );
+            const cappedRow = await getActiveSearchJobById(jobId, workspaceId);
+            return NextResponse.json({ status: "success", job: serializeJob(cappedRow) });
+          }
+          effectiveRequestedQty = Math.min(
+            effectiveRequestedQty,
+            (payload.eligible_count || 0) + quota.remainingLeadsQuota
+          );
+        }
+      }
+
       const stepRes = await processMapsBatchStep({
         serperKey,
         keyword: jobRow.keyword,
         contactRequirement: payload.contact_requirement || "EMAIL_OR_PHONE",
-        requestedQuantity: payload.requested_quantity || jobRow.target_count || 50,
+        requestedQuantity: effectiveRequestedQty,
         queue: payload.queue || [],
         cursor: payload.cursor || 0,
         countryStats: payload.country_stats || {},

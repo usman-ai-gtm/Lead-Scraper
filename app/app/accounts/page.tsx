@@ -9,6 +9,7 @@ import {
   RefreshCw, Send, Sliders, ExternalLink, Inbox, Check, X,
   AlertTriangle, Lock, Sparkles, Key, Info, Globe, Shield, Power
 } from "lucide-react";
+import { GmailDiagnosticBanner, GmailSetupGuide } from "@/components/gmail/GmailSetupGuide";
 
 interface GmailStatusResponse {
   configured: boolean;
@@ -51,6 +52,8 @@ function EmailAccountsContent() {
   const [disconnecting, setDisconnecting] = useState(false);
   const [toastMsg, setToastMsg] = useState<string | null>(null);
   const [toastType, setToastType] = useState<"success" | "error" | "info">("info");
+  const [oauthDiagnostic, setOauthDiagnostic] = useState<{ errorCode?: string | null; rawError?: string | null } | null>(null);
+  const [oauthHealth, setOauthHealth] = useState<{ oauthConfigured?: boolean; callbackUri?: string; gmailScope?: string } | null>(null);
 
   // Test send modal
   const [testModalOpen, setTestModalOpen] = useState(false);
@@ -78,11 +81,23 @@ function EmailAccountsContent() {
   const fetchStatus = async () => {
     setLoading(true);
     try {
-      const res = await fetch("/api/integrations/gmail/status", {
-        headers: getAuthHeaders(),
-      });
+      const [res, healthRes] = await Promise.all([
+        fetch("/api/integrations/gmail/status", { headers: getAuthHeaders() }),
+        fetch("/api/integrations/gmail/health", { headers: getAuthHeaders() }).catch(() => null),
+      ]);
       const data: GmailStatusResponse = await res.json();
       setStatusData(data);
+      if (healthRes && healthRes.ok) {
+        const h = await healthRes.json().catch(() => null);
+        if (h) {
+          setOauthHealth(h);
+          if (!h.oauthConfigured) {
+            setOauthDiagnostic({ errorCode: "credentials_missing", rawError: "OAuth credentials are missing." });
+          } else if (h.diagnostic && !oauthDiagnostic) {
+            setOauthDiagnostic({ errorCode: h.diagnostic.code, rawError: h.diagnostic.explanation });
+          }
+        }
+      }
       if (data.account?.sender_email && !testRecipient) {
         setTestRecipient(data.account.sender_email);
       }
@@ -96,6 +111,7 @@ function EmailAccountsContent() {
         cost: "$0 / month (Standard Gmail)",
         message: "Failed to communicate with integration status API.",
       });
+      setOauthDiagnostic({ errorCode: "backend_incomplete", rawError: "Failed to communicate with integration status API." });
     } finally {
       setLoading(false);
     }
@@ -111,17 +127,16 @@ function EmailAccountsContent() {
     const oauthErrCode = searchParams.get("error_code");
 
     if (oauthStatus === "connected") {
+      setOauthDiagnostic(null);
       setToastType("success");
       setToastMsg(`Gmail account (${oauthEmail || "connected"}) authorized successfully!`);
     } else if (oauthStatus === "error") {
       setToastType("error");
-      if (oauthErrCode === "access_denied" || String(oauthMsg || "").toLowerCase().includes("access_denied")) {
-        setToastMsg(
-          "Google blocked Gmail connection (Error 403: access_denied). Either consent was declined OR the OAuth app in Google Cloud Console (semiotic-tracer-466311-j4) is still in Testing / pending verification for gmail.send so non-tester accounts cannot connect yet."
-        );
-      } else {
-        setToastMsg(oauthMsg || "Google authorization was cancelled or failed.");
-      }
+      setOauthDiagnostic({
+        errorCode: oauthErrCode || "backend_incomplete",
+        rawError: oauthMsg || oauthErrCode || "Google authorization failed.",
+      });
+      setToastMsg(oauthMsg || "Google authorization failed. Review the diagnostic box below.");
     }
   }, [searchParams]);
 
@@ -206,14 +221,20 @@ function EmailAccountsContent() {
       const data = await res.json();
       if (res.ok) {
         setToastType("success");
-        setToastMsg(`Test email sent successfully! Gmail Message ID: ${data.gmail_message_id || data.message_id || "OK"}`);
+        setToastMsg(
+          `Test email submitted to Gmail API (delivery status unknown until inbox check). Message ID: ${data.gmail_message_id || data.message_id || "OK"}`
+        );
         setTestModalOpen(false);
         await fetchStatus();
       } else {
         setToastType("error");
-        setToastMsg(data.error || data.detail || "Failed to send test email.");
+        const errDetail = data.error || data.detail || "Failed to submit test email.";
+        setToastMsg(errDetail);
         if (data.reconnect_required) {
+          setOauthDiagnostic({ errorCode: "token_expired", rawError: errDetail });
           await fetchStatus();
+        } else {
+          setOauthDiagnostic({ errorCode: data.error_code || undefined, rawError: errDetail });
         }
       }
     } catch (err: any) {
@@ -248,6 +269,16 @@ function EmailAccountsContent() {
 
   return (
     <div className="space-y-8 max-w-6xl mx-auto pb-16">
+      {/* Structured Google OAuth / Gmail API Diagnostic Banner */}
+      {oauthDiagnostic && (
+        <GmailDiagnosticBanner
+          errorCode={oauthDiagnostic.errorCode}
+          rawError={oauthDiagnostic.rawError}
+          onReconnect={handleConnectGmail}
+          onDismiss={() => setOauthDiagnostic(null)}
+        />
+      )}
+
       {/* Toast Alert */}
       {toastMsg && (
         <div
@@ -536,23 +567,12 @@ function EmailAccountsContent() {
           </div>
         </div>
 
-        {/* Simple Customer 5-Step Instructions */}
-        <div className="p-4 rounded-xl bg-white/[0.02] border border-white/[0.08] space-y-2.5 text-xs">
-          <div className="font-bold text-white flex items-center gap-2">
-            <CheckCircle2 className="h-4 w-4 text-emerald-400" />
-            <span>Connect Your Gmail Account (Quick Steps)</span>
-          </div>
-          <ol className="grid grid-cols-1 sm:grid-cols-5 gap-2 text-[11px] text-slate-300 list-decimal list-inside">
-            <li className="p-2 rounded-lg bg-black/30 border border-white/5">Click <strong>Connect Official Gmail Account</strong> above.</li>
-            <li className="p-2 rounded-lg bg-black/30 border border-white/5">Select the Google account you want to send from.</li>
-            <li className="p-2 rounded-lg bg-black/30 border border-white/5">Review the Google permission screen (<code className="text-slate-400">gmail.send</code>).</li>
-            <li className="p-2 rounded-lg bg-black/30 border border-white/5">Click <strong>Allow</strong> (never shares your password).</li>
-            <li className="p-2 rounded-lg bg-black/30 border border-white/5">Return automatically to Lead Scraper Ready status.</li>
-          </ol>
-          <p className="text-[11px] text-slate-400">
-            If Google displays <code className="text-rose-300">Error 403: access_denied</code> (&quot;app is currently being tested&quot;), Google&apos;s public app verification is still pending — contact Owner support to add your Gmail to approved testers until Google review completes.
-          </p>
-        </div>
+        {/* 8-Step Gmail Connection & Google Cloud Troubleshooting Guide */}
+        <GmailSetupGuide
+          isAdmin={false}
+          expectedCallbackUri={oauthHealth?.callbackUri || "https://lead-scraper-mxs5.vercel.app/api/integrations/gmail/callback"}
+          oauthHealth={oauthHealth}
+        />
       </div>
 
       {/* SENDER DOMAIN DELIVERABILITY HEALTH CHECKER */}

@@ -432,13 +432,14 @@ export async function POST(request: Request) {
 
   return NextResponse.json({
     success: true,
-    message: `Outreach email sent successfully via Gmail API (${senderEmail}).`,
+    message: `Outreach email submitted to Gmail API via ${senderEmail} (Google accepted submission; recipient inbox delivery status unknown).`,
     sender_email: senderEmail,
     sender_name: senderName,
     account_id: activeAccount.accountId,
     gmail_message_id: sendResult.id,
     gmail_thread_id: sendResult.threadId,
     lead_id: lead_id || null,
+    delivery_status: "SUBMITTED_UNKNOWN",
     outreach_status: "EMAIL SENT",
     followup_date: followup_date || null,
     outreach_record_id: savedRecord ? savedRecord.id : null,

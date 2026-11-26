@@ -8,6 +8,8 @@ import {
   listPaymentMethods,
   validateProofUpload,
 } from "@/lib/payments-db";
+import { calculateAuthoritativeOrderSpec } from "@/lib/custom-plans";
+import { convertUsdAmount, SUPPORTED_CURRENCY_CODES } from "@/lib/fx-rates";
 import { consumeRateLimit, rateLimitExceededResponse } from "@/lib/rate-limit";
 
 export const dynamic = "force-dynamic";
@@ -103,68 +105,99 @@ export async function POST(req: Request) {
       workspaceId: resolved.workspaceId,
     });
 
+    const submittedUsername = String(formData.get("username") || "").trim();
+    const authUsername = String(resolved.user.username || "").trim();
+    const authEmail = String(resolved.user.email || "").trim();
+    if (
+      submittedUsername &&
+      submittedUsername.toLowerCase() !== authUsername.toLowerCase() &&
+      (!authEmail || submittedUsername.toLowerCase() !== authEmail.toLowerCase())
+    ) {
+      return NextResponse.json(
+        {
+          detail: `Account identity mismatch: you are signed in as "${authUsername || authEmail}". Submit payment proof from the exact customer account being upgraded.`,
+        },
+        { status: 403 }
+      );
+    }
+
     const requestedPlanRaw = String(formData.get("requested_plan") || "BASIC").toUpperCase();
     const requestedPlan = ["BASIC", "LIFETIME", "CUSTOM"].includes(requestedPlanRaw)
       ? requestedPlanRaw
-      : "BASIC";
-    const planLabel = String(formData.get("plan_label") || "").trim() || undefined;
-    const agreedPriceRaw = formData.get("agreed_price_usd");
-    const defaultPrice = requestedPlan === "LIFETIME" ? 100 : 25;
-    const agreedPriceUsd =
-      agreedPriceRaw !== null && String(agreedPriceRaw).trim() !== ""
-        ? Number(agreedPriceRaw)
-        : defaultPrice;
-    if (Number.isNaN(agreedPriceUsd) || agreedPriceUsd <= 0 || agreedPriceUsd > 1000000) {
-      return NextResponse.json({ detail: "Enter a valid agreed payment amount." }, { status: 400 });
+      : "INVALID";
+    if (requestedPlan === "INVALID") {
+      return NextResponse.json({ detail: "Invalid plan selected. Choose BASIC, LIFETIME, or CUSTOM." }, { status: 400 });
     }
 
-    const currency = String(formData.get("currency") || "USD").trim().toUpperCase().slice(0, 12) || "USD";
+    const customDurationValueRaw = formData.get("custom_duration_value");
+    const customDurationUnitRaw = formData.get("custom_duration_unit");
+    const includeGoogleMaps = String(formData.get("include_google_maps") ?? "true").toLowerCase() !== "false";
+
+    // Strict server-side pricing & lead allowance calculation (never trusts client price)
+    const orderSpec = calculateAuthoritativeOrderSpec({
+      requestedPlan,
+      durationUnit: customDurationUnitRaw,
+      durationValue: customDurationValueRaw,
+      includeGoogleMaps,
+    });
+    if (!orderSpec.ok) {
+      return NextResponse.json({ detail: orderSpec.error || "Invalid custom plan configuration." }, { status: 400 });
+    }
+
+    const requestedCurrency = String(formData.get("currency") || "USD").trim().toUpperCase().slice(0, 12) || "USD";
+    const targetCurrency = SUPPORTED_CURRENCY_CODES.includes(requestedCurrency) ? requestedCurrency : "USD";
+    const fx = await convertUsdAmount(orderSpec.priceUsd, targetCurrency);
+    const effectiveCurrency = fx.fallbackToUsd ? "USD" : fx.targetCurrency;
+
     const methodIdRaw = formData.get("payment_method_id");
     const paymentMethodId = methodIdRaw && !Number.isNaN(Number(methodIdRaw)) ? Number(methodIdRaw) : null;
-    let paymentMethodName = String(formData.get("payment_method_name") || "").trim();
-
+    const configuredMethods = await listPaymentMethods(false);
+    let paymentMethodName = "";
     if (paymentMethodId) {
-      const configuredMethods = await listPaymentMethods(false);
       const found = configuredMethods.find((m) => m.id === paymentMethodId);
-      if (found) paymentMethodName = found.name;
-    }
-    if (!paymentMethodName) {
-      return NextResponse.json({ detail: "Please specify or select the payment method used." }, { status: 400 });
+      if (!found) {
+        return NextResponse.json(
+          { detail: "Selected payment method is not currently active or configured. Choose an active payment method." },
+          { status: 400 }
+        );
+      }
+      paymentMethodName = found.name;
+    } else {
+      const fallbackName = String(formData.get("payment_method_name") || "").trim();
+      const matchedByName = configuredMethods.find((m) => m.name.toLowerCase() === fallbackName.toLowerCase());
+      if (!matchedByName) {
+        return NextResponse.json(
+          { detail: "Please select an active Owner-configured payment method." },
+          { status: 400 }
+        );
+      }
+      paymentMethodName = matchedByName.name;
     }
 
     const paymentReference = String(formData.get("payment_reference") || "").trim().slice(0, 160);
     const customerNote = String(formData.get("customer_note") || "").trim().slice(0, 500);
-    const customDurationValue = formData.get("custom_duration_value")
-      ? Number(formData.get("custom_duration_value"))
-      : null;
-    const customDurationUnit = formData.get("custom_duration_unit")
-      ? String(formData.get("custom_duration_unit")).trim().toLowerCase()
-      : null;
-
-    let customFeaturesJson: any = null;
-    const rawFeatures = formData.get("custom_features_json");
-    if (rawFeatures && typeof rawFeatures === "string") {
-      try {
-        customFeaturesJson = JSON.parse(rawFeatures);
-      } catch {}
-    }
+    const idempotencyKeyRaw = String(formData.get("idempotency_key") || "").trim().slice(0, 96);
 
     const submission = await createPaymentSubmission({
       userId: resolved.userId,
       workspaceId: resolved.workspaceId,
-      username: String(resolved.user.username || resolved.user.email || `client_${resolved.userId}`),
-      email: String(resolved.user.email || ""),
-      requestedPlan,
-      planLabel,
-      agreedPriceUsd,
-      currency,
+      username: authUsername || authEmail || `client_${resolved.userId}`,
+      email: authEmail,
+      requestedPlan: orderSpec.requestedPlan,
+      planLabel: orderSpec.planLabel,
+      agreedPriceUsd: orderSpec.priceUsd,
+      currency: effectiveCurrency,
+      exchangeRate: fx.rate,
+      convertedAmount: fx.convertedAmount,
+      leadAllowance: orderSpec.leadAllowance,
+      idempotencyKey: idempotencyKeyRaw || null,
       paymentMethodId,
       paymentMethodName,
       paymentReference,
       customerNote,
-      customDurationValue: customDurationValue && !Number.isNaN(customDurationValue) ? customDurationValue : null,
-      customDurationUnit,
-      customFeaturesJson,
+      customDurationValue: orderSpec.durationValue,
+      customDurationUnit: orderSpec.durationUnit,
+      customFeaturesJson: orderSpec.features,
       safeFilename,
       verifiedMime,
       size,
@@ -173,7 +206,7 @@ export async function POST(req: Request) {
 
     return NextResponse.json({
       status: "success",
-      message: "Payment proof submitted successfully. Awaiting Owner verification.",
+      message: `Payment proof submitted cleanly (${submission.request_code || `#${submission.id}`}). Your request is PENDING until Owner verifies receipt of funds.`,
       submission,
     });
   } catch (err: any) {

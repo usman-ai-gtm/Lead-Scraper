@@ -6,6 +6,7 @@ import {
   ShieldCheck, Key, Copy, CheckCircle2, AlertTriangle,
   ExternalLink, ArrowLeft, RefreshCw, Mail, Lock, Info
 } from "lucide-react";
+import { GmailSetupGuide } from "@/components/gmail/GmailSetupGuide";
 
 export default function AdminGoogleIntegrationPage() {
   const [copied, setCopied] = useState<string | null>(null);
@@ -175,6 +176,11 @@ export default function AdminGoogleIntegrationPage() {
             </div>
           </div>
         </div>
+
+        <GmailSetupGuide
+          isAdmin={true}
+          expectedCallbackUri={redirectUri || "https://lead-scraper-mxs5.vercel.app/api/integrations/gmail/callback"}
+        />
 
         <div className="pt-4 border-t border-white/[0.06] flex items-center justify-between flex-wrap gap-2">
           <a
