@@ -1,11 +1,14 @@
 import { NextResponse } from "next/server";
+import { unstable_noStore as noStore } from "next/cache";
 import { verifyJwtToken } from "@/lib/serverless-auth";
 import { getNeonSql, isNeonConfigured, computeAuthoritativeUserStatus } from "@/lib/neon-db";
 import { resolveUserEntitlements } from "@/lib/entitlements";
 
 export const dynamic = "force-dynamic";
+export const fetchCache = "force-no-store";
 
 export async function GET(request: Request) {
+  noStore();
   const authHeader = request.headers.get("Authorization") || request.headers.get("authorization");
   let token = authHeader?.replace(/^Bearer\s+/i, "")?.trim() || "";
   if (token === "null" || token === "undefined") {
@@ -103,7 +106,13 @@ export async function GET(request: Request) {
               return response;
             }
           }
-        } catch {}
+        } catch (err) {
+          console.error("[Auth Me] Neon authoritative lookup failed:", err);
+          return NextResponse.json(
+            { detail: "Authoritative account check temporarily unavailable. Please retry." },
+            { status: 503, headers: { "Cache-Control": "no-store, no-cache, must-revalidate, proxy-revalidate" } }
+          );
+        }
       }
 
       const fallbackEnt = resolveUserEntitlements(payload);

@@ -34,7 +34,11 @@ function getConnectionString(): string | null {
 export function getNeonSql() {
   const dbUrl = getConnectionString();
   if (!dbUrl) return null;
-  return neon(dbUrl);
+  return neon(dbUrl, {
+    fetchOptions: {
+      cache: "no-store",
+    },
+  });
 }
 
 export function isNeonConfigured(): boolean {

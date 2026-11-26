@@ -12,6 +12,9 @@ import {
   isNeonConfigured
 } from "@/lib/neon-db";
 
+export const dynamic = "force-dynamic";
+export const fetchCache = "force-no-store";
+
 export async function GET(req: Request) {
   const currentUser = getCurrentUserFromRequest(req);
   if (!currentUser) {
