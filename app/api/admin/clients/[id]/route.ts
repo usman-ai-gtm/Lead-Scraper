@@ -7,6 +7,7 @@ import {
   logAccountAudit,
   getNeonSql,
   isNeonConfigured,
+  computeAuthoritativeUserStatus,
 } from "@/lib/neon-db";
 
 export const dynamic = "force-dynamic";
@@ -40,6 +41,8 @@ export async function GET(req: Request, { params }: RouteParams) {
              plan, plan_type, plan_label, google_maps_enabled, daily_email_limit, features_json,
              custom_duration_value, custom_duration_unit, custom_price_usd, suggested_price_usd,
              subscription_start, subscription_expires_at, subscription_status,
+             COALESCE(session_version, 1) AS session_version,
+             COALESCE(must_change_password, FALSE) AS must_change_password,
              created_at, last_login, last_activity_at, updated_at
       FROM users
       WHERE id = ${clientId}
@@ -53,7 +56,15 @@ export async function GET(req: Request, { params }: RouteParams) {
       return NextResponse.json({ detail: "Client not found" }, { status: 404 });
     }
 
-    return NextResponse.json({ client: clients[0] });
+    const row = clients[0];
+    const authoritative = computeAuthoritativeUserStatus(row);
+    return NextResponse.json({
+      client: {
+        ...row,
+        ...authoritative,
+        raw_plan: authoritative.plan,
+      },
+    });
   } catch (err: any) {
     return NextResponse.json({ detail: err?.message || "Failed to fetch client" }, { status: 500 });
   }
@@ -199,10 +210,12 @@ export async function PATCH(req: Request, { params }: RouteParams) {
     await sql`
       UPDATE users
       SET full_name = ${newName},
-          status = ${newStatus},
           updated_at = NOW()
       WHERE id = ${clientId}
     `;
+    if (body.status) {
+      await updateNeonClientStatus(clientId, newStatus);
+    }
 
     await logAccountAudit({
       adminId: user.id,

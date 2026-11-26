@@ -46,14 +46,31 @@ export default function SubscriptionPage() {
     if (user?.id) {
       fetchData();
     }
-  }, [user?.id, user?.workspace_id]);
+  }, [
+    user?.id,
+    user?.workspace_id,
+    user?.plan,
+    user?.plan_label,
+    user?.status,
+    user?.google_maps_enabled,
+    user?.daily_email_limit,
+    user?.subscription_expires_at,
+  ]);
 
-  const currentStatus = profile?.status || user?.status || "LOCKED";
-  const isLocked = currentStatus === "LOCKED" || currentStatus === "PENDING";
+  const liveProfile = user ? { ...profile, ...user } : profile;
+  const currentStatus = liveProfile?.status || "LOCKED";
+  const isLocked =
+    currentStatus === "LOCKED" ||
+    currentStatus === "PENDING" ||
+    currentStatus === "SUSPENDED" ||
+    currentStatus === "REVOKED";
   const isExpired = currentStatus === "EXPIRED";
   const isActive = currentStatus === "ACTIVE";
-  const planTypeUpper = String(profile?.plan_type || profile?.plan || user?.plan || "").toUpperCase();
-  const isLifetime = planTypeUpper === "LIFETIME" || planTypeUpper === "OWNER_LIFETIME" || (planTypeUpper === "CUSTOM" && String(profile?.custom_duration_unit || "").toLowerCase() === "lifetime");
+  const planTypeUpper = String(liveProfile?.plan_type || liveProfile?.plan || "").toUpperCase();
+  const isLifetime =
+    planTypeUpper === "LIFETIME" ||
+    planTypeUpper === "OWNER_LIFETIME" ||
+    (planTypeUpper === "CUSTOM" && String(liveProfile?.custom_duration_unit || "").toLowerCase() === "lifetime");
   const isCustom = planTypeUpper === "CUSTOM";
 
   return (
@@ -107,7 +124,7 @@ export default function SubscriptionPage() {
               <div className="flex items-center gap-2 mb-1 flex-wrap">
                 <span className="text-xs text-slate-400">Current Plan:</span>
                 <span className="text-sm font-black text-white">
-                  {profile?.plan_label ||
+                  {liveProfile?.plan_label ||
                     (isCustom
                       ? "Custom Plan"
                       : isLifetime
@@ -125,9 +142,9 @@ export default function SubscriptionPage() {
                 }`}>
                   {currentStatus}
                 </span>
-                {isActive && !isLifetime && (profile?.remaining_detailed || profile?.remaining_days !== undefined) && (
+                {isActive && !isLifetime && (liveProfile?.remaining_detailed || liveProfile?.remaining_days !== undefined) && (
                   <span className="text-xs font-mono font-bold text-emerald-300 bg-emerald-500/20 px-2 py-0.5 rounded border border-emerald-500/30">
-                    {profile?.remaining_detailed || `${profile.remaining_days} left`}
+                    {liveProfile?.remaining_detailed || `${liveProfile.remaining_days} left`}
                   </span>
                 )}
                 {isLifetime && (
@@ -138,7 +155,7 @@ export default function SubscriptionPage() {
               </div>
               <p className="text-xs text-slate-300">
                 {isActive
-                  ? `Your subscription is active. Google Maps: ${(profile?.google_maps_enabled || isLifetime) ? "Included" : "Excluded"} • Daily Cold Email Limit: ${profile?.daily_email_limit ?? (isLifetime ? 500 : 10)}/day (UTC). ${isLifetime ? "Permanent access without expiry." : `Valid until ${profile?.subscription_expires_at ? new Date(profile.subscription_expires_at).toUTCString() : "end of cycle"}.`}`
+                  ? `Your subscription is active. Google Maps: ${(liveProfile?.google_maps_enabled || isLifetime) ? "Included" : "Excluded"} • Daily Cold Email Limit: ${liveProfile?.daily_email_limit ?? (isLifetime ? 500 : 10)}/day (UTC). ${isLifetime ? "Permanent access without expiry." : `Valid until ${liveProfile?.subscription_expires_at ? new Date(liveProfile.subscription_expires_at).toUTCString() : "end of cycle"}.`}`
                   : isExpired
                   ? "Your subscription has expired. Lead searching and email features are locked. Please renew via WhatsApp (+923174383702)."
                   : "All features are currently locked with view-only preview access. Contact the Owner on WhatsApp (+923174383702) for activation."}

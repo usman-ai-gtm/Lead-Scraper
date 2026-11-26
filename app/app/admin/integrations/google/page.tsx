@@ -158,6 +158,12 @@ export default function AdminGoogleIntegrationPage() {
               <li><strong className="text-slate-200">Branding &amp; Authorized Domains:</strong> Confirm Homepage URL, <code className="text-slate-300">/privacy</code>, <code className="text-slate-300">/terms</code>, and verify domain ownership in Google Search Console.</li>
               <li><strong className="text-slate-200">Verification Center (Restricted Scope):</strong> Submit scope justification for <code className="text-slate-300">gmail.send</code>, attach the OAuth grant demo video, and complete Google&apos;s Restricted Scope security assessment if prompted.</li>
             </ol>
+            <div className="pt-2 border-t border-white/[0.06] text-[11px] text-slate-300 space-y-1">
+              <div className="font-bold text-white">Ready-to-Paste Google Scope Justification (<code className="text-amber-300">gmail.send</code>):</div>
+              <p className="text-slate-400">
+                USMAN AI GTM requests strictly <code className="text-slate-300">gmail.send</code> + <code className="text-slate-300">userinfo.email</code> (never <code className="text-slate-300">gmail.readonly</code> or mailbox access) solely so paying workspace owners can manually compose and send explicit 1-to-1 business outreach emails through their own Gmail account. Email drafts stay isolated in the user&apos;s workspace until they click Send; OAuth tokens are AES-256-GCM encrypted in Neon PostgreSQL per workspace_id, never used for AI model training or ads, never involve Gmail passwords, and can be revoked at any time via Gmail Connections (calling Google&apos;s revoke endpoint + deleting DB tokens).
+              </p>
+            </div>
           </div>
         </div>
 

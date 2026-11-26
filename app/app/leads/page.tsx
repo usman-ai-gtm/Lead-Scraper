@@ -121,17 +121,23 @@ function LeadsSearchComponent() {
       setSelectedCities([]);
     }
 
-    // Load any previously saved session leads
-    if (typeof window !== "undefined") {
+    // Load cached session leads strictly isolated per workspace
+    if (typeof window !== "undefined" && user?.workspace_id) {
       try {
-        const saved = localStorage.getItem("usman_qualified_leads_session");
+        const saved = localStorage.getItem(`usman_qualified_leads_session_ws_${user.workspace_id}`);
         if (saved) {
           const parsed = JSON.parse(saved);
           if (Array.isArray(parsed) && parsed.length > 0) {
             setQualifiedLeads(parsed);
+          } else {
+            setQualifiedLeads([]);
           }
+        } else {
+          setQualifiedLeads([]);
         }
-      } catch { }
+      } catch {
+        setQualifiedLeads([]);
+      }
     }
 
     // Check Business Profile availability
@@ -168,13 +174,16 @@ function LeadsSearchComponent() {
       } catch { }
     }
     checkJob();
-  }, [searchParams]);
+  }, [searchParams, user?.workspace_id]);
 
-  // Sync session storage
+  // Sync session storage per workspace
   const syncStorage = (leadsList: QualifiedLead[]) => {
-    if (typeof window !== "undefined") {
+    if (typeof window !== "undefined" && user?.workspace_id) {
       try {
-        localStorage.setItem("usman_qualified_leads_session", JSON.stringify(leadsList));
+        localStorage.setItem(
+          `usman_qualified_leads_session_ws_${user.workspace_id}`,
+          JSON.stringify(leadsList)
+        );
       } catch { }
     }
   };

@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { getCurrentUserFromRequest, isAuthorizedOwner } from "@/lib/serverless-auth";
-import { updateNeonClientStatus, isNeonConfigured, logAccountAudit, getNeonSql } from "@/lib/neon-db";
+import { updateNeonClientStatus, isNeonConfigured, logAccountAudit, getNeonSql, computeAuthoritativeUserStatus } from "@/lib/neon-db";
 
 export const dynamic = "force-dynamic";
 
@@ -48,30 +48,42 @@ export async function POST(req: Request, { params }: RouteParams) {
       }
 
       const result = await updateNeonClientStatus(clientId, newStatus);
-      if (result && result.ok) {
+      if (result && result.ok && sql) {
+        const verifiedRows = await sql.query(
+          `SELECT id, username, email, role, account_type, workspace_id, status, plan, plan_type, plan_label,
+                  google_maps_enabled, daily_email_limit, features_json, subscription_start, subscription_expires_at,
+                  COALESCE(session_version, 1) AS session_version
+           FROM users WHERE id = $1 LIMIT 1`,
+          [clientId]
+        );
+        const verified = verifiedRows?.[0];
+        const authoritative = verified ? computeAuthoritativeUserStatus(verified) : null;
         await logAccountAudit({
           adminId: user.id,
           adminEmail: user.email || user.username || "master_owner",
           clientId,
           clientEmail: target.email || target.username,
           workspaceId: target.workspace_id || 1,
-          action: `STATUS_${result.effectiveStatus}`,
+          action: `STATUS_${authoritative?.status || result.effectiveStatus}`,
           details: {
             previous_status: target.status,
             requested_status: newStatus,
-            effective_status: result.effectiveStatus,
+            effective_status: authoritative?.status || result.effectiveStatus,
+            session_version: verified?.session_version,
             restored_access: result.restoredAccess,
           },
         });
         return NextResponse.json({
           status: "success",
+          verified: true,
           client_id: clientId,
-          new_status: result.effectiveStatus,
+          new_status: authoritative?.status || result.effectiveStatus,
           restored_access: result.restoredAccess,
+          client: verified ? { ...verified, ...authoritative } : null,
           message:
-            result.effectiveStatus === "EXPIRED" && newStatus === "ACTIVE"
+            (authoritative?.status || result.effectiveStatus) === "EXPIRED" && newStatus === "ACTIVE"
               ? `Suspension cleared for #${clientId}, but the subscription expired and access remains locked until renewed.`
-              : `Client #${clientId} status updated to ${result.effectiveStatus}.`,
+              : `Client #${clientId} verified status updated to ${authoritative?.status || result.effectiveStatus}.`,
         });
       }
     }

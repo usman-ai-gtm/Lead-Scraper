@@ -77,7 +77,8 @@ export async function GET(request: Request) {
 
     // Check if user exists
     const users = await sql`
-      SELECT id, email, username, full_name, role, workspace_id, status
+      SELECT id, email, username, full_name, role, account_type, workspace_id, status, plan,
+             COALESCE(session_version, 1) AS session_version
       FROM users
       WHERE LOWER(email) = LOWER(${email}) OR LOWER(username) = LOWER(${email})
       LIMIT 1
@@ -172,11 +173,14 @@ export async function GET(request: Request) {
     const sessionToken = createJwtToken({
       sub: String(activeUser.id),
       email: activeUser.email,
+      username: activeUser.username || email,
+      account_type: activeUser.account_type || "FREE_PREVIEW",
       full_name: activeUser.full_name,
       role: activeUser.role,
       workspace_id: activeUser.workspace_id,
       status: activeUser.status,
       plan: activeUser.plan,
+      sv: Number(activeUser.session_version) || 1,
     });
 
     const sessionPayload = encodeURIComponent(

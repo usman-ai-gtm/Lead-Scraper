@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { getCurrentUserFromRequest } from "@/lib/serverless-auth";
+import { getCurrentUserFromRequest, verifyClientActiveSubscription } from "@/lib/serverless-auth";
 
 export const dynamic = "force-dynamic";
 
@@ -14,8 +14,9 @@ function getGeminiApiKey(): string | null {
 export async function POST(req: Request) {
   try {
     const user = getCurrentUserFromRequest(req);
-    if (!user) {
-      return NextResponse.json({ detail: "Authentication required" }, { status: 401 });
+    const subCheck = await verifyClientActiveSubscription(user, "business_profile");
+    if (!subCheck.allowed) {
+      return NextResponse.json({ detail: subCheck.message }, { status: subCheck.statusCode || 403 });
     }
 
     const body = await req.json().catch(() => ({}));

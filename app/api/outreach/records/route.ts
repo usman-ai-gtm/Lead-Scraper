@@ -12,18 +12,15 @@ export const dynamic = "force-dynamic";
 
 export async function GET(request: Request) {
   const currentUser = getCurrentUserFromRequest(request);
-  if (!currentUser) {
-    return NextResponse.json({ error: "Authentication required" }, { status: 401 });
+  const subCheck = await verifyClientActiveSubscription(currentUser, "cold_email");
+  if (!subCheck.allowed) {
+    return NextResponse.json(
+      { error: subCheck.message || "Authentication required" },
+      { status: subCheck.statusCode || 403 }
+    );
   }
 
-  let workspaceId = Number(currentUser.workspace_id) || 1;
-  if (isNeonConfigured() && currentUser.id) {
-    const sql = getNeonSql();
-    if (sql) {
-      const u = await sql.query(`SELECT workspace_id FROM users WHERE id = $1 LIMIT 1`, [Number(currentUser.id)]).catch(() => []);
-      if (u[0]?.workspace_id) workspaceId = Number(u[0].workspace_id);
-    }
-  }
+  const workspaceId = Number(subCheck.userRecord?.workspace_id || currentUser.workspace_id) || 1;
 
   const url = new URL(request.url);
   const statusFilter = url.searchParams.get("status") || "ALL";

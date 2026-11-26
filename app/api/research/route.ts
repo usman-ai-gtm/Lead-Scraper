@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { getCurrentUserFromRequest, verifyClientActiveSubscription } from "@/lib/serverless-auth";
 
 interface ResearchRequestBody {
   company_name?: string;
@@ -162,6 +163,11 @@ USMAN AI GTM`,
 }
 
 export async function POST(req: Request) {
+  const currentUser = getCurrentUserFromRequest(req);
+  const subCheck = await verifyClientActiveSubscription(currentUser, "ai_research");
+  if (!subCheck.allowed) {
+    return NextResponse.json({ detail: subCheck.message }, { status: subCheck.statusCode || 403 });
+  }
   let body: ResearchRequestBody = {};
   try {
     body = await req.json();

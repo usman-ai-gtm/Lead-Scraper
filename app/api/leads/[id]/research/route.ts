@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { getCurrentUserFromRequest } from "@/lib/serverless-auth";
+import { getCurrentUserFromRequest, verifyClientActiveSubscription } from "@/lib/serverless-auth";
 import { getNeonSql, isNeonConfigured } from "@/lib/neon-db";
 
 export const dynamic = "force-dynamic";
@@ -59,31 +59,25 @@ function generateLocalResearch(lead: any) {
 export async function POST(req: Request, { params }: RouteParams) {
   try {
     const user = getCurrentUserFromRequest(req);
-    if (!user) {
-      return NextResponse.json({ detail: "Unauthorized: Sign-in required." }, { status: 401 });
-    }
-
-    // STRICT SERVER-SIDE ENFORCEMENT:
-    // Only Lifetime plan clients ($100) and Admins can access the AI Lead Research Agent!
-    const isAdmin = user.role === "ADMIN";
-    const userPlan = (user.plan || "").toUpperCase();
-    const isLifetime = userPlan === "LIFETIME";
-
-    if (!isAdmin && !isLifetime) {
+    const subCheck = await verifyClientActiveSubscription(user, "ai_research");
+    if (!subCheck.allowed) {
       return NextResponse.json(
         {
-          error: "UPGRADE_REQUIRED",
-          detail: "The AI Lead Research Agent is an exclusive capability of the $100 Lifetime Plan. Upgrade to unlock deep business analysis, identified growth opportunities, and hyper-personalized proposals.",
+          error: subCheck.statusCode === 401 ? "UNAUTHORIZED" : "UPGRADE_REQUIRED",
+          detail:
+            subCheck.message ||
+            "AI Lead Research requires an active plan with AI Research enabled (Lifetime or Custom Plan).",
           upgrade_url: "/app/subscription",
         },
-        { status: 403 }
+        { status: subCheck.statusCode || 403 }
       );
     }
 
+    const workspaceId = Number(subCheck.userRecord?.workspace_id || user.workspace_id) || 1;
     const leadId = parseInt(params.id, 10);
     const body = await req.json().catch(() => ({}));
 
-    // Find lead: either by ID from DB or from request body
+    // Find lead strictly inside caller's authoritative workspace (zero cross-tenant leakage)
     let lead: any = null;
     if (!isNaN(leadId) && leadId > 0 && isNeonConfigured()) {
       const sql = getNeonSql();
@@ -91,7 +85,7 @@ export async function POST(req: Request, { params }: RouteParams) {
         const rows = await sql`
           SELECT id, company_name, domain, website, email, phone, city, country, industry, address, rating
           FROM leads
-          WHERE id = ${leadId}
+          WHERE id = ${leadId} AND workspace_id = ${workspaceId}
           LIMIT 1
         `;
         if (rows && rows.length > 0) lead = rows[0];

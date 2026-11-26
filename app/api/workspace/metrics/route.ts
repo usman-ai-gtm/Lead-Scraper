@@ -15,9 +15,29 @@ export async function GET(request: Request) {
     if (isNeonConfigured()) {
       const sql = getNeonSql();
       if (sql && user.id) {
-        const uRows = await sql.query(`SELECT workspace_id FROM users WHERE id = $1 LIMIT 1`, [Number(user.id)]).catch(() => []);
-        if (uRows[0]?.workspace_id) {
-          workspaceId = Number(uRows[0].workspace_id);
+        const uRows = await sql
+          .query(
+            `SELECT workspace_id, status, role, account_type, COALESCE(session_version, 1) AS session_version
+             FROM users WHERE id = $1 LIMIT 1`,
+            [Number(user.id)]
+          )
+          .catch(() => []);
+        if (!uRows || uRows.length === 0) {
+          return NextResponse.json({ detail: "User not found" }, { status: 401 });
+        }
+        const u = uRows[0];
+        const tokenSv = user.sv != null ? Number(user.sv) : 1;
+        const isOwner =
+          ["ADMIN", "SUPER_ADMIN"].includes(String(u.role || "").toUpperCase()) ||
+          String(u.account_type || "").toUpperCase() === "MASTER_OWNER";
+        if (!isOwner && tokenSv !== Number(u.session_version || 1)) {
+          return NextResponse.json({ detail: "Session invalidated" }, { status: 401 });
+        }
+        if (!isOwner && ["SUSPENDED", "REVOKED"].includes(String(u.status || "").toUpperCase())) {
+          return NextResponse.json({ detail: "Account suspended or revoked" }, { status: 403 });
+        }
+        if (u.workspace_id) {
+          workspaceId = Number(u.workspace_id);
         }
       }
     }

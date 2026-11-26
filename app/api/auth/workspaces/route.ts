@@ -6,12 +6,32 @@ export const dynamic = "force-dynamic";
 
 export async function GET(req: Request) {
   const currentUser = getCurrentUserFromRequest(req);
-  const targetWsId = currentUser?.workspace_id || 1;
+  if (!currentUser) {
+    return NextResponse.json({ detail: "Authentication required" }, { status: 401 });
+  }
+
+  let targetWsId = Number(currentUser.workspace_id) || 1;
+  const userId = Number(currentUser.id || currentUser.sub) || 0;
 
   if (isNeonConfigured()) {
     try {
       const sql = getNeonSql();
-      if (sql) {
+      if (sql && userId > 0) {
+        const uRows = await sql`
+          SELECT workspace_id, COALESCE(session_version, 1) AS session_version
+          FROM users WHERE id = ${userId} LIMIT 1
+        `;
+        if (!uRows || uRows.length === 0) {
+          return NextResponse.json({ detail: "User not found" }, { status: 401 });
+        }
+        const tokenSv = currentUser.sv != null ? Number(currentUser.sv) : 1;
+        if (tokenSv !== Number(uRows[0].session_version || 1)) {
+          return NextResponse.json({ detail: "Session expired" }, { status: 401 });
+        }
+        if (uRows[0].workspace_id) {
+          targetWsId = Number(uRows[0].workspace_id);
+        }
+
         const wsRows = await sql`
           SELECT id, name, created_at
           FROM workspaces
@@ -25,22 +45,20 @@ export async function GET(req: Request) {
               name: wsRows[0].name,
               plan: "ENTERPRISE",
               created_at: wsRows[0].created_at || new Date().toISOString(),
-            }
+            },
           ]);
         }
       }
     } catch {}
   }
 
-  const workspaces = [
+  return NextResponse.json([
     {
       id: targetWsId,
-      name: "Enterprise Workspace",
-      owner_id: currentUser?.id || 1,
+      name: "Client Workspace",
+      owner_id: userId || 1,
       plan: "ENTERPRISE",
       created_at: new Date().toISOString(),
     },
-  ];
-
-  return NextResponse.json(workspaces);
+  ]);
 }

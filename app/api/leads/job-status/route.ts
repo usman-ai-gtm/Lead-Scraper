@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { getCurrentUserFromRequest } from "@/lib/serverless-auth";
+import { getCurrentUserFromRequest, verifyClientActiveSubscription } from "@/lib/serverless-auth";
 import { getNeonActiveSearchJob, isNeonConfigured } from "@/lib/neon-db";
 
 export const dynamic = "force-dynamic";
@@ -7,11 +7,15 @@ export const dynamic = "force-dynamic";
 export async function GET(req: Request) {
   try {
     const user = getCurrentUserFromRequest(req);
-    if (!user) {
-      return NextResponse.json({ error: "Authentication required" }, { status: 401 });
+    const subCheck = await verifyClientActiveSubscription(user, "find_leads");
+    if (!subCheck.allowed) {
+      return NextResponse.json(
+        { error: subCheck.message || "Authentication required" },
+        { status: subCheck.statusCode || 403 }
+      );
     }
 
-    const workspaceId = user.workspace_id || 1;
+    const workspaceId = Number(subCheck.userRecord?.workspace_id || user.workspace_id) || 1;
     if (!isNeonConfigured()) {
       return NextResponse.json({ is_running: false, active_job: null });
     }

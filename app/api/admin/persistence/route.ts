@@ -1,10 +1,15 @@
 import { NextResponse } from "next/server";
+import { getCurrentUserFromRequest, isAuthorizedOwner } from "@/lib/serverless-auth";
 import { getNeonSql, isNeonConfigured } from "@/lib/neon-db";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
 
 export async function GET(req: Request) {
+  const user = getCurrentUserFromRequest(req);
+  if (!user || !isAuthorizedOwner(user)) {
+    return NextResponse.json({ detail: "Forbidden: Master Owner authentication required." }, { status: 403 });
+  }
   const isVercel = Boolean(process.env.VERCEL || process.env.NEXT_PUBLIC_VERCEL_ENV);
   const dbUrl = process.env.DATABASE_URL || process.env.POSTGRES_URL || "";
   const isNeon = dbUrl.toLowerCase().includes("neon.tech");

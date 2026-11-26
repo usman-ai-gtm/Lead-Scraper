@@ -1,8 +1,14 @@
 import { NextResponse } from "next/server";
+import { getCurrentUserFromRequest, verifyClientActiveSubscription } from "@/lib/serverless-auth";
 import { sendLiveEmail } from "@/lib/email-service";
 
 export async function POST(req: Request) {
   try {
+    const user = getCurrentUserFromRequest(req);
+    const subCheck = await verifyClientActiveSubscription(user, "cold_email");
+    if (!subCheck.allowed) {
+      return NextResponse.json({ detail: subCheck.message }, { status: subCheck.statusCode || 403 });
+    }
     const body = await req.json();
     const { from_email, from_name, to_email, subject, body: emailBody, app_password } = body;
 

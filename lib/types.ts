@@ -27,6 +27,7 @@ export interface User {
   subscription_start?: string | null;
   subscription_expires_at?: string | null;
   must_change_password?: boolean;
+  session_version?: number;
 }
 
 export interface ClientAccount {

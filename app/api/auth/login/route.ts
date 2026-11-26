@@ -32,7 +32,8 @@ export async function POST(request: Request) {
             SELECT id, username, email, full_name, role, account_type, workspace_id, status, plan,
                    plan_type, plan_label, custom_duration_value, custom_duration_unit,
                    custom_price_usd, suggested_price_usd, daily_email_limit, google_maps_enabled,
-                   features_json, subscription_start, subscription_expires_at, password_hash, tenant_id
+                   features_json, subscription_start, subscription_expires_at, password_hash, tenant_id,
+                   must_change_password, COALESCE(session_version, 1) AS session_version
             FROM users
             WHERE LOWER(username) = LOWER(${email}) OR LOWER(email) = LOWER(${email})
             LIMIT 1
@@ -108,6 +109,7 @@ export async function POST(request: Request) {
               workspace_id: user.workspace_id || 1,
               tenant_id: user.tenant_id || 1,
               status: user.status || "ACTIVE",
+              sv: Number(user.session_version) || 1,
             });
 
             // Fetch workspace metadata
@@ -157,6 +159,8 @@ export async function POST(request: Request) {
                 remaining_days: ent.isOwner ? "Permanent (Master Owner)" : authoritative.daysRemaining,
                 remaining_detailed: ent.isOwner ? "Permanent Access — No Expiry" : authoritative.remainingDetailed,
                 isLocked: ent.isOwner ? false : authoritative.isLocked,
+                must_change_password: Boolean(user.must_change_password),
+                session_version: Number(user.session_version) || 1,
               },
               workspace: {
                 id: user.workspace_id || 1,

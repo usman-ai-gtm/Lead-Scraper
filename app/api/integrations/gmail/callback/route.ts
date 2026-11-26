@@ -151,7 +151,8 @@ export async function GET(request: Request) {
       }
 
       const users = await sql`
-        SELECT id, email, username, full_name, role, workspace_id, status
+        SELECT id, email, username, full_name, role, account_type, workspace_id, status, plan,
+               COALESCE(session_version, 1) AS session_version
         FROM users
         WHERE LOWER(email) = LOWER(${profileEmail}) OR LOWER(username) = LOWER(${profileEmail})
         LIMIT 1
@@ -199,11 +200,11 @@ export async function GET(request: Request) {
           newWsId = wsRes[0].id;
         }
 
-        const assignedRole = isOwner ? 'SUPER_ADMIN' : 'CLIENT';
-        const assignedAccountType = isOwner ? 'MASTER_OWNER' : 'CLIENT';
-        const initialStatus = isOwner ? 'ACTIVE' : 'LOCKED';
-        const initialSubStatus = isOwner ? 'PERMANENT' : 'PENDING_APPROVAL';
-        const initialPlan = isOwner ? 'OWNER_LIFETIME' : 'BASIC';
+        const assignedRole = isOwner ? "SUPER_ADMIN" : "CLIENT";
+        const assignedAccountType = isOwner ? "MASTER_OWNER" : "FREE_PREVIEW";
+        const initialStatus = isOwner ? "ACTIVE" : "PREVIEW_ONLY";
+        const initialSubStatus = isOwner ? "PERMANENT" : "FREE_PREVIEW";
+        const initialPlan = isOwner ? "OWNER_LIFETIME" : "FREE_PREVIEW";
 
         try {
           const newUserRes = await sql`
@@ -212,7 +213,7 @@ export async function GET(request: Request) {
             ON CONFLICT (username) DO UPDATE
               SET email = EXCLUDED.email,
                   full_name = COALESCE(users.full_name, EXCLUDED.full_name)
-            RETURNING id, email, full_name, role, account_type, workspace_id, status, plan, active, is_active
+            RETURNING id, email, username, full_name, role, account_type, workspace_id, status, plan, active, is_active, COALESCE(session_version, 1) AS session_version
           `;
           activeUser = newUserRes[0];
         } catch (insertErr) {
@@ -271,11 +272,14 @@ export async function GET(request: Request) {
       const sessionToken = createJwtToken({
         sub: String(activeUser.id),
         email: activeUser.email,
+        username: activeUser.username || profileEmail,
+        account_type: activeUser.account_type || "FREE_PREVIEW",
         full_name: activeUser.full_name,
         role: activeUser.role,
         workspace_id: activeUser.workspace_id,
         status: activeUser.status || "ACTIVE",
-        plan: activeUser.plan || "BASIC",
+        plan: activeUser.plan || "FREE_PREVIEW",
+        sv: Number(activeUser.session_version) || 1,
       });
 
       const sessionPayload = encodeURIComponent(
@@ -322,7 +326,10 @@ export async function GET(request: Request) {
         );
       }
       authoritativeWsId = Number(ownerRows[0].workspace_id) || workspaceId;
-      const subGate = await verifyClientActiveSubscription(ownerRows[0], "cold_email");
+      const subGate = await verifyClientActiveSubscription(
+        { ...ownerRows[0], _skipSessionVersionCheck: true },
+        "cold_email"
+      );
       if (!subGate.allowed) {
         return NextResponse.redirect(
           `${appBase}/app/accounts?status=error&error_code=subscription_inactive&message=${encodeURIComponent(subGate.message || "Active subscription required to connect Gmail.")}`

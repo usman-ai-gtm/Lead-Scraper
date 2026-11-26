@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { getCurrentUserFromRequest } from "@/lib/serverless-auth";
+import { getCurrentUserFromRequest, verifyClientActiveSubscription } from "@/lib/serverless-auth";
 import { getNeonSql, isNeonConfigured } from "@/lib/neon-db";
 import { interpretSearchIntent } from "@/lib/ai-search-parser";
 
@@ -8,6 +8,14 @@ export const dynamic = "force-dynamic";
 export async function POST(req: Request) {
   try {
     const user = getCurrentUserFromRequest(req);
+    const subCheck = await verifyClientActiveSubscription(user, "find_leads");
+    if (!subCheck.allowed) {
+      return NextResponse.json(
+        { status: "error", message: subCheck.message || "Active subscription required." },
+        { status: subCheck.statusCode || 403 }
+      );
+    }
+    const workspaceId = Number(subCheck.userRecord?.workspace_id || user.workspace_id) || 1;
     const body = await req.json().catch(() => ({}));
     const prompt = String(body.prompt || body.keyword || body.query || "").trim();
     const explicitCountry = body.country || "";
@@ -15,13 +23,13 @@ export async function POST(req: Request) {
     const useBusinessProfile = Boolean(body.use_business_profile || body.use_profile);
 
     let businessProfile: any = null;
-    if (user && useBusinessProfile && isNeonConfigured()) {
+    if (useBusinessProfile && isNeonConfigured()) {
       try {
         const sql = getNeonSql();
         if (sql) {
           const profileRows = await sql.query(
             "SELECT * FROM workspace_profiles WHERE workspace_id = $1 LIMIT 1",
-            [user.workspace_id || 1]
+            [workspaceId]
           );
           if (profileRows && profileRows.length > 0) {
             businessProfile = profileRows[0];

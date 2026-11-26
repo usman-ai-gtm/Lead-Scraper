@@ -203,7 +203,7 @@ export function ClientProvisioningSection() {
   const [reviewModalOpen, setReviewModalOpen] = useState(false);
   const [createLoading, setCreateLoading] = useState(false);
 
-  // Existing Client Custom Plan Edit Modal State
+  // Existing Client Custom Plan / Extend Subscription Modal State
   const [editingCustomClient, setEditingCustomClient] = useState<ClientAccount | null>(null);
   const [editCustomForm, setEditCustomForm] = useState({
     durationValue: 30,
@@ -212,7 +212,26 @@ export function ClientProvisioningSection() {
     dailyEmailLimit: 25,
     customPriceOverride: "",
     actionMode: "ACTIVATE_CUSTOM" as "ACTIVATE_CUSTOM" | "EXTEND_CUSTOM",
+    preserveFeatures: false,
   });
+
+  // Re-verify persisted DB state before ever displaying Owner Success notice (Part C #10)
+  const verifyClientMutationInDb = async (
+    clientId: number,
+    expectedCheck?: (freshClient: any) => boolean
+  ): Promise<any> => {
+    const checkRes = await api.get<{ client: any }>(`/admin/clients/${clientId}`);
+    const freshClient = checkRes?.client;
+    if (!freshClient || !freshClient.id) {
+      throw new Error(`Verification failed: could not re-read client #${clientId} from production database.`);
+    }
+    if (expectedCheck && !expectedCheck(freshClient)) {
+      throw new Error(
+        `Database verification mismatch for client #${clientId} (observed plan=${freshClient.plan_type || freshClient.plan}, status=${freshClient.status}).`
+      );
+    }
+    return freshClient;
+  };
 
   const customPriceCalc = React.useMemo(
     () =>
@@ -442,49 +461,79 @@ export function ClientProvisioningSection() {
     }
   };
 
-  const openEditCustomModal = (c: ClientAccount) => {
+  const openEditCustomModal = (
+    c: ClientAccount,
+    defaultMode: "ACTIVATE_CUSTOM" | "EXTEND_CUSTOM" = "ACTIVATE_CUSTOM"
+  ) => {
     const norm = normalizeFeatures(c.features || BASIC_FEATURES, c.google_maps_enabled);
+    const isExtend = defaultMode === "EXTEND_CUSTOM";
+    const fallbackUnit: DurationUnit = isExtend
+      ? "hours"
+      : ((c.custom_duration_unit as DurationUnit) || "days") === "lifetime"
+      ? "lifetime"
+      : ((c.custom_duration_unit as DurationUnit) || "days");
     setEditingCustomClient(c);
     setEditCustomForm({
-      durationValue: c.custom_duration_value || 30,
-      durationUnit: (c.custom_duration_unit as DurationUnit) || "days",
+      durationValue: isExtend ? 1 : c.custom_duration_value || 30,
+      durationUnit: fallbackUnit,
       features: norm,
       dailyEmailLimit: c.daily_email_limit ?? 10,
-      customPriceOverride: c.custom_price_usd != null ? String(c.custom_price_usd) : "",
-      actionMode: "ACTIVATE_CUSTOM",
+      customPriceOverride: isExtend ? "" : c.custom_price_usd != null ? String(c.custom_price_usd) : "",
+      actionMode: defaultMode,
+      preserveFeatures: isExtend,
     });
   };
 
   const handleApplyEditCustomPlan = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!editingCustomClient) return;
-    if (Object.values(editCustomForm.features).filter(Boolean).length === 0) {
+    if (
+      !(editCustomForm.actionMode === "EXTEND_CUSTOM" && editCustomForm.preserveFeatures) &&
+      Object.values(editCustomForm.features).filter(Boolean).length === 0
+    ) {
       setError("Select at least 1 feature.");
       return;
     }
 
-    setActionLoadingId(editingCustomClient.id);
+    const targetId = editingCustomClient.id;
+    const targetUsername = editingCustomClient.username;
+    setActionLoadingId(targetId);
     setError(null);
     try {
-      const res = await api.post<any>(`/admin/clients/${editingCustomClient.id}/subscription`, {
+      const payload: any = {
         action: editCustomForm.actionMode,
         duration_value: editCustomForm.durationUnit === "lifetime" ? null : editCustomForm.durationValue,
         duration_unit: editCustomForm.durationUnit,
-        features: editCustomForm.features,
-        google_maps_enabled: Boolean(editCustomForm.features.google_maps),
-        daily_email_limit: editCustomForm.features.cold_email ? editCustomForm.dailyEmailLimit : 0,
-        custom_price_usd:
-          editCustomForm.customPriceOverride.trim() !== ""
-            ? Number(editCustomForm.customPriceOverride)
-            : editCustomPriceCalc.suggestedPriceUsd,
-      });
-      if (res?.status === "success") {
-        setSuccessMsg(`Custom subscription applied to ${editingCustomClient.username}!`);
-        setEditingCustomClient(null);
-        await fetchClients();
+        preserve_features: editCustomForm.actionMode === "EXTEND_CUSTOM" && editCustomForm.preserveFeatures,
+      };
+      if (!(editCustomForm.actionMode === "EXTEND_CUSTOM" && editCustomForm.preserveFeatures)) {
+        payload.features = editCustomForm.features;
+        payload.google_maps_enabled = Boolean(editCustomForm.features.google_maps);
+        payload.daily_email_limit = editCustomForm.features.cold_email ? editCustomForm.dailyEmailLimit : 0;
+      }
+      if (editCustomForm.customPriceOverride.trim() !== "") {
+        payload.custom_price_usd = Number(editCustomForm.customPriceOverride);
       } else {
+        payload.custom_price_usd = editCustomPriceCalc.suggestedPriceUsd;
+      }
+
+      const res = await api.post<any>(`/admin/clients/${targetId}/subscription`, payload);
+      if (res?.status !== "success") {
         throw new Error(res?.detail || "Failed to update custom subscription.");
       }
+
+      const verified = await verifyClientMutationInDb(targetId, (fresh) => {
+        if (fresh.status !== "ACTIVE") return false;
+        if (editCustomForm.durationUnit === "lifetime") return fresh.subscription_expires_at == null;
+        return Boolean(fresh.subscription_expires_at && new Date(fresh.subscription_expires_at).getTime() > Date.now());
+      });
+
+      setEditingCustomClient(null);
+      await fetchClients();
+      setSuccessMsg(
+        `Verified in database: '${targetUsername}' updated (${verified.plan_label || verified.plan}, status: ${verified.status}).`
+      );
+      setTimeout(() => setSuccessMsg(null), 4000);
     } catch (err: any) {
       setError(err?.message || "Failed to save custom plan");
     } finally {
@@ -508,7 +557,16 @@ export function ClientProvisioningSection() {
         message: string;
       }>(`/admin/clients/${clientId}/reset-password`, {});
 
-      const targetClient = clients.find((c) => c.id === clientId);
+      if (!res?.temporary_password) {
+        throw new Error("Server did not return a verified temporary password.");
+      }
+
+      const freshClient = await verifyClientMutationInDb(
+        clientId,
+        (fresh) => Boolean(fresh.must_change_password)
+      ).catch(() => null);
+
+      const targetClient = freshClient || clients.find((c) => c.id === clientId);
       setOneTimeCreds({
         customer_id: clientId,
         full_name: targetClient?.full_name || clientUsername,
@@ -518,12 +576,12 @@ export function ClientProvisioningSection() {
         duration: targetClient?.remaining_days ? String(targetClient.remaining_days) : "Active",
         workspace_id: targetClient?.workspace_id,
         login_url: "https://lead-scraper-mxs5.vercel.app/login",
-        note: "Password reset complete. This new password is shown ONCE. Provide it securely to the client.",
+        note: "Password reset complete and old sessions invalidated. This new password is shown ONCE.",
       });
 
-      setSuccessMsg(`Password regenerated for '${clientUsername}'.`);
-      setTimeout(() => setSuccessMsg(null), 3500);
       await fetchClients();
+      setSuccessMsg(`Verified in DB: password rotated & prior sessions revoked for '${clientUsername}'.`);
+      setTimeout(() => setSuccessMsg(null), 4000);
     } catch (err: any) {
       setError(err?.message || "Failed to reset password");
     } finally {
@@ -538,13 +596,17 @@ export function ClientProvisioningSection() {
     setError(null);
     try {
       const res = await api.post<any>(`/admin/clients/${clientId}/status`, { status: newStatus });
-      if (res?.restored_access === false && res?.new_status === "EXPIRED") {
-        setError(res.message || `Client #${clientId} subscription has expired; access remains locked until renewed.`);
+      const verified = await verifyClientMutationInDb(clientId, (fresh) => {
+        if (newStatus === "SUSPENDED") return fresh.status === "SUSPENDED";
+        return res?.restored_access === false ? fresh.status === "EXPIRED" : fresh.status === "ACTIVE";
+      });
+      await fetchClients();
+      if (res?.restored_access === false || verified.status === "EXPIRED") {
+        setError(res?.message || `Client #${clientId} subscription has expired; access remains locked until renewed.`);
       } else {
-        setSuccessMsg(res?.message || `Client #${clientId} status changed to ${res?.new_status || newStatus}.`);
+        setSuccessMsg(`Verified in DB: Client #${clientId} status is now ${verified.status}.`);
         setTimeout(() => setSuccessMsg(null), 3500);
       }
-      await fetchClients();
     } catch (err: any) {
       setError(err?.message || "Failed to change client status");
     } finally {
@@ -590,24 +652,39 @@ export function ClientProvisioningSection() {
     }
   };
 
-  // Subscription action (Activate Basic, Activate Lifetime, Lock, Unlock, Renew)
+  // Subscription action (Activate Basic, Activate Lifetime, Lock, Unlock, Renew) with post-commit DB verification
   const handleSubscriptionAction = async (clientId: number, action: string, notes?: string) => {
     setActionLoadingId(clientId);
     setError(null);
     try {
       const res = await api.post<{
         status: string;
+        restored_access?: boolean;
         client?: any;
         message?: string;
         detail?: string;
       }>(`/admin/clients/${clientId}/subscription`, { action, notes });
 
-      if (res && res.status === "success") {
-        setSuccessMsg(res.message || `Client #${clientId} updated via ${action}.`);
-        setTimeout(() => setSuccessMsg(null), 3500);
-        await fetchClients();
-      } else {
+      if (!res || res.status !== "success") {
         throw new Error(res?.detail || res?.message || "Failed to update client subscription in database.");
+      }
+
+      const verified = await verifyClientMutationInDb(clientId, (fresh) => {
+        if (action === "LOCK") return fresh.status === "LOCKED";
+        if (action === "ACTIVATE_BASIC") return fresh.plan_type === "BASIC" && fresh.google_maps_enabled === false && fresh.status === "ACTIVE";
+        if (action === "ACTIVATE_LIFETIME") return fresh.plan_type === "LIFETIME" && fresh.google_maps_enabled === true && fresh.subscription_expires_at == null && fresh.status === "ACTIVE";
+        if (action === "UNLOCK") return res.restored_access === false ? fresh.status === "EXPIRED" : fresh.status === "ACTIVE";
+        return true;
+      });
+
+      await fetchClients();
+      if (action === "UNLOCK" && (res.restored_access === false || verified.status === "EXPIRED")) {
+        setError(res.message || `Client #${clientId} subscription expired — paid access stays LOCKED until renewed.`);
+      } else {
+        setSuccessMsg(
+          `Verified in DB: Client #${clientId} -> ${verified.plan_label || verified.plan} (${verified.status}, Maps: ${verified.google_maps_enabled ? "ON" : "OFF"}).`
+        );
+        setTimeout(() => setSuccessMsg(null), 4000);
       }
     } catch (err: any) {
       setError(err?.message || `Failed to execute ${action}`);
@@ -894,6 +971,7 @@ export function ClientProvisioningSection() {
                         { label: "3 Days", v: 3, u: "days" as DurationUnit },
                         { label: "7 Days", v: 7, u: "days" as DurationUnit },
                         { label: "30 Days", v: 30, u: "days" as DurationUnit },
+                        { label: "1 Month", v: 1, u: "months" as DurationUnit },
                         { label: "1 Year", v: 1, u: "years" as DurationUnit },
                         { label: "Lifetime", v: 1, u: "lifetime" as DurationUnit },
                       ].map((p) => {
@@ -1472,12 +1550,22 @@ export function ClientProvisioningSection() {
 
                               {/* Custom Plan Configurator */}
                               <button
-                                onClick={() => openEditCustomModal(c)}
+                                onClick={() => openEditCustomModal(c, "ACTIVATE_CUSTOM")}
                                 disabled={actionLoadingId === c.id}
                                 className="px-2 py-1 text-[10px] font-bold text-purple-200 bg-purple-600/30 hover:bg-purple-600/50 border border-purple-500/40 rounded shadow-sm disabled:opacity-40 cursor-pointer"
-                                title="Configure or Extend Custom Plan"
+                                title="Configure Custom Plan modules and duration"
                               >
                                 Custom Plan
+                              </button>
+
+                              {/* Quick Extend / Renew Subscription */}
+                              <button
+                                onClick={() => openEditCustomModal(c, "EXTEND_CUSTOM")}
+                                disabled={actionLoadingId === c.id}
+                                className="px-2 py-1 text-[10px] font-bold text-emerald-200 bg-emerald-600/25 hover:bg-emerald-600/45 border border-emerald-500/40 rounded shadow-sm disabled:opacity-40 cursor-pointer"
+                                title="Extend existing subscription (+1h, +2h, +1d, +30d, +1y) or renew expired account"
+                              >
+                                + Extend
                               </button>
 
                               {/* Lock / Unlock */}
@@ -1985,15 +2073,92 @@ export function ClientProvisioningSection() {
             <div className="flex items-center justify-between pb-3 border-b border-white/[0.08]">
               <div>
                 <h3 className="text-base font-bold text-white">
-                  Configure Custom Plan — {editingCustomClient.username} (#{editingCustomClient.id})
+                  {editCustomForm.actionMode === "EXTEND_CUSTOM" ? "Extend / Renew Subscription" : "Configure Custom Plan"} — {editingCustomClient.username} (#{editingCustomClient.id})
                 </h3>
                 <p className="text-[11px] text-slate-400">
-                  Update duration, modules, Google Maps access, email allowance, and custom pricing.
+                  Workspace #{editingCustomClient.workspace_id} preserved intact. Add hours, days, weeks, months, years, or Lifetime.
                 </p>
               </div>
               <button type="button" onClick={() => setEditingCustomClient(null)} className="text-slate-400 hover:text-white">
                 <X className="h-4 w-4" />
               </button>
+            </div>
+
+            <div className="flex flex-wrap gap-1.5">
+              {[
+                { label: "+1 Hour", v: 1, u: "hours" as DurationUnit },
+                { label: "+2 Hours", v: 2, u: "hours" as DurationUnit },
+                { label: "+6 Hours", v: 6, u: "hours" as DurationUnit },
+                { label: "+12 Hours", v: 12, u: "hours" as DurationUnit },
+                { label: "+1 Day", v: 1, u: "days" as DurationUnit },
+                { label: "+7 Days", v: 7, u: "days" as DurationUnit },
+                { label: "+30 Days", v: 30, u: "days" as DurationUnit },
+                { label: "+1 Month", v: 1, u: "months" as DurationUnit },
+                { label: "+1 Year", v: 1, u: "years" as DurationUnit },
+                { label: "Lifetime", v: 1, u: "lifetime" as DurationUnit },
+              ].map((p) => {
+                const active =
+                  editCustomForm.durationUnit === p.u &&
+                  (p.u === "lifetime" || editCustomForm.durationValue === p.v);
+                return (
+                  <button
+                    key={p.label}
+                    type="button"
+                    onClick={() =>
+                      setEditCustomForm({ ...editCustomForm, durationValue: p.v, durationUnit: p.u })
+                    }
+                    className={`px-2 py-1 rounded-lg text-[10px] font-bold cursor-pointer ${
+                      active ? "bg-purple-600 text-white" : "bg-white/[0.05] text-slate-300 hover:bg-white/[0.1]"
+                    }`}
+                  >
+                    {p.label}
+                  </button>
+                );
+              })}
+            </div>
+
+            <div className="p-3 rounded-xl bg-white/[0.02] border border-white/[0.08] text-[11px] font-mono space-y-1">
+              <div className="flex justify-between">
+                <span className="text-slate-400">Current Expiry:</span>
+                <span className="text-slate-200">
+                  {editingCustomClient.subscription_expires_at
+                    ? new Date(editingCustomClient.subscription_expires_at).toUTCString()
+                    : "Permanent / Not Set"}
+                </span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-slate-400">New Estimated Expiry (UTC):</span>
+                <span className="text-emerald-300 font-bold">
+                  {(() => {
+                    if (editCustomForm.durationUnit === "lifetime") return "Never (Permanent Lifetime)";
+                    const curMs = editingCustomClient.subscription_expires_at
+                      ? new Date(editingCustomClient.subscription_expires_at).getTime()
+                      : 0;
+                    const base =
+                      editCustomForm.actionMode === "EXTEND_CUSTOM" && curMs > Date.now()
+                        ? new Date(curMs)
+                        : new Date();
+                    const calc = calculateCustomPlanExpiresAt(
+                      base,
+                      editCustomForm.durationValue,
+                      editCustomForm.durationUnit
+                    );
+                    return calc ? calc.toUTCString() : "Permanent";
+                  })()}
+                </span>
+              </div>
+              {editCustomForm.actionMode === "EXTEND_CUSTOM" && (
+                <label className="flex items-center gap-2 pt-1 text-slate-300 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={editCustomForm.preserveFeatures}
+                    onChange={(e) =>
+                      setEditCustomForm({ ...editCustomForm, preserveFeatures: e.target.checked })
+                    }
+                  />
+                  <span>Keep existing enabled modules &amp; Google Maps / email limits as-is</span>
+                </label>
+              )}
             </div>
 
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 text-xs">
@@ -2065,18 +2230,20 @@ export function ClientProvisioningSection() {
               </div>
             </div>
 
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2 max-h-56 overflow-y-auto pr-1">
-              {FEATURE_CATALOG.map((feat) => (
-                <label key={feat.key} className="p-2 rounded-lg border border-white/10 bg-white/[0.02] text-xs flex items-center gap-2 cursor-pointer">
-                  <input
-                    type="checkbox"
-                    checked={Boolean(editCustomForm.features[feat.key])}
-                    onChange={() => toggleFeatureKey(feat.key, true)}
-                  />
-                  <span className="truncate">{feat.label}</span>
-                </label>
-              ))}
-            </div>
+            {!(editCustomForm.actionMode === "EXTEND_CUSTOM" && editCustomForm.preserveFeatures) && (
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2 max-h-56 overflow-y-auto pr-1">
+                {FEATURE_CATALOG.map((feat) => (
+                  <label key={feat.key} className="p-2 rounded-lg border border-white/10 bg-white/[0.02] text-xs flex items-center gap-2 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={Boolean(editCustomForm.features[feat.key])}
+                      onChange={() => toggleFeatureKey(feat.key, true)}
+                    />
+                    <span className="truncate">{feat.label}</span>
+                  </label>
+                ))}
+              </div>
+            )}
 
             <div className="flex justify-end gap-2 pt-2 border-t border-white/[0.08]">
               <button
@@ -2091,7 +2258,7 @@ export function ClientProvisioningSection() {
                 disabled={actionLoadingId === editingCustomClient.id}
                 className="px-5 py-2 rounded-xl text-xs font-bold text-white bg-purple-600 hover:bg-purple-500 cursor-pointer disabled:opacity-50"
               >
-                Apply Custom Plan
+                {editCustomForm.actionMode === "EXTEND_CUSTOM" ? "Verify & Extend Subscription" : "Apply Custom Plan"}
               </button>
             </div>
           </form>

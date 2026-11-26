@@ -92,12 +92,14 @@ export function createJwtToken(payload: {
   must_change_password?: boolean;
   status?: string;
   plan?: string;
+  sv?: number;
 }): string {
   const header = Buffer.from(JSON.stringify({ alg: "HS256", typ: "JWT" })).toString("base64url");
   const now = Math.floor(Date.now() / 1000);
   const body = Buffer.from(
     JSON.stringify({
       ...payload,
+      sv: payload.sv ?? 1,
       iat: now,
       exp: now + 7 * 24 * 60 * 60, // 7 days
     })
@@ -963,7 +965,8 @@ export async function verifyClientActiveSubscription(
           `SELECT id, username, email, role, account_type, workspace_id, status, plan, plan_type, plan_label,
                   custom_duration_value, custom_duration_unit, custom_price_usd, suggested_price_usd,
                   daily_email_limit, google_maps_enabled, features_json,
-                  subscription_start, subscription_expires_at, subscription_status
+                  subscription_start, subscription_expires_at, subscription_status,
+                  COALESCE(session_version, 1) AS session_version
            FROM users
            WHERE id = $1 OR (LOWER(email) = LOWER($2) AND $2 != '')
            LIMIT 1`,
@@ -973,12 +976,22 @@ export async function verifyClientActiveSubscription(
         if (!rows || rows.length === 0) {
           return {
             allowed: false,
-            statusCode: 404,
-            message: "User account not found.",
+            statusCode: 401,
+            message: "User account not found. Please sign in again.",
           };
         }
 
         const u = rows[0];
+        const dbSessionVersion = Number(u.session_version || 1);
+        const tokenSessionVersion = user.sv != null ? Number(user.sv) : 1;
+        if (user._skipSessionVersionCheck !== true && tokenSessionVersion !== dbSessionVersion) {
+          return {
+            allowed: false,
+            statusCode: 401,
+            message: "Your session has been invalidated by an administrator action or password reset. Please sign in again.",
+          };
+        }
+
         const authoritative = computeAuthoritativeUserStatus(u);
         const entitlements = resolveUserEntitlements(u);
 

@@ -47,7 +47,7 @@ function ColdEmailContent() {
   // Sender & Daily Quota state
   const [senderAccount, setSenderAccount] = useState<any | null>(null);
   const [allAccounts, setAllAccounts] = useState<any[]>([]);
-  const [selectedAccountId, setSelectedAccountId] = useState<string>("ROUND_ROBIN");
+  const [selectedAccountId, setSelectedAccountId] = useState<string>("");
   const [isGmailConnected, setIsGmailConnected] = useState(false);
   const [checkingSender, setCheckingSender] = useState(true);
   const [dailyQuota, setDailyQuota] = useState<number>(10);
@@ -55,6 +55,9 @@ function ColdEmailContent() {
   const [quotaTimezoneNote, setQuotaTimezoneNote] = useState<string>("UTC (00:00 UTC daily)");
   const [delaySeconds, setDelaySeconds] = useState<number>(2);
   const [allowDuplicateSend, setAllowDuplicateSend] = useState<boolean>(false);
+  const [includeOptOutFooter, setIncludeOptOutFooter] = useState<boolean>(true);
+  const [suppressions, setSuppressions] = useState<any[]>([]);
+  const [newSuppressEmail, setNewSuppressEmail] = useState<string>("");
 
   // Email form & templates
   const [subject, setSubject] = useState("Exploring collaboration with {{business_name}}");
@@ -114,13 +117,20 @@ function ColdEmailContent() {
       if (data?.quota_reset_timezone) setQuotaTimezoneNote(data.quota_reset_timezone);
 
       if (data && data.status_code === "CONNECTED" && (data.account || (data.accounts && data.accounts.length > 0))) {
-        setIsGmailConnected(true);
-        setSenderAccount(data.account || data.accounts[0]);
-        setAllAccounts(data.accounts || (data.account ? [data.account] : []));
+        const accts = data.accounts || (data.account ? [data.account] : []);
+        const connectedList = accts.filter((a: any) => !a.health_status || a.health_status === "CONNECTED");
+        setIsGmailConnected(connectedList.length > 0);
+        setSenderAccount(connectedList[0] || data.account || accts[0]);
+        setAllAccounts(connectedList.length > 0 ? connectedList : accts);
+        setSelectedAccountId((prev) => {
+          if (prev && connectedList.some((a: any) => String(a.id) === prev)) return prev;
+          return connectedList[0]?.id ? String(connectedList[0].id) : "";
+        });
       } else {
         setIsGmailConnected(false);
         setSenderAccount(null);
         setAllAccounts([]);
+        setSelectedAccountId("");
       }
     } catch {
       setIsGmailConnected(false);
@@ -190,12 +200,39 @@ function ColdEmailContent() {
     }
   };
 
+  const fetchSuppressions = async () => {
+    try {
+      const res = await fetch("/api/outreach/suppressions", { headers: getAuthHeaders() });
+      const data = await res.json().catch(() => ({}));
+      if (Array.isArray(data?.suppressions)) setSuppressions(data.suppressions);
+    } catch {}
+  };
+
   useEffect(() => {
     fetchSenderStatus();
     fetchLeads();
     fetchHistory();
     fetchTemplates();
+    fetchSuppressions();
   }, [historyFilter]);
+
+  const handleAddSuppression = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!newSuppressEmail.trim().includes("@")) return;
+    try {
+      const res = await fetch("/api/outreach/suppressions", {
+        method: "POST",
+        headers: getAuthHeaders(),
+        body: JSON.stringify({ email: newSuppressEmail.trim(), reason: "OPT_OUT_REQUESTED" }),
+      });
+      if (res.ok) {
+        setNewSuppressEmail("");
+        await fetchSuppressions();
+        setToastType("info");
+        setToastMsg("Recipient added to workspace opt-out / suppression list.");
+      }
+    } catch {}
+  };
 
   const handleSelectTemplate = (idStr: string) => {
     setSelectedTemplateId(idStr);
@@ -443,8 +480,11 @@ function ColdEmailContent() {
         continue;
       }
 
+      const optOutNote = includeOptOutFooter
+        ? "\n\n---\nIf you prefer not to receive further emails, reply 'Unsubscribe' and we will opt you out immediately."
+        : "";
       const personalizedSubject = renderTemplate(subject, lead);
-      const personalizedBody = renderTemplate(bodyText, lead);
+      const personalizedBody = renderTemplate(bodyText, lead) + optOutNote;
 
       try {
         const res = await fetch("/api/integrations/gmail/send", {
@@ -458,7 +498,7 @@ function ColdEmailContent() {
             subject: personalizedSubject,
             body: personalizedBody,
             allow_duplicate: allowDuplicateSend,
-            account_id: selectedAccountId !== "ROUND_ROBIN" ? Number(selectedAccountId) : undefined,
+            account_id: selectedAccountId ? Number(selectedAccountId) : undefined,
           }),
         });
 
@@ -510,7 +550,7 @@ function ColdEmailContent() {
           subject: record.subject,
           body: record.body || bodyText,
           allow_duplicate: true,
-          account_id: selectedAccountId !== "ROUND_ROBIN" ? Number(selectedAccountId) : undefined,
+          account_id: selectedAccountId ? Number(selectedAccountId) : undefined,
         }),
       });
       const data = await res.json().catch(() => ({}));
@@ -587,13 +627,16 @@ function ColdEmailContent() {
             <div className="flex items-center gap-2">
               <select
                 value={selectedAccountId}
-                onChange={(e) => setSelectedAccountId(e.target.value)}
+                onChange={(e) => {
+                  setSelectedAccountId(e.target.value);
+                  const chosen = allAccounts.find((a: any) => String(a.id) === e.target.value);
+                  if (chosen) setSenderAccount(chosen);
+                }}
                 className="rounded-xl border border-emerald-500/30 bg-[#0e1628] px-3 py-1.5 text-xs font-semibold text-emerald-400 focus:outline-none"
               >
-                <option value="ROUND_ROBIN">All Connected Accounts ({allAccounts.length} Mailboxes • Round-Robin)</option>
                 {allAccounts.map((acc: any) => (
                   <option key={acc.id} value={acc.id}>
-                    {acc.sender_email} ({acc.sent_today_utc ?? acc.sent_today ?? 0}/{dailyQuota} plan UTC quota)
+                    Sender: {acc.sender_email} ({sentTodayUtc}/{dailyQuota} plan UTC cap)
                   </option>
                 ))}
               </select>
@@ -865,6 +908,15 @@ function ColdEmailContent() {
                 />
                 <span>Allow re-sending to contacts messaged within 30 days</span>
               </label>
+              <label className="flex items-center gap-2 text-[11px] text-emerald-300/90 mt-1 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={includeOptOutFooter}
+                  onChange={(e) => setIncludeOptOutFooter(e.target.checked)}
+                  className="rounded border-white/20"
+                />
+                <span>Include unsubscribe / opt-out notice in email footer</span>
+              </label>
             </div>
           </div>
 
@@ -985,6 +1037,9 @@ function ColdEmailContent() {
                     <td className="py-3 px-3 font-medium text-white">
                       <div>{record.recipient_name || record.recipient_email}</div>
                       <div className="text-[11px] text-slate-400 font-mono">{record.recipient_email}</div>
+                      {record.sender_email && (
+                        <div className="text-[10px] text-slate-500 font-mono">From: {record.sender_email}</div>
+                      )}
                     </td>
                     <td className="py-3 px-3 text-slate-300 max-w-xs truncate">
                       {record.subject}
@@ -1028,6 +1083,62 @@ function ColdEmailContent() {
                 ))}
               </tbody>
             </table>
+          </div>
+        )}
+      </div>
+
+      {/* WORKSPACE OPT-OUT / UNSUBSCRIBE SUPPRESSION LIST */}
+      <div className="rounded-2xl border border-white/[0.08] bg-[#0c1017] p-6 space-y-4">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+          <div>
+            <h3 className="text-sm font-bold text-white flex items-center gap-2">
+              <Ban className="h-4 w-4 text-amber-400" />
+              <span>Unsubscribe &amp; Opt-Out Suppression List ({suppressions.length})</span>
+            </h3>
+            <p className="text-xs text-slate-400">
+              Emails on this workspace suppression list are automatically blocked from outbound sends.
+            </p>
+          </div>
+          <form onSubmit={handleAddSuppression} className="flex items-center gap-2">
+            <input
+              type="email"
+              value={newSuppressEmail}
+              onChange={(e) => setNewSuppressEmail(e.target.value)}
+              placeholder="opt-out@company.com"
+              className="rounded-xl border border-white/10 bg-[#121824] px-3 py-1.5 text-xs text-white font-mono"
+            />
+            <button
+              type="submit"
+              className="px-3 py-1.5 rounded-xl bg-amber-600/25 hover:bg-amber-600/40 border border-amber-500/40 text-amber-200 text-xs font-bold cursor-pointer"
+            >
+              Add Opt-Out
+            </button>
+          </form>
+        </div>
+        {suppressions.length > 0 && (
+          <div className="flex flex-wrap gap-2">
+            {suppressions.map((s: any) => (
+              <span
+                key={s.id}
+                className="inline-flex items-center gap-2 px-2.5 py-1 rounded-lg bg-white/[0.03] border border-white/10 text-[11px] font-mono text-slate-300"
+              >
+                <span>{s.email}</span>
+                <button
+                  type="button"
+                  onClick={async () => {
+                    await fetch(`/api/outreach/suppressions?id=${s.id}`, {
+                      method: "DELETE",
+                      headers: getAuthHeaders(),
+                    });
+                    await fetchSuppressions();
+                  }}
+                  className="text-rose-400 hover:text-rose-300 cursor-pointer"
+                  title="Remove from suppression list"
+                >
+                  ×
+                </button>
+              </span>
+            ))}
           </div>
         )}
       </div>

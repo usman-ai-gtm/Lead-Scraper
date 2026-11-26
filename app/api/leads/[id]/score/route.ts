@@ -1,11 +1,17 @@
 import { NextResponse } from "next/server";
 import { proxyToBackend } from "@/lib/backend-proxy";
+import { getCurrentUserFromRequest, verifyClientActiveSubscription } from "@/lib/serverless-auth";
 
 interface RouteParams {
   params: { id: string };
 }
 
 export async function POST(req: Request, { params }: RouteParams) {
+  const user = getCurrentUserFromRequest(req);
+  const subCheck = await verifyClientActiveSubscription(user, "saved_leads");
+  if (!subCheck.allowed) {
+    return NextResponse.json({ detail: subCheck.message }, { status: subCheck.statusCode || 403 });
+  }
   const id = params.id;
   
   // Real deterministic 5-factor fallback matching Feature #18

@@ -38,16 +38,31 @@ export async function GET(request: Request) {
               SELECT id, username, email, full_name, role, account_type, workspace_id, status, plan,
                      plan_type, plan_label, custom_duration_value, custom_duration_unit,
                      custom_price_usd, suggested_price_usd, daily_email_limit, google_maps_enabled,
-                     features_json, subscription_start, subscription_expires_at, subscription_status
+                     features_json, subscription_start, subscription_expires_at, subscription_status,
+                     must_change_password, COALESCE(session_version, 1) AS session_version
               FROM users
               WHERE id = ${userId}
               LIMIT 1
             `;
-            if (users && users.length > 0) {
+            if (!users || users.length === 0) {
+              return NextResponse.json(
+                { detail: "User account not found. Please sign in again." },
+                { status: 401, headers: { "Cache-Control": "no-store, no-cache, must-revalidate, proxy-revalidate" } }
+              );
+            }
+            {
               const u = users[0];
-              const authoritative = computeAuthoritativeUserStatus(u);
               const ent = resolveUserEntitlements(u);
               const isOwner = ent.isOwner;
+              const tokenSv = payload.sv != null ? Number(payload.sv) : 1;
+              const dbSv = Number(u.session_version || 1);
+              if (!isOwner && tokenSv !== dbSv) {
+                return NextResponse.json(
+                  { detail: "Session invalidated. Please sign in again." },
+                  { status: 401, headers: { "Cache-Control": "no-store, no-cache, must-revalidate, proxy-revalidate" } }
+                );
+              }
+              const authoritative = computeAuthoritativeUserStatus(u);
 
               const effectiveRole = isOwner ? "SUPER_ADMIN" : (u.role || "CLIENT");
               const effectiveAccountType = isOwner ? "MASTER_OWNER" : (u.account_type || "CLIENT");
@@ -76,6 +91,8 @@ export async function GET(request: Request) {
                 is_locked: isOwner ? false : authoritative.isLocked,
                 isLocked: isOwner ? false : authoritative.isLocked,
                 is_expired: isOwner ? false : authoritative.isExpired,
+                must_change_password: isOwner ? false : Boolean(u.must_change_password),
+                session_version: dbSv,
                 subscription_start: u.subscription_start,
                 subscription_expires_at: ent.subscriptionExpiresAt,
                 remaining_days: isOwner ? "Permanent (Master Owner)" : authoritative.daysRemaining,

@@ -1,13 +1,15 @@
 import { NextResponse } from "next/server";
-import { getCurrentUserFromRequest } from "@/lib/serverless-auth";
+import { getCurrentUserFromRequest, isAuthorizedOwner } from "@/lib/serverless-auth";
 import { USMAN_DEFAULT_29_PROVIDERS } from "@/lib/default-providers";
 
 export const dynamic = "force-dynamic";
 
 export async function GET(req: Request) {
   const user = getCurrentUserFromRequest(req);
-  // Strict multi-tenant security: Clients must never access or view global provider configurations
-  if (user && user.role !== "ADMIN") {
+  if (!user) {
+    return NextResponse.json({ detail: "Authentication required" }, { status: 401 });
+  }
+  if (!isAuthorizedOwner(user)) {
     return NextResponse.json(
       { detail: "Forbidden: Administrator role required to view API engine configurations." },
       { status: 403 }
@@ -46,7 +48,7 @@ export async function GET(req: Request) {
 
 export async function POST(req: Request) {
   const user = getCurrentUserFromRequest(req);
-  if (user && user.role !== "ADMIN") {
+  if (!user || !isAuthorizedOwner(user)) {
     return NextResponse.json(
       { detail: "Forbidden: Administrator role required to modify API engine configurations." },
       { status: 403 }

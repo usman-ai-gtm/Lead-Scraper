@@ -127,6 +127,7 @@ export async function POST(request: Request) {
     );
   }
 
+  // Resolve explicit selected sender mailbox or primary connected mailbox (never rotate to evade workspace plan limits)
   if (account_id) {
     activeAccount = allAccounts.find((a: any) => a.accountId === Number(account_id));
     if (!activeAccount) {
@@ -136,13 +137,7 @@ export async function POST(request: Request) {
       );
     }
   } else {
-    activeAccount = allAccounts
-      .slice()
-      .sort(
-        (a: any, b: any) =>
-          (sentByEmail.get(a.senderEmail.toLowerCase()) || 0) -
-          (sentByEmail.get(b.senderEmail.toLowerCase()) || 0)
-      )[0];
+    activeAccount = allAccounts[0];
   }
 
   // Per-mailbox Google safety cap (500/day max for standard Gmail OAuth)

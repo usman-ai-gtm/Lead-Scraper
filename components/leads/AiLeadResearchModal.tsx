@@ -142,7 +142,7 @@ export function AiLeadResearchModal({ isOpen, onClose, lead, onPushToOutreach }:
               <div className="flex items-center gap-2">
                 <h3 className="text-sm font-bold text-white">AI Lead Research Agent</h3>
                 <span className="text-[10px] font-mono font-bold text-amber-300 bg-amber-500/15 border border-amber-500/30 px-2 py-0.5 rounded">
-                  Lifetime Exclusive
+                  Pro Research
                 </span>
               </div>
               <p className="text-[11px] text-slate-400">
@@ -178,7 +178,7 @@ export function AiLeadResearchModal({ isOpen, onClose, lead, onPushToOutreach }:
                 <Lock className="h-7 w-7" />
               </div>
               <div>
-                <h4 className="text-base font-bold text-white">Lifetime Plan Feature</h4>
+                <h4 className="text-base font-bold text-white">Upgrade Required for AI Lead Research</h4>
                 <p className="text-xs text-slate-400 mt-1 leading-relaxed">
                   {upgradeMessage}
                 </p>

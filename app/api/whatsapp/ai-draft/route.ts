@@ -1,6 +1,13 @@
+import { NextResponse } from "next/server";
 import { proxyToBackend } from "@/lib/backend-proxy";
+import { getCurrentUserFromRequest, verifyClientActiveSubscription } from "@/lib/serverless-auth";
 
 export async function POST(req: Request) {
+  const user = getCurrentUserFromRequest(req);
+  const subCheck = await verifyClientActiveSubscription(user, "saved_leads");
+  if (!subCheck.allowed) {
+    return NextResponse.json({ error: subCheck.message }, { status: subCheck.statusCode || 403 });
+  }
   const fallback = async () => {
     try {
       const body = await req.clone().json();

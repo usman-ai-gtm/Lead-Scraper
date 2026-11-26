@@ -466,7 +466,7 @@ function GoogleMapsLeadComponent() {
 
             <button
               onClick={handleStartExtraction}
-              disabled={isRunning || starting}
+              disabled={isRunning || starting || isLocked || !hasMapsAccess}
               className="px-6 py-2.5 rounded-xl bg-gradient-to-r from-amber-400 via-yellow-400 to-amber-500 hover:from-amber-300 hover:to-yellow-300 text-black font-bold text-xs shadow-glow-sm transition-all flex items-center justify-center gap-2 cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
             >
               {isRunning || starting ? (

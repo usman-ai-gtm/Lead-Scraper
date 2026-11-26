@@ -1482,10 +1482,13 @@ export async function getNeonClients() {
         u.subscription_notes,
         u.created_at,
         u.last_login,
+        u.last_activity_at,
+        COALESCE(u.must_change_password, FALSE) as must_change_password,
+        COALESCE(u.session_version, 1) as session_version,
         COALESCE(w.name, u.full_name || '''s Workspace') as workspace_name,
         COALESCE((SELECT COUNT(*) FROM leads l WHERE l.workspace_id = u.workspace_id), 0) as total_leads,
         COALESCE((SELECT COUNT(*) FROM search_records sr WHERE sr.workspace_id = u.workspace_id), 0) as total_searches,
-        COALESCE((SELECT COUNT(*) FROM email_accounts ea WHERE ea.workspace_id = u.workspace_id AND ea.is_active = 1), 0) as connected_accounts
+        COALESCE((SELECT COUNT(*) FROM email_accounts ea WHERE ea.workspace_id = u.workspace_id AND ea.is_active = 1 AND COALESCE(ea.health_status, 'CONNECTED') = 'CONNECTED'), 0) as connected_accounts
       FROM users u
       LEFT JOIN workspaces w ON u.workspace_id = w.id
       WHERE u.role != 'ADMIN' AND u.role != 'SUPER_ADMIN' AND (u.account_type IS NULL OR u.account_type != 'MASTER_OWNER') AND (u.username IS NULL OR LOWER(u.username) != 'master_owner_usman')
@@ -1847,6 +1850,7 @@ export async function updateNeonClientStatus(
            active = 0,
            is_active = 0,
            subscription_status = $2::varchar,
+           session_version = COALESCE(session_version, 1) + 1,
            updated_at = $3::text
        WHERE id = $4::int4`,
       [validStatus, validStatus, nowIso, clientId]
@@ -1897,7 +1901,10 @@ export async function resetNeonClientPassword(clientId: number, passwordHash: st
   try {
     const res = await sql.query(
       `UPDATE users
-       SET password_hash = $1, must_change_password = TRUE, updated_at = $2
+       SET password_hash = $1,
+           must_change_password = TRUE,
+           session_version = COALESCE(session_version, 1) + 1,
+           updated_at = $2
        WHERE id = $3
          AND role NOT IN ('ADMIN', 'SUPER_ADMIN')
          AND (account_type IS NULL OR account_type != 'MASTER_OWNER')
@@ -2186,6 +2193,46 @@ export async function getNeonClientFullProfile(clientId: number) {
       String(l.action || "").includes("CREATE_PAID_CLIENT")
     );
 
+    const lockHistory = (auditLogs || []).filter((l: any) => {
+      const a = String(l.action || "").toUpperCase();
+      return (
+        a.includes("LOCK") ||
+        a.includes("SUSPEND") ||
+        a.includes("REVOKE") ||
+        a.includes("DEACTIVATE") ||
+        a === "STATUS_ACTIVE" ||
+        a === "SUBSCRIPTION_ACTIVATE"
+      );
+    });
+
+    const suppressionsRes = wsId
+      ? await sql
+          .query(`SELECT COUNT(*)::int AS cnt FROM email_suppressions WHERE workspace_id = $1`, [wsId])
+          .catch(() => [])
+      : [];
+    const suppressionsCount = Number(suppressionsRes?.[0]?.cnt || 0);
+
+    const countriesSet = new Set<string>();
+    const citiesSet = new Set<string>();
+    const keywordsSet = new Set<string>();
+    const datesSet = new Set<string>();
+    for (const s of searchRecords || []) {
+      if (s.keyword) keywordsSet.add(String(s.keyword));
+      if (s.search_date) datesSet.add(String(s.search_date));
+      if (s.country) {
+        for (const c of String(s.country).split(",")) {
+          const clean = c.trim();
+          if (clean && !/^\d+\s+Countries$/i.test(clean)) countriesSet.add(clean);
+        }
+      }
+      if (s.city) {
+        for (const ct of String(s.city).split(",")) {
+          const clean = ct.trim();
+          if (clean) citiesSet.add(clean);
+        }
+      }
+    }
+
     const leadAgg = leadAggRows?.[0] || {};
     const outreachAgg = outreachAggRows?.[0] || {};
     const sentTodayUtc = parseInt(outreachAgg.sent_today_utc || "0", 10);
@@ -2238,6 +2285,7 @@ export async function getNeonClientFullProfile(clientId: number) {
         features: ent.features,
         subscription_notes: u.subscription_notes || null,
         subscription_history: subAuditLogs,
+        lock_history: lockHistory,
       },
       lead_generation: {
         total_searches: (searchRecords || []).length,
@@ -2247,6 +2295,10 @@ export async function getNeonClientFullProfile(clientId: number) {
           (sum: number, r: any) => sum + (Number(r.qualified_quantity) || 0),
           0
         ),
+        search_keywords: Array.from(keywordsSet),
+        search_dates: Array.from(datesSet),
+        countries_searched: Array.from(countriesSet),
+        cities_searched: Array.from(citiesSet),
         searches: searchRecords || [],
         maps_jobs: activeJobs || [],
       },
@@ -2272,6 +2324,7 @@ export async function getNeonClientFullProfile(clientId: number) {
         emails_sent_today_utc: sentTodayUtc,
         daily_email_limit: ent.dailyEmailLimit,
         remaining_today_utc: Math.max(0, ent.dailyEmailLimit - sentTodayUtc),
+        suppressions_count: suppressionsCount,
         last_send_attempt_at: outreachAgg.last_send_attempt_at || null,
         recent_records: recentOutreach || [],
       },
@@ -2327,9 +2380,9 @@ export async function getNeonClientDashboardMetrics(workspaceId: number) {
     );
     const leadsWithBothContacts = parseInt(bothRes[0]?.cnt || "0", 10);
 
-    // 4. Connected active Gmail accounts
+    // 4. Connected active Gmail accounts (healthy connected accounts only)
     const accRes = await sql.query(
-      "SELECT COUNT(*) as cnt FROM email_accounts WHERE workspace_id = $1 AND is_active = 1",
+      "SELECT COUNT(*) as cnt FROM email_accounts WHERE workspace_id = $1 AND is_active = 1 AND COALESCE(health_status, 'CONNECTED') = 'CONNECTED'",
       [workspaceId]
     );
     const connectedEmailAccounts = parseInt(accRes[0]?.cnt || "0", 10);
@@ -3016,6 +3069,60 @@ export async function updateNeonCampaignProgress(
     return true;
   } catch (e) {
     console.error("updateNeonCampaignProgress error:", e);
+    return false;
+  }
+}
+
+export async function getNeonEmailSuppressions(workspaceId: number): Promise<any[]> {
+  const sql = getNeonSql();
+  if (!sql) return [];
+  try {
+    return await sql.query(
+      `SELECT id, workspace_id, email, reason, created_at
+       FROM email_suppressions
+       WHERE workspace_id = $1
+       ORDER BY id DESC LIMIT 200`,
+      [workspaceId]
+    );
+  } catch {
+    return [];
+  }
+}
+
+export async function addNeonEmailSuppression(workspaceId: number, email: string, reason?: string) {
+  const sql = getNeonSql();
+  if (!sql) return null;
+  const cleanEmail = email.trim().toLowerCase();
+  if (!cleanEmail || !cleanEmail.includes("@")) return null;
+  try {
+    const existing = await sql.query(
+      `SELECT id, workspace_id, email, reason, created_at FROM email_suppressions WHERE workspace_id = $1 AND LOWER(email) = LOWER($2) LIMIT 1`,
+      [workspaceId, cleanEmail]
+    );
+    if (existing?.[0]) return existing[0];
+    const rows = await sql.query(
+      `INSERT INTO email_suppressions (workspace_id, email, reason, created_at)
+       VALUES ($1, $2, $3, NOW())
+       RETURNING id, workspace_id, email, reason, created_at`,
+      [workspaceId, cleanEmail, (reason || "UNSUBSCRIBED").slice(0, 120)]
+    );
+    return rows?.[0] || null;
+  } catch (e) {
+    console.error("addNeonEmailSuppression error:", e);
+    return null;
+  }
+}
+
+export async function removeNeonEmailSuppression(workspaceId: number, id: number): Promise<boolean> {
+  const sql = getNeonSql();
+  if (!sql) return false;
+  try {
+    const rows = await sql.query(
+      `DELETE FROM email_suppressions WHERE workspace_id = $1 AND id = $2 RETURNING id`,
+      [workspaceId, id]
+    );
+    return Boolean(rows && rows.length > 0);
+  } catch {
     return false;
   }
 }

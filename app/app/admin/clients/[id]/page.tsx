@@ -341,11 +341,35 @@ export default function OwnerClientDetailsPage() {
                       No historical subscription audit events logged for this account yet.
                     </p>
                   ) : (
-                    <div className="space-y-2 max-h-60 overflow-y-auto pr-1">
+                    <div className="space-y-2 max-h-52 overflow-y-auto pr-1">
                       {acc.subscription_history.map((h: any) => (
                         <div key={h.id} className="p-2.5 rounded-xl bg-white/[0.02] border border-white/[0.06] text-[11px]">
                           <div className="flex justify-between font-mono">
                             <span className="font-bold text-purple-300">{h.action}</span>
+                            <span className="text-slate-400">{fmtDate(h.timestamp)}</span>
+                          </div>
+                          <div className="text-slate-400 mt-1">Actor: {h.actor}</div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+
+                <div className="p-5 rounded-2xl bg-[#0c1017] border border-white/[0.08] space-y-3 text-xs">
+                  <h2 className="text-sm font-bold text-white flex items-center gap-2">
+                    <Lock className="h-4 w-4 text-amber-400" />
+                    <span>Lock, Suspend &amp; Unlock History ({acc.lock_history?.length || 0})</span>
+                  </h2>
+                  {(!acc.lock_history || acc.lock_history.length === 0) ? (
+                    <p className="text-[11px] text-slate-500">
+                      No lock, suspension, or reactivation events logged for this account.
+                    </p>
+                  ) : (
+                    <div className="space-y-2 max-h-44 overflow-y-auto pr-1">
+                      {acc.lock_history.map((h: any) => (
+                        <div key={h.id} className="p-2.5 rounded-xl bg-white/[0.02] border border-white/[0.06] text-[11px]">
+                          <div className="flex justify-between font-mono">
+                            <span className="font-bold text-amber-300">{h.action}</span>
                             <span className="text-slate-400">{fmtDate(h.timestamp)}</span>
                           </div>
                           <div className="text-slate-400 mt-1">Actor: {h.actor}</div>
@@ -361,6 +385,73 @@ export default function OwnerClientDetailsPage() {
           {/* TAB 2: LEAD GENERATION SEARCHES */}
           {activeTab === "searches" && (
             <div className="space-y-5">
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-3 text-xs">
+                <div className="p-3.5 rounded-xl bg-[#0c1017] border border-white/[0.08] space-y-1.5">
+                  <div className="text-[10px] uppercase font-bold text-slate-400">
+                    Keywords Searched ({lg?.search_keywords?.length || 0})
+                  </div>
+                  <div className="flex flex-wrap gap-1">
+                    {(lg?.search_keywords || []).length === 0 ? (
+                      <span className="text-slate-500 text-[11px]">None</span>
+                    ) : (
+                      lg.search_keywords.map((k: string) => (
+                        <span key={k} className="px-2 py-0.5 rounded bg-blue-500/15 text-blue-200 border border-blue-500/25 font-mono text-[10px]">
+                          {k}
+                        </span>
+                      ))
+                    )}
+                  </div>
+                </div>
+                <div className="p-3.5 rounded-xl bg-[#0c1017] border border-white/[0.08] space-y-1.5">
+                  <div className="text-[10px] uppercase font-bold text-slate-400">
+                    Countries Searched ({lg?.countries_searched?.length || 0})
+                  </div>
+                  <div className="flex flex-wrap gap-1">
+                    {(lg?.countries_searched || []).length === 0 ? (
+                      <span className="text-slate-500 text-[11px]">None</span>
+                    ) : (
+                      lg.countries_searched.map((c: string) => (
+                        <span key={c} className="px-2 py-0.5 rounded bg-emerald-500/15 text-emerald-200 border border-emerald-500/25 font-mono text-[10px]">
+                          {c}
+                        </span>
+                      ))
+                    )}
+                  </div>
+                </div>
+                <div className="p-3.5 rounded-xl bg-[#0c1017] border border-white/[0.08] space-y-1.5">
+                  <div className="text-[10px] uppercase font-bold text-slate-400">
+                    Cities Searched ({lg?.cities_searched?.length || 0})
+                  </div>
+                  <div className="flex flex-wrap gap-1">
+                    {(lg?.cities_searched || []).length === 0 ? (
+                      <span className="text-slate-500 text-[11px]">Whole-Country / None</span>
+                    ) : (
+                      lg.cities_searched.map((c: string) => (
+                        <span key={c} className="px-2 py-0.5 rounded bg-purple-500/15 text-purple-200 border border-purple-500/25 font-mono text-[10px]">
+                          {c}
+                        </span>
+                      ))
+                    )}
+                  </div>
+                </div>
+                <div className="p-3.5 rounded-xl bg-[#0c1017] border border-white/[0.08] space-y-1.5">
+                  <div className="text-[10px] uppercase font-bold text-slate-400">
+                    Search Dates ({lg?.search_dates?.length || 0})
+                  </div>
+                  <div className="flex flex-wrap gap-1">
+                    {(lg?.search_dates || []).length === 0 ? (
+                      <span className="text-slate-500 text-[11px]">None</span>
+                    ) : (
+                      lg.search_dates.map((d: string) => (
+                        <span key={d} className="px-2 py-0.5 rounded bg-white/[0.05] text-slate-200 border border-white/10 font-mono text-[10px]">
+                          {d}
+                        </span>
+                      ))
+                    )}
+                  </div>
+                </div>
+              </div>
+
               <div className="p-5 rounded-2xl bg-[#0c1017] border border-white/[0.08] space-y-3">
                 <h2 className="text-sm font-bold text-white">
                   Search Records ({lg?.searches?.length || 0} runs • {lg?.total_leads_generated ?? 0} total qualified leads generated)
@@ -535,7 +626,7 @@ export default function OwnerClientDetailsPage() {
                 <h2 className="text-sm font-bold text-white flex items-center justify-between">
                   <span>Connected Gmail Accounts (Tokens Never Exposed)</span>
                   <span className="font-mono text-slate-400">
-                    UTC Quota: {go?.emails_sent_today_utc ?? 0} / {go?.daily_email_limit ?? 0} today
+                    UTC Quota: {go?.emails_sent_today_utc ?? 0} / {go?.daily_email_limit ?? 0} today • Opt-Out Suppressions: {go?.suppressions_count ?? 0}
                   </span>
                 </h2>
                 {(!go?.accounts || go.accounts.length === 0) ? (

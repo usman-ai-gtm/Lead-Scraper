@@ -1,6 +1,13 @@
+import { NextResponse } from "next/server";
 import { proxyToBackend } from "@/lib/backend-proxy";
+import { getCurrentUserFromRequest, verifyClientActiveSubscription } from "@/lib/serverless-auth";
 
 export async function GET(req: Request) {
+  const user = getCurrentUserFromRequest(req);
+  const subCheck = await verifyClientActiveSubscription(user);
+  if (!subCheck.allowed) {
+    return NextResponse.json({ detail: subCheck.message }, { status: subCheck.statusCode || 403 });
+  }
   // Honest zero state: never display fabricated analytics or revenue
   const fallback = {
     total_leads: 0,

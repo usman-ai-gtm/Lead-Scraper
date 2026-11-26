@@ -56,9 +56,14 @@ class ApiClient {
       const res = await fetch(url, config);
 
       if (res.status === 401 && typeof window !== "undefined") {
-        const localUser = localStorage.getItem("usman_gtm_user");
-        if (!localUser && window.location.pathname.startsWith("/app")) {
-          localStorage.removeItem("usman_gtm_token");
+        localStorage.removeItem("usman_gtm_token");
+        localStorage.removeItem("usman_gtm_user");
+        localStorage.removeItem("usman_gtm_workspace_id");
+        localStorage.removeItem("usman_gtm_workspaces");
+        if (
+          window.location.pathname.startsWith("/app") &&
+          !window.location.pathname.startsWith("/app/admin")
+        ) {
           window.location.href = "/login?session_expired=true";
         }
       }
@@ -71,7 +76,9 @@ class ApiClient {
           errData.error ||
           (typeof errData === "string" ? errData : null) ||
           `Request failed with status ${res.status}`;
-        throw new Error(errorMsg);
+        const err: any = new Error(errorMsg);
+        err.status = res.status;
+        throw err;
       }
 
       return await res.json();

@@ -1,10 +1,16 @@
 import { NextResponse } from "next/server";
 import { proxyToBackend } from "@/lib/backend-proxy";
+import { getCurrentUserFromRequest, verifyClientActiveSubscription } from "@/lib/serverless-auth";
 
 export async function POST(
   req: Request,
   { params }: { params: { id: string } }
 ) {
+  const user = getCurrentUserFromRequest(req);
+  const subCheck = await verifyClientActiveSubscription(user, "ai_research");
+  if (!subCheck.allowed) {
+    return NextResponse.json({ detail: subCheck.message }, { status: subCheck.statusCode || 403 });
+  }
   const fid = parseInt(params.id, 10);
   
   // High-fidelity fallback if backend is offline or on standalone Vercel

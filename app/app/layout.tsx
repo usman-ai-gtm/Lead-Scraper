@@ -44,7 +44,7 @@ function MapsHeaderIndicator() {
 export default function AppLayout({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
   const router = useRouter();
-  const { user, loading, activeWorkspace, workspaces, switchWorkspace, logout, isLocked } = useAuth();
+  const { user, loading, activeWorkspace, workspaces, switchWorkspace, logout, isLocked, refreshUser } = useAuth();
 
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
   const [commandPaletteOpen, setCommandPaletteOpen] = useState(false);
@@ -78,6 +78,13 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
       }
     }
   }, [user, loading, router]);
+
+  // Re-validate authoritative DB subscription & session version immediately on navigation
+  useEffect(() => {
+    if (user?.id) {
+      void refreshUser();
+    }
+  }, [pathname]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Command palette keyboard shortcut (Ctrl+K or Cmd+K)
   useEffect(() => {
@@ -205,18 +212,12 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
                   {item.href === "/app/google-maps" && !isLockedFeature && (
                     <span
                       className={`text-[9px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded border ${
-                        isAdmin ||
-                        user?.google_maps_enabled ||
-                        user?.features?.google_maps ||
-                        String(user?.plan || "").toUpperCase() === "LIFETIME"
+                        isAdmin || (Boolean(user?.google_maps_enabled) && user?.features?.google_maps !== false)
                           ? "bg-amber-500/15 text-amber-300 border-amber-500/30"
                           : "bg-slate-800 text-slate-400 border-white/10"
                       }`}
                     >
-                      {isAdmin ||
-                      user?.google_maps_enabled ||
-                      user?.features?.google_maps ||
-                      String(user?.plan || "").toUpperCase() === "LIFETIME"
+                      {isAdmin || (Boolean(user?.google_maps_enabled) && user?.features?.google_maps !== false)
                         ? "Maps"
                         : "Upgrade"}
                     </span>

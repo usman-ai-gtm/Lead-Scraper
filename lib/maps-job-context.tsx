@@ -177,6 +177,9 @@ export function MapsJobProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     if (canUseMaps) {
       void refreshJob();
+    } else {
+      cancelSignalRef.current = true;
+      setJob(null);
     }
   }, [canUseMaps, user?.id, refreshJob]);
 

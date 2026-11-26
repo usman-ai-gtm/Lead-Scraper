@@ -38,6 +38,18 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [activeWorkspace, setActiveWorkspace] = useState<Workspace | null>(null);
   const [loading, setLoading] = useState(true);
 
+  const clearLocalSession = () => {
+    if (typeof window !== "undefined") {
+      localStorage.removeItem("usman_gtm_token");
+      localStorage.removeItem("usman_gtm_workspace_id");
+      localStorage.removeItem("usman_gtm_user");
+      localStorage.removeItem("usman_gtm_workspaces");
+    }
+    setUser(null);
+    setWorkspaces([]);
+    setActiveWorkspace(null);
+  };
+
   const refreshUser = async (): Promise<User | null> => {
     try {
       const profile = await api.get<User>("/auth/me");
@@ -51,8 +63,10 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         }
         return profile;
       }
-    } catch {
-      // transient failure or unauthenticated
+    } catch (err: any) {
+      if (err?.status === 401) {
+        clearLocalSession();
+      }
     }
     return null;
   };
@@ -133,13 +147,30 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       "selftest_founder_2026@usmanai.com",
     ].includes(emailLower);
 
+  const planUpper = String(user?.plan_type || user?.plan || "").toUpperCase();
+  const isPermanentLifetime =
+    planUpper === "LIFETIME" ||
+    planUpper === "OWNER_LIFETIME" ||
+    (planUpper === "CUSTOM" && String(user?.custom_duration_unit || "").toLowerCase() === "lifetime");
+  const isExpiredByClock = Boolean(
+    user &&
+      !isOwner &&
+      !isPermanentLifetime &&
+      user.subscription_expires_at &&
+      !Number.isNaN(Date.parse(user.subscription_expires_at)) &&
+      Date.parse(user.subscription_expires_at) <= Date.now()
+  );
+
   const isLocked = Boolean(
     user &&
-    !isOwner &&
-    user.role !== "ADMIN" &&
-    user.role !== "SUPER_ADMIN" &&
-    (user as any)?.account_type !== "MASTER_OWNER" &&
-    (user.status !== "ACTIVE" || user.is_active === false || user.isLocked === true)
+      !isOwner &&
+      user.role !== "ADMIN" &&
+      user.role !== "SUPER_ADMIN" &&
+      (user as any)?.account_type !== "MASTER_OWNER" &&
+      (user.status !== "ACTIVE" ||
+        user.is_active === false ||
+        user.isLocked === true ||
+        isExpiredByClock)
   );
 
   const login = async (email: string, pass: string) => {

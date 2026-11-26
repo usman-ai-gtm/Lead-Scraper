@@ -45,12 +45,13 @@ export async function POST(req: Request, { params }: RouteParams) {
         `UPDATE users
          SET password_hash = $1,
              must_change_password = TRUE,
+             session_version = COALESCE(session_version, 1) + 1,
              updated_at = $2
          WHERE id = $3
            AND role NOT IN ('ADMIN', 'SUPER_ADMIN')
            AND (account_type IS NULL OR account_type != 'MASTER_OWNER')
            AND (username IS NULL OR LOWER(username) != 'master_owner_usman')
-         RETURNING id, username, email, workspace_id`,
+         RETURNING id, username, email, workspace_id, session_version`,
         [passwordHash, new Date().toISOString(), clientId]
       );
       if (res && res.length > 0) {
@@ -62,14 +63,16 @@ export async function POST(req: Request, { params }: RouteParams) {
           clientEmail: target.email || target.username,
           workspaceId: target.workspace_id || 1,
           action: "ADMIN_RESET_PASSWORD",
-          details: { reset_by_owner: true, must_change_password: true },
+          details: { reset_by_owner: true, must_change_password: true, session_version: target.session_version },
         });
         return NextResponse.json({
           status: "success",
+          verified: true,
           client_id: clientId,
           temporary_password: tempPassword,
           must_change_password: true,
-          message: "Temporary password regenerated successfully. Share securely with client.",
+          session_version: target.session_version,
+          message: "Temporary password regenerated and existing sessions invalidated. Share securely with client.",
         });
       }
     }
