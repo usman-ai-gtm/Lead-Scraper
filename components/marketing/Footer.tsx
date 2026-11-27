@@ -77,7 +77,7 @@ export const Footer: React.FC = () => {
         </div>
 
         <div className="border-t border-white/[0.06] pt-8 flex flex-col sm:flex-row items-center justify-between text-xs text-slate-400 gap-4">
-          <p>© {new Date().getFullYear()} USMAN AI GTM Platform. All rights reserved.</p>
+          <p>© 2026–2027 USMAN AI GTM. All rights reserved.</p>
           <div className="flex flex-wrap items-center gap-6">
             <span>Next.js + Neon PostgreSQL</span>
             <span>Gmail OAuth 2.0</span>

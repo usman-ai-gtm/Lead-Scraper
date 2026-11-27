@@ -3,59 +3,86 @@
 import React, { useState, useEffect } from "react";
 import Link from "next/link";
 import { api } from "@/lib/api";
-import { useAuth } from "@/lib/auth-context";
 import {
-  Briefcase, Sparkles, Building2, Globe, MapPin, Target,
+  SUPPORTED_VOICE_LANGUAGES,
+  OUTREACH_LANGUAGES,
+} from "@/lib/business-profile-ai";
+import { VoiceCaptureButton, VoiceCaptureResult } from "@/components/voice/VoiceCaptureButton";
+import {
+  Briefcase, Sparkles, Building2, Globe, Target,
   CheckCircle2, AlertTriangle, RefreshCw, Save, ArrowRight,
-  ShieldCheck, HelpCircle
+  ShieldCheck, ChevronDown, ChevronUp, Languages, MessageSquare
 } from "lucide-react";
 
 export default function BusinessProfilePage() {
-  const { user } = useAuth();
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
-  const [optimizing, setOptimizing] = useState(false);
-  const [toastMsg, setToastMsg] = useState<{ text: string; type: "success" | "error" } | null>(null);
+  const [understanding, setUnderstanding] = useState(false);
+  const [showAdvanced, setShowAdvanced] = useState(false);
+
+  const [voiceLangCode, setVoiceLangCode] = useState("auto");
+  const [naturalText, setNaturalText] = useState("");
+  const [detectedMeta, setDetectedMeta] = useState<{ language?: string; isRtl?: boolean } | null>(null);
+  const [toastMsg, setToastMsg] = useState<{ text: string; type: "success" | "error" | "info" } | null>(null);
 
   const [form, setForm] = useState({
     business_name: "",
+    ai_summary: "", // Plain: What does your business do?
+    products_services: "", // What products or services do you offer?
+    target_customer_type: "", // Who are your ideal customers?
+    preferred_locations: "", // Which countries do you want to target?
+    differentiator: "", // What makes your business different?
+    outreach_goal: "", // What do you want to achieve?
+    preferred_outreach_language: "English",
+    preferred_tone: "Professional",
+    raw_description: "",
+    source_language: "",
+    is_rtl: false,
+    // Optional advanced classification (auto-filled by AI, editable if desired)
     website: "",
-    country: "Pakistan",
+    country: "",
     city: "",
     industry: "",
-    products_services: "",
-    target_customer_type: "",
     ideal_industries: "",
-    target_business_size: "SMBs (10-100 employees)",
-    preferred_locations: "",
+    target_business_size: "SMBs & Growing Companies",
     keywords: "",
     exclusions: "",
     additional_instructions: "",
-    ai_summary: "",
   });
 
-  // Load existing saved profile
   useEffect(() => {
     async function fetchProfile() {
       try {
         const res = await api.get<any>("/workspace/profile").catch(() => null);
         if (res && res.profile) {
+          const p = res.profile;
           setForm({
-            business_name: res.profile.business_name || "",
-            website: res.profile.website || "",
-            country: res.profile.country || "Pakistan",
-            city: res.profile.city || "",
-            industry: res.profile.industry || "",
-            products_services: res.profile.products_services || "",
-            target_customer_type: res.profile.target_customer_type || "",
-            ideal_industries: res.profile.ideal_industries || "",
-            target_business_size: res.profile.target_business_size || "SMBs (10-100 employees)",
-            preferred_locations: res.profile.preferred_locations || "",
-            keywords: res.profile.keywords || "",
-            exclusions: res.profile.exclusions || "",
-            additional_instructions: res.profile.additional_instructions || "",
-            ai_summary: res.profile.ai_summary || "",
+            business_name: p.business_name || "",
+            ai_summary: p.ai_summary || p.products_services || "",
+            products_services: p.products_services || "",
+            target_customer_type: p.target_customer_type || "",
+            preferred_locations: p.preferred_locations || p.country || "",
+            differentiator: p.differentiator || p.additional_instructions || "",
+            outreach_goal: p.outreach_goal || "",
+            preferred_outreach_language: p.preferred_outreach_language || "English",
+            preferred_tone: p.preferred_tone || "Professional",
+            raw_description: p.raw_description || "",
+            source_language: p.source_language || "",
+            is_rtl: Boolean(p.is_rtl),
+            website: p.website || "",
+            country: p.country || "",
+            city: p.city || "",
+            industry: p.industry || "",
+            ideal_industries: p.ideal_industries || "",
+            target_business_size: p.target_business_size || "SMBs & Growing Companies",
+            keywords: p.keywords || "",
+            exclusions: p.exclusions || "",
+            additional_instructions: p.additional_instructions || "",
           });
+          if (p.raw_description) setNaturalText(p.raw_description);
+          if (p.source_language || p.is_rtl) {
+            setDetectedMeta({ language: p.source_language, isRtl: Boolean(p.is_rtl) });
+          }
         }
       } catch (e) {
         console.error("Failed to load profile:", e);
@@ -66,8 +93,82 @@ export default function BusinessProfilePage() {
     fetchProfile();
   }, []);
 
-  const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) => {
-    setForm({ ...form, [e.target.name]: e.target.value });
+  const selectedVoiceLang =
+    SUPPORTED_VOICE_LANGUAGES.find((l) => l.code === voiceLangCode) || SUPPORTED_VOICE_LANGUAGES[0];
+
+  const handleUnderstand = async (payload: { text?: string; audioBase64?: string; audioMime?: string }) => {
+    setUnderstanding(true);
+    setToastMsg(null);
+    try {
+      const res = await api.post<any>("/workspace/profile/understand", {
+        text: payload.text || naturalText,
+        audioBase64: payload.audioBase64,
+        audioMime: payload.audioMime,
+        languageHint: voiceLangCode === "auto" ? "auto" : selectedVoiceLang.label,
+      });
+
+      const ext = res?.extracted;
+      if (!ext) throw new Error("Unable to parse response.");
+
+      if (ext.transcript) {
+        setNaturalText(ext.transcript);
+      }
+
+      if (!ext.recognized) {
+        setToastMsg({
+          text: ext.warning || "Speech did not describe a business clearly. You can edit the text and try again.",
+          type: "info",
+        });
+        return;
+      }
+
+      setDetectedMeta({
+        language: ext.detected_language,
+        isRtl: Boolean(ext.is_rtl),
+      });
+
+      setForm((prev) => ({
+        ...prev,
+        business_name: ext.business_name || prev.business_name,
+        ai_summary: ext.what_does_business_do || ext.ai_summary || prev.ai_summary,
+        products_services: ext.products_services || prev.products_services,
+        target_customer_type: ext.ideal_customers || prev.target_customer_type,
+        preferred_locations: ext.target_countries || prev.preferred_locations,
+        country: (ext.target_countries || "").split(",")[0]?.trim() || prev.country,
+        differentiator: ext.differentiator || prev.differentiator,
+        outreach_goal: ext.outreach_goal || prev.outreach_goal,
+        preferred_outreach_language: ext.preferred_outreach_language || prev.preferred_outreach_language,
+        preferred_tone: ext.preferred_tone || prev.preferred_tone,
+        raw_description: ext.transcript || payload.text || naturalText,
+        source_language: ext.detected_language || "",
+        is_rtl: Boolean(ext.is_rtl),
+        industry: ext.industry || ext.business_type || prev.industry,
+        ideal_industries: ext.ideal_industries || ext.ideal_customers || prev.ideal_industries,
+        keywords: ext.keywords || prev.keywords,
+        exclusions: ext.exclusions || prev.exclusions,
+      }));
+
+      setToastMsg({
+        text: `Understood ${ext.detected_language || "your"} description! Please review the fields below and click "Save Business Profile".`,
+        type: "success",
+      });
+    } catch (err: any) {
+      setToastMsg({
+        text: err?.message || "Could not process your description. Please type directly in the fields below.",
+        type: "error",
+      });
+    } finally {
+      setUnderstanding(false);
+    }
+  };
+
+  const handleVoiceComplete = async (cap: VoiceCaptureResult) => {
+    if (cap.transcript) setNaturalText(cap.transcript);
+    await handleUnderstand({
+      text: cap.transcript,
+      audioBase64: cap.audioBase64,
+      audioMime: cap.audioMime,
+    });
   };
 
   const handleSave = async (e?: React.FormEvent) => {
@@ -75,373 +176,382 @@ export default function BusinessProfilePage() {
     setSaving(true);
     setToastMsg(null);
     try {
-      await api.post("/workspace/profile", form);
-      setToastMsg({ text: "Business profile saved permanently to your workspace database!", type: "success" });
+      const payloadToSave = {
+        ...form,
+        country: form.country || form.preferred_locations.split(",")[0]?.trim() || "United States",
+        additional_instructions: form.additional_instructions || form.differentiator || form.outreach_goal,
+      };
+      await api.post("/workspace/profile", payloadToSave);
+      setToastMsg({
+        text: "Business profile saved! Future lead searches, company matching, and personalized emails will automatically use these details.",
+        type: "success",
+      });
     } catch (err: any) {
-      setToastMsg({ text: err?.message || "Failed to save profile", type: "error" });
+      setToastMsg({ text: err?.message || "Failed to save business profile.", type: "error" });
     } finally {
       setSaving(false);
     }
   };
 
-  const handleOptimizeWithGemini = async () => {
-    if (!form.business_name.trim() && !form.industry.trim() && !form.products_services.trim()) {
-      setToastMsg({ text: "Please enter your Business Name, Industry, or Products/Services before optimizing.", type: "error" });
-      return;
-    }
-
-    setOptimizing(true);
-    setToastMsg(null);
-    try {
-      const res = await api.post<any>("/workspace/profile/optimize", form);
-      if (res && res.optimized) {
-        const opt = res.optimized;
-        setForm((prev) => ({
-          ...prev,
-          keywords: opt.recommended_keywords || prev.keywords,
-          exclusions: opt.recommended_exclusions || prev.exclusions,
-          ai_summary: opt.ai_summary || opt.value_proposition || prev.ai_summary,
-        }));
-        setToastMsg({
-          text: `Organized by Gemini AI (${res.model || "Gemini"}). Search keywords and negative exclusions updated! Click 'Save Profile' to lock in.`,
-          type: "success"
-        });
-      }
-    } catch (err: any) {
-      setToastMsg({ text: err?.message || "Gemini optimization failed", type: "error" });
-    } finally {
-      setOptimizing(false);
-    }
-  };
+  const rtlInputDir = detectedMeta?.isRtl || selectedVoiceLang.rtl ? "rtl" : "auto";
 
   if (loading) {
     return (
-      <div className="py-20 text-center text-xs text-slate-400 flex flex-col items-center justify-center">
-        <div className="h-8 w-8 animate-spin rounded-full border-2 border-blue-500 border-t-transparent mb-3" />
-        <p>Loading your workspace business profile...</p>
+      <div className="p-12 text-center text-slate-400">
+        <RefreshCw className="h-6 w-6 animate-spin mx-auto mb-2 text-blue-400" />
+        Loading your Business Profile...
       </div>
     );
   }
 
   return (
-    <div className="space-y-6 max-w-4xl mx-auto pb-16">
-      {/* Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-        <div>
-          <div className="flex items-center gap-2 mb-1">
-            <span className="text-[10px] font-bold uppercase tracking-wider text-blue-400 bg-blue-500/10 px-2.5 py-0.5 rounded border border-blue-500/20">
-              One-Time Setup Wizard
-            </span>
-            <span className="text-xs text-slate-400 font-mono">Workspace ID: #{user?.workspace_id || 1}</span>
-          </div>
-          <h1 className="text-2xl font-extrabold text-white">Business Profile & ICP Engine</h1>
-          <p className="text-xs text-slate-400">
-            Define your company, target audience, and keyword exclusions. Gemini AI uses this profile to improve lead discovery and draft personalized outreach.
-          </p>
-        </div>
-
-        <div className="flex items-center gap-2">
-          <button
-            type="button"
-            onClick={handleOptimizeWithGemini}
-            disabled={optimizing}
-            className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-500 hover:to-indigo-500 text-white font-bold text-xs shadow-glow-sm transition-all disabled:opacity-50 cursor-pointer"
-          >
-            {optimizing ? (
-              <RefreshCw className="h-4 w-4 animate-spin" />
-            ) : (
-              <Sparkles className="h-4 w-4 text-purple-200" />
-            )}
-            <span>{optimizing ? "Optimizing with AI..." : "Optimize with Gemini AI"}</span>
-          </button>
-
-          <button
-            type="button"
-            onClick={() => handleSave()}
-            disabled={saving}
-            className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl bg-blue-600 hover:bg-blue-500 text-white font-bold text-xs shadow-glow-sm transition-all disabled:opacity-50 cursor-pointer"
-          >
-            {saving ? <RefreshCw className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
-            <span>Save Profile</span>
-          </button>
-        </div>
-      </div>
-
-      {/* Toast Alert */}
+    <div className="space-y-6 max-w-5xl mx-auto pb-16">
       {toastMsg && (
-        <div className={`p-4 rounded-xl text-xs flex items-center justify-between border ${
-          toastMsg.type === "success"
-            ? "bg-emerald-500/10 border-emerald-500/20 text-emerald-300"
-            : "bg-rose-500/10 border-rose-500/20 text-rose-300"
-        }`}>
+        <div
+          className={`fixed bottom-6 right-6 z-50 rounded-xl border px-4 py-3 text-xs text-white shadow-2xl backdrop-blur-md flex items-center justify-between gap-4 max-w-md ${
+            toastMsg.type === "error"
+              ? "border-rose-500/40 bg-rose-950/90"
+              : toastMsg.type === "info"
+              ? "border-amber-500/40 bg-amber-950/90"
+              : "border-emerald-500/40 bg-[#0c121e]/95"
+          }`}
+        >
           <div className="flex items-center gap-2">
-            {toastMsg.type === "success" ? (
-              <CheckCircle2 className="h-4 w-4 shrink-0 text-emerald-400" />
+            {toastMsg.type === "error" ? (
+              <AlertTriangle className="h-4 w-4 text-rose-400 shrink-0" />
             ) : (
-              <AlertTriangle className="h-4 w-4 shrink-0 text-rose-400" />
+              <CheckCircle2 className="h-4 w-4 text-emerald-400 shrink-0" />
             )}
             <span>{toastMsg.text}</span>
           </div>
-          <button onClick={() => setToastMsg(null)} className="underline text-xs">Dismiss</button>
+          <button onClick={() => setToastMsg(null)} className="text-slate-400 hover:text-white shrink-0">
+            ✕
+          </button>
         </div>
       )}
 
-      {/* Profile Form */}
-      <form onSubmit={handleSave} className="space-y-6">
-        {/* Section 1: Business Overview */}
-        <div className="rounded-2xl border border-white/[0.08] bg-[#0c1017] p-6 space-y-4">
-          <div className="flex items-center gap-2 border-b border-white/[0.08] pb-3">
-            <Building2 className="h-5 w-5 text-blue-400" />
-            <h3 className="text-sm font-bold text-white">1. Company Overview</h3>
+      {/* Header */}
+      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 border-b border-white/[0.08] pb-5">
+        <div>
+          <div className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-indigo-500/10 text-indigo-400 border border-indigo-500/20 font-mono uppercase mb-1.5">
+            <ShieldCheck className="h-3 w-3" /> Simple Worldwide Business Setup
+          </div>
+          <h1 className="text-2xl font-extrabold text-white tracking-tight">Tell Us About Your Business</h1>
+          <p className="text-xs text-slate-400 mt-1 max-w-2xl">
+            Explain what you do by speaking or typing in your own language (English, Urdu, Arabic, German, Hindi, Spanish, and more). No technical marketing jargon required — we organize everything for your lead discovery and personalized outreach.
+          </p>
+        </div>
+
+        <Link
+          href="/app/leads"
+          className="px-4 py-2 rounded-xl border border-white/10 bg-white/[0.04] hover:bg-white/[0.08] text-xs font-bold text-slate-200 flex items-center gap-1.5 self-start shrink-0"
+        >
+          <span>Find Leads</span>
+          <ArrowRight className="h-3.5 w-3.5" />
+        </Link>
+      </div>
+
+      {/* SPEAK OR TYPE INPUT CARD */}
+      <div className="rounded-2xl border border-indigo-500/25 bg-gradient-to-br from-[#0e1424] via-[#0c1017] to-[#0b0f18] p-6 space-y-5 shadow-xl">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+          <div>
+            <h2 className="text-base font-bold text-white flex items-center gap-2">
+              <Sparkles className="h-4 w-4 text-indigo-400" />
+              <span>Describe Your Business in Your Own Words</span>
+            </h2>
+            <p className="text-[11px] text-slate-400 mt-0.5">
+              Speak into your microphone OR type naturally below, then review and save.
+            </p>
           </div>
 
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 text-xs">
-            <div>
-              <label className="block font-semibold text-slate-300 mb-1">Business Name *</label>
-              <input
-                type="text"
-                required
-                name="business_name"
-                value={form.business_name}
-                onChange={handleChange}
-                placeholder="e.g. Apex Growth Solutions"
-                className="w-full bg-white/[0.03] border border-white/10 rounded-xl px-3 py-2 text-white placeholder-slate-500 focus:outline-none focus:border-blue-500"
-              />
-            </div>
-
-            <div>
-              <label className="block font-semibold text-slate-300 mb-1">Company Website</label>
-              <input
-                type="text"
-                name="website"
-                value={form.website}
-                onChange={handleChange}
-                placeholder="e.g. https://apexgrowth.com"
-                className="w-full bg-white/[0.03] border border-white/10 rounded-xl px-3 py-2 text-white placeholder-slate-500 focus:outline-none focus:border-blue-500"
-              />
-            </div>
-
-            <div>
-              <label className="block font-semibold text-slate-300 mb-1">Primary Country *</label>
-              <input
-                type="text"
-                required
-                name="country"
-                value={form.country}
-                onChange={handleChange}
-                placeholder="e.g. Pakistan, United States, United Kingdom"
-                className="w-full bg-white/[0.03] border border-white/10 rounded-xl px-3 py-2 text-white placeholder-slate-500 focus:outline-none focus:border-blue-500"
-              />
-            </div>
-
-            <div>
-              <label className="block font-semibold text-slate-300 mb-1">City or Service Hub</label>
-              <input
-                type="text"
-                name="city"
-                value={form.city}
-                onChange={handleChange}
-                placeholder="e.g. Lahore, Karachi, New York, London"
-                className="w-full bg-white/[0.03] border border-white/10 rounded-xl px-3 py-2 text-white placeholder-slate-500 focus:outline-none focus:border-blue-500"
-              />
-            </div>
-
-            <div className="sm:col-span-2">
-              <label className="block font-semibold text-slate-300 mb-1">Industry / Sector *</label>
-              <input
-                type="text"
-                required
-                name="industry"
-                value={form.industry}
-                onChange={handleChange}
-                placeholder="e.g. Digital Marketing & SEO, Software Development, Real Estate Brokerage"
-                className="w-full bg-white/[0.03] border border-white/10 rounded-xl px-3 py-2 text-white placeholder-slate-500 focus:outline-none focus:border-blue-500"
-              />
-            </div>
-
-            <div className="sm:col-span-2">
-              <label className="block font-semibold text-slate-300 mb-1">Products or Services Offered</label>
-              <textarea
-                rows={2}
-                name="products_services"
-                value={form.products_services}
-                onChange={handleChange}
-                placeholder="Describe what you sell, key solutions, pricing structure, or core deliverables..."
-                className="w-full bg-white/[0.03] border border-white/10 rounded-xl p-3 text-white placeholder-slate-500 focus:outline-none focus:border-blue-500 resize-none"
-              />
-            </div>
+          <div className="flex items-center gap-2">
+            <Languages className="h-3.5 w-3.5 text-slate-400 shrink-0" />
+            <select
+              value={voiceLangCode}
+              onChange={(e) => setVoiceLangCode(e.target.value)}
+              aria-label="Spoken language selector"
+              className="rounded-xl border border-white/10 bg-black/40 px-3 py-1.5 text-xs text-white focus:outline-none focus:border-indigo-500"
+            >
+              {SUPPORTED_VOICE_LANGUAGES.map((l) => (
+                <option key={l.code} value={l.code} className="bg-[#0c1017]">
+                  {l.label}
+                </option>
+              ))}
+            </select>
           </div>
         </div>
 
-        {/* Section 2: Ideal Customer Profile (ICP) */}
-        <div className="rounded-2xl border border-white/[0.08] bg-[#0c1017] p-6 space-y-4">
-          <div className="flex items-center gap-2 border-b border-white/[0.08] pb-3">
-            <Target className="h-5 w-5 text-emerald-400" />
-            <h3 className="text-sm font-bold text-white">2. Ideal Customer Profile (ICP)</h3>
+        <div className="grid grid-cols-1 md:grid-cols-12 gap-4 items-start">
+          {/* A. Speak Box */}
+          <div className="md:col-span-5 rounded-xl border border-white/[0.08] bg-white/[0.02] p-4 space-y-3">
+            <div className="text-xs font-bold text-white">A. Speak about your business</div>
+            <p className="text-[11px] text-slate-400 leading-relaxed">
+              Press the button below, allow microphone permission, and speak naturally in your preferred language. You can stop, edit, or cancel anytime.
+            </p>
+            <VoiceCaptureButton
+              label="Describe Your Business"
+              languageBcp47={selectedVoiceLang.bcp47}
+              disabled={understanding}
+              onLiveTranscript={(txt) => setNaturalText(txt)}
+              onCaptureComplete={handleVoiceComplete}
+              onError={(msg) => setToastMsg({ text: msg, type: "info" })}
+            />
+            {detectedMeta?.language && (
+              <div className="text-[10px] font-mono text-indigo-300 bg-indigo-500/10 border border-indigo-500/20 px-2.5 py-1 rounded inline-block">
+                Recognized language: {detectedMeta.language}
+              </div>
+            )}
           </div>
 
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 text-xs">
-            <div>
-              <label className="block font-semibold text-slate-300 mb-1">Target Customer Type</label>
+          {/* B. Type Box */}
+          <div className="md:col-span-7 rounded-xl border border-white/[0.08] bg-white/[0.02] p-4 space-y-3">
+            <div className="text-xs font-bold text-white">B. Or type about your business</div>
+            <textarea
+              dir={rtlInputDir}
+              value={naturalText}
+              onChange={(e) => setNaturalText(e.target.value)}
+              rows={4}
+              placeholder='Tell us about your business in your own words... (e.g. "We build websites and manage SEO for local clinics in the US and UK" or "میری ایک ڈیجیٹل مارکیٹنگ ایجنسی ہے...")'
+              className="w-full rounded-xl border border-white/10 bg-black/30 px-3.5 py-2.5 text-xs text-white placeholder-slate-500 focus:border-indigo-500 focus:outline-none leading-relaxed"
+            />
+            <div className="flex items-center justify-between gap-3 flex-wrap">
+              <span className="text-[10px] text-slate-500">
+                Supports right-to-left scripts (Urdu, Arabic, Persian) automatically.
+              </span>
+              <button
+                type="button"
+                disabled={understanding || !naturalText.trim()}
+                onClick={() => handleUnderstand({ text: naturalText })}
+                className="px-4 py-2 rounded-xl bg-white/[0.08] hover:bg-white/[0.14] border border-white/15 text-xs font-bold text-white inline-flex items-center gap-1.5 cursor-pointer disabled:opacity-50 transition-all"
+              >
+                {understanding ? (
+                  <>
+                    <RefreshCw className="h-3.5 w-3.5 animate-spin text-indigo-400" />
+                    <span>Organizing Details...</span>
+                  </>
+                ) : (
+                  <>
+                    <Sparkles className="h-3.5 w-3.5 text-indigo-400" />
+                    <span>Fill Profile From Description</span>
+                  </>
+                )}
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* SIMPLE 9-FIELD STRUCTURED PROFILE */}
+      <form onSubmit={handleSave} className="space-y-5">
+        <div className="rounded-2xl border border-white/[0.08] bg-[#0c1017] p-6 space-y-5">
+          <div className="border-b border-white/[0.06] pb-3">
+            <h2 className="text-sm font-bold text-white flex items-center gap-2">
+              <Building2 className="h-4 w-4 text-blue-400" />
+              <span>Your Saved Business Details (Review &amp; Edit Before Saving)</span>
+            </h2>
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div className="space-y-1.5">
+              <label className="block text-xs font-semibold text-slate-300">1. Business name</label>
               <input
                 type="text"
-                name="target_customer_type"
-                value={form.target_customer_type}
-                onChange={handleChange}
-                placeholder="e.g. Founders, Marketing Directors, Real Estate Agents, Hospital CEOs"
-                className="w-full bg-white/[0.03] border border-white/10 rounded-xl px-3 py-2 text-white placeholder-slate-500 focus:outline-none focus:border-blue-500"
+                dir="auto"
+                value={form.business_name}
+                onChange={(e) => setForm({ ...form, business_name: e.target.value })}
+                placeholder="e.g. Apex Digital Studio"
+                className="w-full rounded-xl border border-white/10 bg-white/[0.03] px-3.5 py-2.5 text-xs text-white focus:border-blue-500 focus:outline-none"
               />
             </div>
 
-            <div>
-              <label className="block font-semibold text-slate-300 mb-1">Target Business Size</label>
+            <div className="space-y-1.5">
+              <label className="block text-xs font-semibold text-slate-300">5. Which countries do you want to target?</label>
+              <input
+                type="text"
+                dir="auto"
+                value={form.preferred_locations}
+                onChange={(e) => setForm({ ...form, preferred_locations: e.target.value })}
+                placeholder="e.g. United States, United Kingdom, Germany, UAE"
+                className="w-full rounded-xl border border-white/10 bg-white/[0.03] px-3.5 py-2.5 text-xs text-white focus:border-blue-500 focus:outline-none"
+              />
+            </div>
+
+            <div className="space-y-1.5 md:col-span-2">
+              <label className="block text-xs font-semibold text-slate-300">2. What does your business do?</label>
+              <textarea
+                dir="auto"
+                rows={2}
+                value={form.ai_summary}
+                onChange={(e) => setForm({ ...form, ai_summary: e.target.value })}
+                placeholder="Plain explanation — e.g. We help local clinics and small companies upgrade outdated websites and rank higher on Google."
+                className="w-full rounded-xl border border-white/10 bg-white/[0.03] px-3.5 py-2.5 text-xs text-white focus:border-blue-500 focus:outline-none"
+              />
+            </div>
+
+            <div className="space-y-1.5">
+              <label className="block text-xs font-semibold text-slate-300">3. What products or services do you offer?</label>
+              <textarea
+                dir="auto"
+                rows={2}
+                value={form.products_services}
+                onChange={(e) => setForm({ ...form, products_services: e.target.value })}
+                placeholder="e.g. Website Design, SEO Audits, Social Media Management"
+                className="w-full rounded-xl border border-white/10 bg-white/[0.03] px-3.5 py-2.5 text-xs text-white focus:border-blue-500 focus:outline-none"
+              />
+            </div>
+
+            <div className="space-y-1.5">
+              <label className="block text-xs font-semibold text-slate-300">4. Who are your ideal customers?</label>
+              <textarea
+                dir="auto"
+                rows={2}
+                value={form.target_customer_type}
+                onChange={(e) => setForm({ ...form, target_customer_type: e.target.value })}
+                placeholder="e.g. Small business owners, dental clinics, or retail brands without modern websites"
+                className="w-full rounded-xl border border-white/10 bg-white/[0.03] px-3.5 py-2.5 text-xs text-white focus:border-blue-500 focus:outline-none"
+              />
+            </div>
+
+            <div className="space-y-1.5">
+              <label className="block text-xs font-semibold text-slate-300">6. What makes your business different?</label>
+              <input
+                type="text"
+                dir="auto"
+                value={form.differentiator}
+                onChange={(e) => setForm({ ...form, differentiator: e.target.value })}
+                placeholder="e.g. Fast 7-day turnaround, bilingual support, no long-term contracts"
+                className="w-full rounded-xl border border-white/10 bg-white/[0.03] px-3.5 py-2.5 text-xs text-white focus:border-blue-500 focus:outline-none"
+              />
+            </div>
+
+            <div className="space-y-1.5">
+              <label className="block text-xs font-semibold text-slate-300">7. What do you want to achieve?</label>
+              <input
+                type="text"
+                dir="auto"
+                value={form.outreach_goal}
+                onChange={(e) => setForm({ ...form, outreach_goal: e.target.value })}
+                placeholder="e.g. Book introductory discovery calls with new business owners"
+                className="w-full rounded-xl border border-white/10 bg-white/[0.03] px-3.5 py-2.5 text-xs text-white focus:border-blue-500 focus:outline-none"
+              />
+            </div>
+
+            <div className="space-y-1.5">
+              <label className="block text-xs font-semibold text-slate-300">8. Preferred outreach language</label>
               <select
-                name="target_business_size"
-                value={form.target_business_size}
-                onChange={handleChange}
-                className="w-full bg-[#090d16] border border-white/10 rounded-xl px-3 py-2 text-white focus:outline-none focus:border-blue-500"
+                value={form.preferred_outreach_language}
+                onChange={(e) => setForm({ ...form, preferred_outreach_language: e.target.value })}
+                className="w-full rounded-xl border border-white/10 bg-[#090d14] px-3.5 py-2.5 text-xs text-white focus:border-blue-500 focus:outline-none"
               >
-                <option value="Sole Proprietors / Independents">Sole Proprietors / Independents (1 person)</option>
-                <option value="Small Businesses (2-10 employees)">Small Businesses (2-10 employees)</option>
-                <option value="SMBs (10-100 employees)">SMBs (10-100 employees)</option>
-                <option value="Mid-Market (100-500 employees)">Mid-Market (100-500 employees)</option>
-                <option value="Enterprise (500+ employees)">Enterprise (500+ employees)</option>
+                {OUTREACH_LANGUAGES.map((lang) => (
+                  <option key={lang} value={lang}>
+                    {lang}
+                  </option>
+                ))}
               </select>
             </div>
 
-            <div className="sm:col-span-2">
-              <label className="block font-semibold text-slate-300 mb-1">Ideal Target Industries</label>
-              <input
-                type="text"
-                name="ideal_industries"
-                value={form.ideal_industries}
-                onChange={handleChange}
-                placeholder="e.g. Logistics Companies, Dental Clinics, E-commerce Brands, SaaS Providers"
-                className="w-full bg-white/[0.03] border border-white/10 rounded-xl px-3 py-2 text-white placeholder-slate-500 focus:outline-none focus:border-blue-500"
-              />
-            </div>
-
-            <div className="sm:col-span-2">
-              <label className="block font-semibold text-slate-300 mb-1">Preferred Lead Discovery Locations</label>
-              <input
-                type="text"
-                name="preferred_locations"
-                value={form.preferred_locations}
-                onChange={handleChange}
-                placeholder="e.g. United States, United Kingdom, UAE, Saudi Arabia, Pakistan"
-                className="w-full bg-white/[0.03] border border-white/10 rounded-xl px-3 py-2 text-white placeholder-slate-500 focus:outline-none focus:border-blue-500"
-              />
+            <div className="space-y-1.5">
+              <label className="block text-xs font-semibold text-slate-300">9. Preferred email tone</label>
+              <div className="grid grid-cols-3 gap-2">
+                {["Professional", "Friendly", "Concise"].map((tone) => (
+                  <button
+                    key={tone}
+                    type="button"
+                    onClick={() => setForm({ ...form, preferred_tone: tone })}
+                    className={`py-2 rounded-xl border text-xs font-semibold transition-all cursor-pointer ${
+                      form.preferred_tone === tone
+                        ? "bg-blue-600/25 border-blue-500 text-white"
+                        : "bg-white/[0.02] border-white/10 text-slate-400 hover:text-white"
+                    }`}
+                  >
+                    {tone}
+                  </button>
+                ))}
+              </div>
             </div>
           </div>
-        </div>
 
-        {/* Section 3: AI Keywords, Negative Exclusions & Strategy */}
-        <div className="rounded-2xl border border-white/[0.08] bg-[#0c1017] p-6 space-y-4">
-          <div className="flex items-center justify-between border-b border-white/[0.08] pb-3">
-            <div className="flex items-center gap-2">
-              <Sparkles className="h-5 w-5 text-purple-400" />
-              <h3 className="text-sm font-bold text-white">3. Search Keywords & Negative Exclusions (Gemini Powered)</h3>
-            </div>
+          {/* Optional Advanced Settings Accordion */}
+          <div className="pt-3 border-t border-white/[0.06]">
             <button
               type="button"
-              onClick={handleOptimizeWithGemini}
-              disabled={optimizing}
-              className="text-[11px] text-purple-400 hover:text-purple-300 underline font-semibold"
+              onClick={() => setShowAdvanced(!showAdvanced)}
+              className="text-xs font-semibold text-slate-400 hover:text-white inline-flex items-center gap-1.5 cursor-pointer"
             >
-              Auto-generate with AI
+              {showAdvanced ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
+              <span>Optional Advanced Search Settings (Website, Keywords &amp; Exclusions)</span>
             </button>
-          </div>
 
-          <div className="space-y-4 text-xs">
-            <div>
-              <label className="block font-semibold text-slate-300 mb-1">
-                Important Search Keywords (Comma-separated)
-              </label>
-              <input
-                type="text"
-                name="keywords"
-                value={form.keywords}
-                onChange={handleChange}
-                placeholder="e.g. Commercial Real Estate, Property Brokers, SEO Agency, Freight Forwarders"
-                className="w-full bg-white/[0.03] border border-white/10 rounded-xl px-3 py-2 text-white placeholder-slate-500 focus:outline-none focus:border-blue-500"
-              />
-              <p className="text-[10px] text-slate-500 mt-1">These keywords will automatically populate your lead search suggestions.</p>
-            </div>
-
-            <div>
-              <label className="block font-semibold text-slate-300 mb-1">
-                Excluded Industries or Negative Terms (Avoid these leads)
-              </label>
-              <input
-                type="text"
-                name="exclusions"
-                value={form.exclusions}
-                onChange={handleChange}
-                placeholder="e.g. Free courses, Students, Non-profit, Retail consumers, Dropshipping"
-                className="w-full bg-white/[0.03] border border-white/10 rounded-xl px-3 py-2 text-white placeholder-slate-500 focus:outline-none focus:border-blue-500"
-              />
-              <p className="text-[10px] text-slate-500 mt-1">Prevents qualifying irrelevant contacts during web scraping.</p>
-            </div>
-
-            <div>
-              <label className="block font-semibold text-slate-300 mb-1">
-                Executive Value Proposition & AI Summary
-              </label>
-              <textarea
-                rows={3}
-                name="ai_summary"
-                value={form.ai_summary}
-                onChange={handleChange}
-                placeholder="Summarize your core competitive edge in your own words, or let Gemini AI optimize it..."
-                className="w-full bg-white/[0.03] border border-white/10 rounded-xl p-3 text-white placeholder-slate-500 focus:outline-none focus:border-blue-500 resize-none font-mono text-[11px]"
-              />
-            </div>
-
-            <div>
-              <label className="block font-semibold text-slate-300 mb-1">
-                Additional Instructions or Constraints
-              </label>
-              <textarea
-                rows={2}
-                name="additional_instructions"
-                value={form.additional_instructions}
-                onChange={handleChange}
-                placeholder="Any special guidelines (e.g. 'Never mention competitors', 'Always ask for a 10-minute discovery call', 'Focus on B2B suppliers only')..."
-                className="w-full bg-white/[0.03] border border-white/10 rounded-xl p-3 text-white placeholder-slate-500 focus:outline-none focus:border-blue-500 resize-none"
-              />
-            </div>
+            {showAdvanced && (
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-4 pt-3 border-t border-white/[0.04]">
+                <div className="space-y-1.5">
+                  <label className="block text-xs font-semibold text-slate-400">Your Company Website</label>
+                  <input
+                    type="text"
+                    value={form.website}
+                    onChange={(e) => setForm({ ...form, website: e.target.value })}
+                    placeholder="https://yourcompany.com"
+                    className="w-full rounded-xl border border-white/10 bg-white/[0.03] px-3.5 py-2 text-xs text-white focus:outline-none"
+                  />
+                </div>
+                <div className="space-y-1.5">
+                  <label className="block text-xs font-semibold text-slate-400">Internal Category / Sector</label>
+                  <input
+                    type="text"
+                    value={form.industry}
+                    onChange={(e) => setForm({ ...form, industry: e.target.value })}
+                    placeholder="e.g. Digital Marketing & Web Design"
+                    className="w-full rounded-xl border border-white/10 bg-white/[0.03] px-3.5 py-2 text-xs text-white focus:outline-none"
+                  />
+                </div>
+                <div className="space-y-1.5">
+                  <label className="block text-xs font-semibold text-slate-400">Target Search Keywords (comma-separated)</label>
+                  <input
+                    type="text"
+                    value={form.keywords}
+                    onChange={(e) => setForm({ ...form, keywords: e.target.value })}
+                    placeholder="Auto-filled from your description"
+                    className="w-full rounded-xl border border-white/10 bg-white/[0.03] px-3.5 py-2 text-xs text-white focus:outline-none"
+                  />
+                </div>
+                <div className="space-y-1.5">
+                  <label className="block text-xs font-semibold text-slate-400">Negative Exclusions</label>
+                  <input
+                    type="text"
+                    value={form.exclusions}
+                    onChange={(e) => setForm({ ...form, exclusions: e.target.value })}
+                    placeholder="Competitors or unwanted terms"
+                    className="w-full rounded-xl border border-white/10 bg-white/[0.03] px-3.5 py-2 text-xs text-white focus:outline-none"
+                  />
+                </div>
+              </div>
+            )}
           </div>
         </div>
 
-        {/* Submit Actions */}
-        <div className="flex flex-col sm:flex-row items-center justify-between gap-4 pt-2">
-          <Link
-            href="/app/leads"
-            className="text-xs text-slate-400 hover:text-white flex items-center gap-1.5"
+        {/* Sticky / Bottom Action Bar */}
+        <div className="flex flex-col sm:flex-row items-center justify-between gap-4 rounded-2xl border border-white/[0.08] bg-[#0c1017] p-5">
+          <div className="text-xs text-slate-400">
+            Powers <strong className="text-slate-200">Find Leads</strong>, <strong className="text-slate-200">Google Maps Search</strong>, <strong className="text-slate-200">Personalized Emails</strong>, and <strong className="text-slate-200">AI Assistant</strong>.
+          </div>
+          <button
+            type="submit"
+            disabled={saving}
+            className="w-full sm:w-auto px-7 py-3 rounded-xl bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white font-bold text-xs shadow-glow-sm flex items-center justify-center gap-2 cursor-pointer disabled:opacity-50"
           >
-            <span>Proceed to Find Leads</span>
-            <ArrowRight className="h-3 w-3" />
-          </Link>
-
-          <div className="flex items-center gap-3 w-full sm:w-auto">
-            <button
-              type="button"
-              onClick={handleOptimizeWithGemini}
-              disabled={optimizing}
-              className="w-full sm:w-auto px-5 py-2.5 rounded-xl bg-purple-600/20 hover:bg-purple-600/30 text-purple-300 border border-purple-500/30 text-xs font-bold transition-all disabled:opacity-50 cursor-pointer"
-            >
-              Optimize with Gemini AI
-            </button>
-
-            <button
-              type="submit"
-              disabled={saving}
-              className="w-full sm:w-auto px-7 py-2.5 rounded-xl bg-blue-600 hover:bg-blue-500 text-white font-bold text-xs shadow-md transition-all flex items-center justify-center gap-2 disabled:opacity-50 cursor-pointer"
-            >
-              {saving ? <RefreshCw className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
-              <span>Save Business Profile</span>
-            </button>
-          </div>
+            {saving ? (
+              <>
+                <RefreshCw className="h-4 w-4 animate-spin" />
+                <span>Saving Business Profile...</span>
+              </>
+            ) : (
+              <>
+                <Save className="h-4 w-4" />
+                <span>Save Business Profile</span>
+              </>
+            )}
+          </button>
         </div>
       </form>
     </div>

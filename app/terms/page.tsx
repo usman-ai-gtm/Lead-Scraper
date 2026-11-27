@@ -30,31 +30,32 @@ export default function TermsPage() {
             Terms of Service
           </h1>
           <p className="text-sm text-slate-400 mb-12">
-            Last updated: November 2026 • Effective immediately for all registered users and clients.
+            Last updated: November 2026 • Effective for all registered accounts and workspace subscriptions.
           </p>
 
           <div className="space-y-10 text-sm text-slate-300 leading-relaxed">
             {/* Section 1 */}
             <section className="p-6 rounded-2xl bg-[#0c1017] border border-white/[0.08] space-y-3">
               <h2 className="text-lg font-bold text-white flex items-center gap-2">
-                <span className="text-blue-400">1.</span> Platform Access & Subscriptions
+                <span className="text-blue-400">1.</span> Platform Access &amp; Subscriptions
               </h2>
               <p>
-                USMAN AI GTM (Lead Scraper) is a proprietary B2B sales intelligence and outreach platform. Access is granted per isolated workspace under Admin-provisioned subscription tiers:
+                USMAN AI GTM (Lead Scraper) is a commercial B2B sales intelligence and outreach SaaS platform. Access is granted per isolated workspace under Owner-provisioned subscription tiers:
               </p>
               <ul className="list-disc list-inside space-y-1.5 text-slate-400 pl-2">
                 <li>
-                  <strong className="text-white">Starter Basic Plan ($25 / 30 Days):</strong> Grants access to Find Leads, Saved Leads, Search History, XLSX/PDF exports, AI Assistant, and up to 10 cold emails per UTC day for 30 consecutive days (Google Maps excluded). Accounts lock automatically upon expiry until renewed.
+                  <strong className="text-white">Basic Plan ($25 / 30 Days):</strong> Grants access to Find Leads, Saved Leads, Search History, Business Profile, XLSX/PDF/CSV/JSON exports, AI Assistant, and up to 10 cold emails per UTC day for 30 consecutive days (Google Maps excluded). Accounts lock automatically upon expiry until renewed.
                 </li>
                 <li>
-                  <strong className="text-white">Lifetime Access Plan ($100 One-time):</strong> Grants permanent access to all platform modules including Google Maps Lead Generator and AI Lead Research (subject to fair Gmail daily safety caps of up to 500 emails/UTC day).
+                  <strong className="text-white">Lifetime Access Plan ($100 One-time):</strong> Grants permanent access to all platform modules including Google Maps Lead Search, Personalized Lead Emailing, and AI Lead Research (subject to fair Gmail daily safety caps of up to 500 emails/UTC day).
                 </li>
                 <li>
-                  <strong className="text-white">Custom Subscription Plans:</strong> Configurable pay-as-you-need duration tiers billed in USD (or converted FX equivalents): Hourly ($1/hour, 50 leads per hour), Daily ($15/day, 250 leads/day), Weekly ($50/week, 1,000 leads/week), and Monthly ($75/month, 5,000 leads/month). Time spent completing verified Gmail setup may be compensated upon Owner approval via the in-app Gmail Setup Time Bonus request.
+                  <strong className="text-white">Custom Subscription Plans:</strong> Configurable pay-as-you-need duration tiers anchored strictly in USD: Hourly ($1/hour, 50 leads per hour), Daily ($15/day, 250 leads/day), Weekly ($50/week, 1,000 leads/week), and Monthly ($75/month, 5,000 leads/month). Local currency equivalents displayed via live market feeds are estimates; the Owner confirms actual received funds during manual verification.
                 </li>
               </ul>
               <p className="text-xs text-slate-400">
-                All subscriptions are verified manually before activation. Payment proof uploads (Easypaisa, JazzCash, Meezan Bank, NayaPay, Binance USDT TRC20, Payoneer, or Owner-approved alternatives) remain PENDING until the Owner verifies receipt of funds. For crypto transfers via Binance, send solely over the TRC20 network — transfers over wrong networks risk permanent loss of funds. Need support? Contact WhatsApp (+923174383702).
+                All manual payments remain PENDING until the Owner verifies receipt of transferred funds. For Binance USDT transfers, send strictly via the TRC20 network — wrong-network crypto transfers risk irreversible loss. Support is available at{" "}
+                <a href="mailto:telegramtiktokn1@gmail.com" className="text-blue-400 hover:underline">telegramtiktokn1@gmail.com</a> or WhatsApp (+923174383702).
               </p>
             </section>
 

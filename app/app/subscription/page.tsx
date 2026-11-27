@@ -29,9 +29,11 @@ import {
   Info,
   ArrowDown,
   Wallet,
+  Globe,
 } from "lucide-react";
 import { CustomPlanBuilder, PlanSelectionValue } from "@/components/payments/CustomPlanBuilder";
 import { BuilderDurationUnit, FixedOrCustomPlan } from "@/lib/custom-plans";
+import { doesMethodSupportCurrency, findCurrencyMeta } from "@/lib/currencies-iso4217";
 
 interface BankTransferDetails {
   method_type?: "mobile_wallet" | "bank_transfer" | "crypto" | "payoneer" | "custom" | null;
@@ -411,6 +413,21 @@ function SubscriptionPageInner() {
   };
 
   const liveCountdownText = formatCountdown(liveProfile?.subscription_expires_at, isLifetime, nowTick);
+  const selectedCurrencyMeta = findCurrencyMeta(orderSelection.currency);
+  const compatibleMethods = methods.filter((m) => doesMethodSupportCurrency(m, orderSelection.currency));
+  const [showAllMethodsOverride, setShowAllMethodsOverride] = useState(false);
+
+  useEffect(() => {
+    setShowAllMethodsOverride(false);
+    if (selectedMethodId && selectedMethodId !== "OTHER") {
+      const m = methods.find((item) => String(item.id) === selectedMethodId);
+      if (m && !doesMethodSupportCurrency(m, orderSelection.currency)) {
+        setSelectedMethodId("");
+      }
+    }
+  }, [orderSelection.currency]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const methodsToRender = showAllMethodsOverride ? methods : compatibleMethods;
   const selectedMethodObj =
     selectedMethodId && selectedMethodId !== "OTHER"
       ? methods.find((m) => String(m.id) === selectedMethodId) || null
@@ -900,10 +917,70 @@ function SubscriptionPageInner() {
           </span>
         </div>
 
+        {/* Honest Currency Compatibility & USDT Network Guard */}
+        {orderSelection.currency === "USDT" && (
+          <div className="p-3.5 rounded-xl bg-amber-500/10 border border-amber-500/35 text-xs text-amber-100 flex items-start gap-2.5">
+            <AlertTriangle className="h-4 w-4 text-amber-400 shrink-0 mt-0.5" />
+            <div>
+              <strong>USDT — TRC20 Network Only:</strong> Only payment channels supporting TRC20 settlement are shown first. Double-check the network before initiating any crypto transfer.
+            </div>
+          </div>
+        )}
+
+        {compatibleMethods.length === 0 && (
+          <div className="p-4 rounded-2xl bg-amber-500/10 border border-amber-500/30 text-xs text-amber-100 space-y-3">
+            <div className="flex items-start gap-2.5">
+              <Globe className="h-4 w-4 text-amber-400 shrink-0 mt-0.5" />
+              <div className="space-y-1">
+                <div className="font-bold text-white">
+                  No payment method is currently configured for {selectedCurrencyMeta.code} ({selectedCurrencyMeta.name}). Contact support for assistance.
+                </div>
+                <p className="text-slate-300 leading-relaxed">
+                  Your estimated plan total in {selectedCurrencyMeta.code} is displayed for planning reference. Choose USD, PKR, EUR, GBP, or USDT (TRC20) above if paying via an existing channel, or contact support below.
+                </p>
+              </div>
+            </div>
+            <div className="flex flex-wrap items-center gap-2">
+              {WHATSAPP_LINK && (
+                <a
+                  href={WHATSAPP_LINK}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="px-3.5 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-bold inline-flex items-center gap-1.5"
+                >
+                  <MessageCircle className="h-3.5 w-3.5" />
+                  <span>Contact Support (WhatsApp)</span>
+                </a>
+              )}
+              {supportMailtoHref && (
+                <a
+                  href={supportMailtoHref}
+                  className="px-3.5 py-2 rounded-xl bg-white/10 hover:bg-white/20 text-white font-semibold inline-flex items-center gap-1.5"
+                >
+                  <Mail className="h-3.5 w-3.5" />
+                  <span>Email Support</span>
+                </a>
+              )}
+              {methods.length > 0 && (
+                <button
+                  type="button"
+                  onClick={() => setShowAllMethodsOverride((v) => !v)}
+                  className="px-3.5 py-2 rounded-xl bg-white/[0.05] hover:bg-white/[0.1] border border-white/15 text-slate-200 font-semibold cursor-pointer"
+                >
+                  {showAllMethodsOverride
+                    ? "Show Only Exact Currency Matches"
+                    : `Show Configured Methods (${methods.length})`}
+                </button>
+              )}
+            </div>
+          </div>
+        )}
+
         {/* Clean Selectable Payment Method Cards Only (never showing all bank/wallet numbers simultaneously) */}
         <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3">
-          {methods.map((m) => {
+          {methodsToRender.map((m) => {
             const isSelected = String(m.id) === selectedMethodId;
+            const supportsSelected = doesMethodSupportCurrency(m, orderSelection.currency);
             return (
               <button
                 key={m.id}
@@ -917,11 +994,15 @@ function SubscriptionPageInner() {
               >
                 <div className="flex items-center justify-between gap-2 w-full">
                   <Wallet className={`h-4 w-4 ${isSelected ? "text-blue-300" : "text-slate-400"}`} />
-                  {isSelected && (
+                  {isSelected ? (
                     <span className="text-[9px] font-black uppercase px-2 py-0.5 rounded-full bg-blue-600 text-white">
                       Selected
                     </span>
-                  )}
+                  ) : !supportsSelected ? (
+                    <span className="text-[9px] font-mono px-2 py-0.5 rounded-full bg-amber-500/15 text-amber-300 border border-amber-500/30">
+                      Accepts {m.currency}
+                    </span>
+                  ) : null}
                 </div>
                 <div>
                   <div className="text-sm font-black text-white">{m.name}</div>

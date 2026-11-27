@@ -17,6 +17,7 @@ import {
 import { AiLeadResearchModal } from "@/components/leads/AiLeadResearchModal";
 import { WhatsAppModal } from "@/components/leads/WhatsAppModal";
 import { LeadQualityBadge } from "@/components/leads/LeadQualityBadge";
+import { BatchPersonalizeButton } from "@/components/leads/BatchPersonalizeButton";
 
 interface SearchRecord {
   id: string;
@@ -341,7 +342,7 @@ export default function SavedLeadsPage() {
         setLeads((prev) =>
           prev.map((l) => (l.id === activeEmailLead.id ? { ...l, crm_stage: "DRAFT READY" } : l))
         );
-        setEmailFeedback({ type: "success", message: `Personalized cold outreach prepared by ${data.model}` });
+        setEmailFeedback({ type: "success", message: "Personalized outreach draft ready." });
       }
     } catch (e: any) {
       setEmailFeedback({ type: "error", message: e.message || "Failed to generate draft" });
@@ -632,6 +633,7 @@ export default function SavedLeadsPage() {
         </div>
 
         <div className="flex items-center gap-2.5 flex-wrap">
+          {leads.length > 0 && <BatchPersonalizeButton leads={leads} />}
           <Link
             href="/app/leads"
             className="flex items-center gap-1.5 px-4 py-2 text-xs font-bold text-white bg-blue-600 hover:bg-blue-500 rounded-xl shadow-glow-sm transition-all"
@@ -1283,7 +1285,7 @@ export default function SavedLeadsPage() {
                               <button
                                 onClick={() => handleOpenEmailModal(l)}
                                 className="p-1.5 rounded-lg text-blue-400 hover:text-blue-300 hover:bg-blue-500/10 transition-colors cursor-pointer"
-                                title="AI Email Assistant (Gemini + Gmail)"
+                                title="AI Email Assistant (Outreach + Gmail)"
                               >
                                 <Mail className="h-3.5 w-3.5" />
                               </button>
@@ -1818,7 +1820,7 @@ export default function SavedLeadsPage() {
         </div>
       )}
 
-      {/* AI EMAIL ASSISTANT MODAL (GEMINI + GMAIL OUTREACH) */}
+      {/* AI EMAIL ASSISTANT MODAL (OUTREACH + GMAIL) */}
       {isEmailModalOpen && activeEmailLead && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-md">
           <div className="relative w-full max-w-3xl rounded-2xl border border-white/10 bg-[#0c1017] shadow-2xl flex flex-col max-h-[90vh] overflow-hidden">
@@ -1982,15 +1984,15 @@ export default function SavedLeadsPage() {
                   )}
                   <span>
                     {emailGenerating
-                      ? "Gemini AI Composing..."
+                      ? "Composing Personalized Draft..."
                       : emailMode === "followup"
-                      ? "Generate Follow-up Draft with Gemini"
-                      : "Generate Personalized Draft with Gemini"}
+                      ? "Generate Follow-up Draft"
+                      : "Generate Personalized Draft"}
                   </span>
                 </button>
                 <div className="flex items-center gap-1 text-[11px] text-slate-400 font-mono">
                   <span className="h-2 w-2 rounded-full bg-emerald-400 animate-pulse"></span>
-                  <span>gemini-3.5-flash-lite (Free Tier)</span>
+                  <span>Intelligent Outreach Engine</span>
                 </div>
               </div>
 
@@ -2018,7 +2020,7 @@ export default function SavedLeadsPage() {
                   rows={8}
                   value={emailBody}
                   onChange={(e) => setEmailBody(e.target.value)}
-                  placeholder="Click 'Generate Personalized Draft with Gemini' above to compose a natural, high-converting B2B outreach email based strictly on this lead's verified data."
+                  placeholder="Click 'Generate Personalized Draft' above to compose a natural B2B outreach email based strictly on your Business Profile and this lead's public info."
                   className="w-full rounded-xl border border-white/10 bg-white/[0.03] p-3 text-xs text-slate-200 leading-relaxed focus:border-blue-500 focus:outline-none font-mono"
                 />
               </div>

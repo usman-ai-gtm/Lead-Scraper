@@ -14,6 +14,7 @@ import { MultiCountrySelector } from "@/components/leads/MultiCountrySelector";
 import { MultiCitySelector, SelectedCityTarget } from "@/components/leads/MultiCitySelector";
 import { WhatsAppModal } from "@/components/leads/WhatsAppModal";
 import { LeadQualityBadge } from "@/components/leads/LeadQualityBadge";
+import { BatchPersonalizeButton } from "@/components/leads/BatchPersonalizeButton";
 
 function GoogleMapsLeadComponent() {
   const { user, isLocked } = useAuth();
@@ -244,7 +245,7 @@ function GoogleMapsLeadComponent() {
               {user?.plan_label || (hasMapsAccess ? "Maps Enabled Plan" : "Maps Upgrade Required")}
             </span>
             <span className="text-[10px] font-semibold text-slate-400 bg-white/[0.04] px-2 py-0.5 rounded border border-white/10">
-              Serper Places Engine • Direct Web Contact Discovery
+              Live Local Maps Discovery • Direct Web Contact Extraction
             </span>
           </div>
           <h1 className="text-xl sm:text-2xl font-bold text-white flex items-center gap-2">
@@ -258,6 +259,7 @@ function GoogleMapsLeadComponent() {
 
         {qualifiedLeads.length > 0 && (
           <div className="flex items-center gap-2 shrink-0 flex-wrap">
+            <BatchPersonalizeButton leads={qualifiedLeads} />
             <button
               onClick={() => handleExport("pdf")}
               disabled={exportLoading}

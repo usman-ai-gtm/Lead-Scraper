@@ -129,7 +129,7 @@ Output strictly valid JSON only. Do not invent fake claims, fake awards, or hall
     return NextResponse.json({
       status: "success",
       optimized: resultJson,
-      model: modelUsed,
+      model: "Intelligent Business Engine",
     });
   } catch (err: any) {
     return NextResponse.json({ detail: err?.message || "Optimization failed" }, { status: 500 });

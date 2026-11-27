@@ -3,334 +3,282 @@ import {
   getNeonChatMessages,
   addNeonChatMessage,
   createNeonChatConversation,
+  getNeonSql,
+  isNeonConfigured,
 } from "@/lib/neon-db";
 import { getCurrentUserFromRequest, verifyClientActiveSubscription } from "@/lib/serverless-auth";
 
 export const dynamic = "force-dynamic";
 
-interface ChatMessage {
-  role: "user" | "assistant" | "system";
-  content: string;
+async function loadWorkspaceContext(workspaceId: number, userRecord: any) {
+  const ctx: any = {
+    plan_label: userRecord?.plan_label || userRecord?.plan || "Active Plan",
+    daily_email_limit: userRecord?.daily_email_limit || 10,
+    google_maps_enabled: Boolean(userRecord?.google_maps_enabled),
+    profile: null,
+    total_leads: 0,
+    today_leads: 0,
+    recent_leads: [],
+    recent_searches: [],
+    connected_gmails: 0,
+  };
+
+  if (!isNeonConfigured()) return ctx;
+  const sql = getNeonSql();
+  if (!sql) return ctx;
+
+  try {
+    const [profRows, statsRows, recentLeadsRows, searchesRows, acctRows] = await Promise.all([
+      sql.query("SELECT * FROM workspace_profiles WHERE workspace_id = $1 LIMIT 1", [workspaceId]).catch(() => []),
+      sql.query(
+        "SELECT COUNT(*) AS total, COUNT(*) FILTER (WHERE created_at::date = CURRENT_DATE) AS today_count FROM leads WHERE workspace_id = $1",
+        [workspaceId]
+      ).catch(() => []),
+      sql.query(
+        "SELECT id, business_name, email, website, industry, city, country, positive_signals FROM leads WHERE workspace_id = $1 ORDER BY id DESC LIMIT 6",
+        [workspaceId]
+      ).catch(() => []),
+      sql.query(
+        "SELECT keyword, country, qualified_quantity, search_date FROM search_records WHERE workspace_id = $1 ORDER BY id DESC LIMIT 5",
+        [workspaceId]
+      ).catch(() => []),
+      sql.query("SELECT COUNT(*) AS cnt FROM email_accounts WHERE workspace_id = $1", [workspaceId]).catch(() => []),
+    ]);
+
+    ctx.profile = profRows?.[0] || null;
+    ctx.total_leads = Number(statsRows?.[0]?.total || 0);
+    ctx.today_leads = Number(statsRows?.[0]?.today_count || 0);
+    ctx.recent_leads = recentLeadsRows || [];
+    ctx.recent_searches = searchesRows || [];
+    ctx.connected_gmails = Number(acctRows?.[0]?.cnt || 0);
+  } catch {}
+  return ctx;
 }
-
-const CONSULTATIVE_SYSTEM_PROMPT = `
-You are the official Senior B2B Growth Consultant and AI Sales Specialist for USMAN AI GTM (Website: https://lead-scraper-mxs5.vercel.app/).
-You represent the founder (Usman) and the platform.
-
-CORE CONSULTATIVE BEHAVIOR & METHODOLOGY:
-1. CONSULTATIVE FIRST: Do not just push product features blindly. First understand the customer's business:
-   - What service or product do they sell?
-   - Who is their Ideal Customer Profile (ICP)?
-   - Which geographic market are they targeting?
-   - Have they tried cold outreach before?
-2. VALUE-DRIVEN RECOMMENDATIONS:
-   - Match their specific business type with the exact USMAN AI GTM workflow that will bring them paying clients.
-   - For local services (plumbers, realtors, dentists, restaurants, contractors) -> Recommend the Google Maps Lead Extractor ($100 Lifetime Plan) to get verified emails, phone numbers, and addresses.
-   - For B2B agencies, software companies, consultancies, wholesalers -> Recommend the AI-Powered Lead Search with Natural Language Queries + Gmail OAuth Cold Email with our 10 proven templates.
-   - Emphasize our permanent Account-Level Lead Deduplication (leads they already received or saved will never be returned again, saving them wasted searches).
-3. PRICING & PLAN COMPARISON (TRUTHFUL LIMITS):
-   - Basic Plan ($25 / 30 Days):
-     • Multi-country web search engine (excludes Google Maps & AI Research Agent).
-     • Workspace-level lead deduplication & XLSX/PDF/CSV/JSON exports.
-     • Direct personal Gmail cold outreach (up to 10 cold emails per UTC day via Google OAuth).
-     • Standard AI email copy generator.
-     • 30 days active access (locks automatically at exact expiry until renewed).
-   - Lifetime Plan ($100 One-Time — BEST VALUE):
-     • Permanent access — zero monthly renewal fees!
-     • Up to 500 cold emails per UTC day across connected Gmail accounts (Google fair-use cap).
-     • EXCLUSIVE: Google Maps Business Lead Generator (discover local places + website contact info).
-     • EXCLUSIVE: AI Lead Research Agent.
-     • Multi-Gmail account rotation.
-     • Priority direct WhatsApp consultation with the Founder.
-   - Custom Plans: Configurable duration, modules, and daily limits set by the Owner.
-4. HOW TO ACTIVATE / BUY:
-   - New accounts start in LOCKED status for safety.
-   - Submit payment proof in Dashboard -> Usage & Subscription or message the Founder on WhatsApp at +923174383702 (https://wa.me/923174383702).
-   - Supported payment methods: Bank Transfer / Raast, EasyPaisa, JazzCash, or arranged international card/transfer.
-   - Fast manual activation after payment verification.
-5. OBJECTION HANDLING:
-   - "Why USMAN AI GTM?" -> Affordable $25/mo or $100 one-time Lifetime entry point, direct 1-to-1 Gmail OAuth dispatch, and transparent source URLs + MX validation without inflated data-broker claims.
-   - "Are the leads fresh?" -> We query live public web and Google sources at search time, run syntax & DNS MX domain checks, and never sell stale static CSV dumps.
-   - "Is my data private?" -> Workspace tenant isolation in PostgreSQL. Your leads and Gmail connections remain separated per workspace.
-6. MULTILINGUAL FLUENCY:
-   - Always respond in the EXACT language used by the user:
-     • Urdu (اردو رسم الخط): Use courteous, professional Urdu.
-     • Roman Urdu: Use natural Roman Urdu (e.g. "Aap ka business kis cheez ka hai?", "Basic plan $25 ka hai aur Lifetime $100 ka").
-     • Arabic (العربية): Fluent, professional business Arabic.
-     • Turkish (Türkçe): Polite, natural Turkish.
-     • Romanian (Română): Professional Romanian.
-     • French (Français): Professional French.
-     • German (Deutsch): Professional German.
-     • Spanish (Español): Professional Spanish.
-     • English: Crisp, consultative British/American English.
-7. ABSOLUTE CONFIDENTIALITY:
-   - NEVER disclose backend database credentials, connection strings, JWT keys, API provider keys, or private customer data.
-   - If asked, state that enterprise security policies keep internal infrastructure strictly protected.
-`;
 
 function detectUserLanguage(text: string): { code: string; label: string } {
   const lower = text.toLowerCase().trim();
-
-  // Arabic or Urdu unicode script
   if (/[\u0600-\u06FF]/.test(text)) {
-    // Distinguish Urdu from Arabic by common Urdu characters
     if (/[\u067E\u0686\u0698\u06AF\u06CC\u06D2]/.test(text) || lower.includes("ہیں") || lower.includes("کیا") || lower.includes("ہے")) {
       return { code: "ur", label: "Urdu (اردو)" };
     }
     return { code: "ar", label: "Arabic (العربية)" };
   }
-
-  // Roman Urdu keywords
-  const romanUrduWords = [
-    "kya", "kia", "hai", "hain", "kese", "kaise", "kro", "karo", "muje", "mujhe",
-    "batao", "btao", "tala", "chahiye", "kitna", "kitne", "paisa", "paise", "rupay",
-    "krna", "karna", "acha", "theek", "shukriya", "bhai", "janab", "hoga", "lekin"
-  ];
+  const romanUrduWords = ["kya", "kia", "hai", "hain", "kese", "kaise", "kro", "karo", "muje", "mujhe", "batao", "chahiye", "kitna"];
   const words = lower.split(/\s+/);
-  const matchedUrdu = words.filter((w) => romanUrduWords.includes(w));
-  if (matchedUrdu.length >= 2 || (matchedUrdu.length === 1 && words.length <= 4 && ["kya", "kaise", "kitna", "tala"].includes(words[0]))) {
+  if (words.filter((w) => romanUrduWords.includes(w)).length >= 2) {
     return { code: "ur-Latn", label: "Roman Urdu" };
   }
-
-  // Turkish
-  if (lower.includes("merhaba") || lower.includes("nasılsın") || lower.includes("fiyat") || lower.includes("ücret") || lower.includes("nasıl")) {
-    return { code: "tr", label: "Turkish (Türkçe)" };
-  }
-
-  // Romanian
-  if (lower.includes("bună") || lower.includes("buna") || lower.includes("salut") || lower.includes("preț") || lower.includes("pret") || lower.includes("cum pot")) {
-    return { code: "ro", label: "Romanian (Română)" };
-  }
-
-  // French
-  if (lower.includes("bonjour") || lower.includes("comment") || lower.includes("combien") || lower.includes("prix") || lower.includes("merci")) {
-    return { code: "fr", label: "French (Français)" };
-  }
-
-  // German
-  if (lower.includes("hallo") || lower.includes("guten") || lower.includes("preis") || lower.includes("kostet") || lower.includes("wie kann")) {
+  if (lower.includes("hallo") || lower.includes("guten") || lower.includes("deutsch") || lower.includes("e-mail") || lower.includes("preis")) {
     return { code: "de", label: "German (Deutsch)" };
   }
-
-  // Spanish
-  if (lower.includes("hola") || lower.includes("cómo") || lower.includes("como") || lower.includes("cuánto") || lower.includes("precio") || lower.includes("gracias")) {
+  if (lower.includes("bonjour") || lower.includes("prix") || lower.includes("merci")) {
+    return { code: "fr", label: "French (Français)" };
+  }
+  if (lower.includes("hola") || lower.includes("precio") || lower.includes("gracias")) {
     return { code: "es", label: "Spanish (Español)" };
   }
-
   return { code: "en", label: "English" };
 }
 
-function getFallbackReply(message: string, langCode: string): { reply: string; suggested_actions: Array<{ label: string; url: string }> } {
-  if (langCode === "ur") {
-    return {
-      reply: `**عثمان اے آئی جی ٹی ایم (USMAN AI GTM) میں خوش آمدید!**\n\nمیں آپ کا بزنس گروتھ اور سیلز کنسلٹنٹ ہوں۔ میں آپ کی مدد کر سکتا ہوں:\n\n• **بیسک پلان ($25 / 30 دن)**: ویب لیڈ سرچ، روزانہ 10 کولڈ ای میلز (جی میل OAuth) اور XLSX/PDF/CSV/JSON ایکسپورٹس۔\n• **لائف ٹائم پلان ($100 مستقل)**: گوگل میپس لیڈ جنریٹر، اے آئی ریسرچ ایجنٹ، اور روزانہ 500 تک کولڈ ای میلز۔\n\nاپنے بزنس کے بارے میں بتائیں تا کہ میں آپ کے لیے بہترین حکمتِ عملی تجویز کروں۔\nاکاؤنٹ ایکٹیویشن کے لیے واٹس ایپ پر رابطہ کریں: **+923174383702**`,
-      suggested_actions: [
-        { label: "واٹس ایپ پر رابطہ کریں (+923174383702)", url: "https://wa.me/923174383702?text=Hello%20Usman%2C%20mujhe%20account%20activate%20krwana%20hai" },
-        { label: "پلانز اور قیمت", url: "/pricing" }
-      ]
-    };
-  }
+function buildContextSummaryPrompt(wsCtx: any): string {
+  const p = wsCtx.profile;
+  const profileSummary = p
+    ? `Saved Business Profile:
+  - Business Name: ${p.business_name || "Not set"}
+  - What It Does: ${p.ai_summary || p.products_services || "Not set"}
+  - Ideal Customers: ${p.target_customer_type || "Not set"}
+  - Target Countries: ${p.preferred_locations || p.country || "Not set"}
+  - Preferred Outreach Language: ${p.preferred_outreach_language || "English"}`
+    : "Saved Business Profile: NOT YET CONFIGURED (recommend filling out /app/business-profile by voice or text).";
 
-  if (langCode === "ur-Latn") {
-    return {
-      reply: `**USMAN AI GTM Sales & Growth Consultant:**\n\nMain aapki help kar sakta hoon aapke business k mutabiq targeted leads dhoondne mein:\n\n• **Basic Plan ($25 / 30 Din)**: Web lead search, XLSX/PDF/CSV/JSON exports aur Gmail OAuth integration (daily 10 cold emails cap).\n• **Lifetime Plan ($100 One-Time)**: Google Maps Lead Generator, AI Research Agent, daily up to 500 cold emails aur zero monthly fees!\n\nAap kis industry ya business k liye clients dhoond rahe hain? Mujhe batayein taakay main exact strategy suggest kar sakoon.\n\nAccount activate karwane k liye Founder se WhatsApp per rabta karein: **+923174383702**`,
-      suggested_actions: [
-        { label: "WhatsApp per Rabta (+923174383702)", url: "https://wa.me/923174383702?text=Hi%20Usman%2C%20account%20activate%20krna%20hai" },
-        { label: "View Pricing Plans", url: "/pricing" }
-      ]
-    };
-  }
+  const recentLeadsText =
+    wsCtx.recent_leads.length > 0
+      ? wsCtx.recent_leads
+          .map((l: any) => `#${l.id} ${l.business_name} (${l.industry || "B2B"}, ${[l.city, l.country].filter(Boolean).join(", ")}, email: ${l.email || "none"})`)
+          .join("\n  ")
+      : "No saved leads yet.";
 
-  if (langCode === "tr") {
-    return {
-      reply: `**USMAN AI GTM\'e Hoş Geldiniz!**\n\nB2B büyüme ve potansiyel müşteri bulma platformumuz hakkında size yardımcı olmaktan memnuniyet duyarım.\n\n• **Temel Plan ($25 / 30 Gün)**: Web araması, XLSX/PDF/CSV/JSON dışa aktarma ve Gmail OAuth entegrasyonu (günlük 10 e-posta limiti).\n• **Ömür Boyu Plan ($100 Tek Seferlik)**: Google Haritalar Müşteri Oluşturucu, AI Araştırma ve günde 500\'e kadar e-posta hakkı!\n\nİşletmenizi ve hedef kitlenizi anlatın, size en uygun stratejiyi sunalım. WhatsApp: **+923174383702**`,
-      suggested_actions: [
-        { label: "WhatsApp'tan Yazın (+923174383702)", url: "https://wa.me/923174383702" },
-        { label: "Fiyatlandırma", url: "/pricing" }
-      ]
-    };
-  }
+  const recentSearchesText =
+    wsCtx.recent_searches.length > 0
+      ? wsCtx.recent_searches
+          .map((s: any) => `"${s.keyword}" in ${s.country} (${s.qualified_quantity} leads on ${s.search_date})`)
+          .join("; ")
+      : "No searches run yet.";
 
-  return {
-    reply: `**Welcome to USMAN AI GTM!**\n\nI am your dedicated B2B Growth Consultant. To give you the highest-converting strategy, could you tell me:\n1. **What services or products do you offer?**\n2. **Who is your ideal customer profile (industry, location, size)?**\n\n**Quick Overview of Plans:**\n• **Basic Plan ($25 / 30 Days)**: Multi-country web lead search, XLSX/PDF/CSV/JSON exports, and up to 10 cold emails/day via Gmail OAuth.\n• **Lifetime Plan ($100 One-Time)**: Permanent access, Google Maps Business Lead Generator, AI Research Agent, and up to 500 Gmail emails/day.\n\nTo activate or upgrade, chat with the Owner on WhatsApp: **+923174383702**.`,
-    suggested_actions: [
-      { label: "Message Founder on WhatsApp (+923174383702)", url: "https://wa.me/923174383702" },
-      { label: "Compare Plans & Pricing", url: "/pricing" },
-      { label: "Find Leads", url: "/app/leads" }
-    ]
-  };
+  return `
+AUTHENTICATED WORKSPACE CONTEXT (STRICTLY PRIVATE TO THIS WORKSPACE):
+- Subscription Plan: ${wsCtx.plan_label} (Daily Gmail Cap: ${wsCtx.daily_email_limit}/day, Maps Access: ${wsCtx.google_maps_enabled ? "Enabled" : "Not Included"})
+- Saved Leads Total: ${wsCtx.total_leads} (${wsCtx.today_leads} saved today)
+- Connected Gmail Accounts: ${wsCtx.connected_gmails}
+- Recent Searches: ${recentSearchesText}
+- Recent Leads Sample:
+  ${recentLeadsText}
+- ${profileSummary}
+`;
 }
 
-async function getVerifiedAuth(req: Request) {
-  const currentUser = getCurrentUserFromRequest(req);
-  const subCheck = await verifyClientActiveSubscription(currentUser, "ai_assistant");
-  return { currentUser, subCheck };
-}
+const SYSTEM_PROMPT = `You are the Intelligent Business Assistant inside USMAN AI GTM.
+Never mention internal AI model vendor names (never say Gemini, GPT, Claude, etc.). Describe yourself simply as the USMAN AI Business Assistant.
+Help the user using ONLY their real workspace context above. NEVER invent lead counts, emails, or actions.
+If the user asks to summarize today's leads, give the exact numbers from their workspace context.
+If they ask for search ideas or companies needing their services, suggest targeted queries tailored to their saved Business Profile.
+If they want an email translated or rewritten, write the complete email clearly in the requested language (German, Urdu, English, Arabic, Spanish, French, etc.).
+Always respond in the same language the user spoke or typed unless they asked for another output language (for example, replying in English or providing a German email draft when instructed).`;
 
 export async function POST(req: Request) {
   try {
-    const { currentUser, subCheck } = await getVerifiedAuth(req);
+    const currentUser = getCurrentUserFromRequest(req);
+    const subCheck = await verifyClientActiveSubscription(currentUser, "ai_assistant");
     if (!subCheck.allowed) {
       return NextResponse.json(
         { error: subCheck.message || "AI Assistant access restricted." },
         { status: subCheck.statusCode || 403 }
       );
     }
+
     const workspaceId = Number(subCheck.userRecord?.workspace_id || currentUser.workspace_id) || 1;
     const userId = Number(subCheck.userRecord?.id || currentUser.id) || 1;
     const body = await req.json().catch(() => ({}));
-    const message = String(body.message || "").trim();
+    const rawMessage = String(body.message || "").trim();
+    const audioBase64 = typeof body.audioBase64 === "string" ? body.audioBase64 : undefined;
+    const audioMime = typeof body.audioMime === "string" ? body.audioMime : undefined;
     let conversationId = body.conversation_id ? String(body.conversation_id).trim() : null;
 
-    if (!message) {
-      return NextResponse.json({ error: "Please provide a message" }, { status: 400 });
+    if (!rawMessage && !audioBase64) {
+      return NextResponse.json({ error: "Please provide a message or voice recording." }, { status: 400 });
     }
 
-    const detected = detectUserLanguage(message);
+    const displayUserMsg = rawMessage || "[Voice message]";
+    const detected = detectUserLanguage(rawMessage || "English");
 
-    // If conversation doesn't exist, create it in DB
+    // Load live isolated workspace context & chat history
+    const wsCtx = await loadWorkspaceContext(workspaceId, subCheck.userRecord);
+
+    // Handle explicit real workspace save check if user asks about daily stats offline/fallback
     if (!conversationId) {
-      const titleSnippet = message.length > 40 ? message.substring(0, 37) + "..." : message;
+      const titleSnippet = displayUserMsg.length > 40 ? displayUserMsg.substring(0, 37) + "..." : displayUserMsg;
       const newConv = await createNeonChatConversation(
         workspaceId,
         userId || 1,
         titleSnippet,
         detected.code,
-        { initial_intent: "growth_consultation" }
+        { initial_intent: "workspace_assistant" }
       );
-      if (newConv && newConv.id) {
-        conversationId = newConv.id;
-      } else {
-        conversationId = `conv_${Date.now()}`;
-      }
+      conversationId = newConv?.id || `conv_${Date.now()}`;
     }
 
-    // Save incoming user message in DB
     try {
-      await addNeonChatMessage(conversationId, workspaceId, "user", message);
-    } catch (dbErr) {
-      console.warn("Could not persist user message:", dbErr);
-    }
+      await addNeonChatMessage(conversationId, workspaceId, "user", displayUserMsg);
+    } catch {}
 
-    // Load recent conversation history from DB
     let history: any[] = [];
     try {
       history = await getNeonChatMessages(conversationId, workspaceId);
-    } catch (e) {
-      history = [];
-    }
+    } catch {}
+
+    const suggestedKeyword = wsCtx.profile?.keywords?.split(",")[0]?.trim() || wsCtx.profile?.target_customer_type || "";
+    const suggestedCountry = wsCtx.profile?.preferred_locations?.split(",")[0]?.trim() || wsCtx.profile?.country || "";
+    const dynamicActions: Array<{ label: string; url: string }> = [
+      suggestedKeyword
+        ? {
+            label: `Search: "${suggestedKeyword.slice(0, 32)}"`,
+            url: `/app/leads?keyword=${encodeURIComponent(suggestedKeyword)}${suggestedCountry ? `&country=${encodeURIComponent(suggestedCountry)}` : ""}`,
+          }
+        : { label: "Find New Leads", url: "/app/leads" },
+      wsCtx.profile
+        ? { label: "Edit Business Profile", url: "/app/business-profile" }
+        : { label: "Set Up Business Profile", url: "/app/business-profile" },
+      { label: "Cold Email Composer", url: "/app/outreach" },
+    ];
 
     const apiKey = (process.env.GEMINI_API_KEY || "").trim();
-
     if (!apiKey || apiKey.length < 10) {
-      const fallback = getFallbackReply(message, detected.code);
-      try {
-        await addNeonChatMessage(conversationId, workspaceId, "assistant", fallback.reply, fallback.suggested_actions);
-      } catch {}
+      const fallbackReply = `**Workspace Summary (${wsCtx.plan_label}):**\n• Saved Leads: **${wsCtx.total_leads}** total (**${wsCtx.today_leads}** added today)\n• Connected Gmail Accounts: **${wsCtx.connected_gmails}**\n• Business Profile: ${wsCtx.profile?.business_name ? `Configured (${wsCtx.profile.business_name})` : "Not set yet — describe your business under Business Profile!"}\n\nTo generate custom strategies, personalized emails, or translations, ask any specific question or click a recommended action below.`;
+      await addNeonChatMessage(conversationId, workspaceId, "assistant", fallbackReply, dynamicActions).catch(() => {});
       return NextResponse.json({
         conversation_id: conversationId,
-        reply: fallback.reply,
+        reply: fallbackReply,
         language: detected.label,
-        suggested_actions: fallback.suggested_actions
+        suggested_actions: dynamicActions,
       });
     }
 
-    // Build Gemini contents with multi-turn history
-    try {
-      const contents: Array<{ role: "user" | "model"; parts: Array<{ text: string }> }> = [];
+    const contextBlock = buildContextSummaryPrompt(wsCtx);
+    const recentTurns = history.slice(-8);
+    const contents: Array<{ role: "user" | "model"; parts: any[] }> = [];
 
-      // System instruction in first turn
-      const recentTurns = history.slice(-8); // Up to 8 messages
-      if (recentTurns.length > 1) {
-        // First message with system prompt prefix
-        const first = recentTurns[0];
+    if (recentTurns.length > 1) {
+      for (let i = 0; i < recentTurns.length - 1; i++) {
+        const item = recentTurns[i];
         contents.push({
-          role: first.role === "assistant" ? "model" : "user",
-          parts: [{ text: `[System Instruction]\n${CONSULTATIVE_SYSTEM_PROMPT}\n\n[Conversation Start]\n${first.content}` }]
-        });
-
-        for (let i = 1; i < recentTurns.length; i++) {
-          const item = recentTurns[i];
-          contents.push({
-            role: item.role === "assistant" ? "model" : "user",
-            parts: [{ text: item.content }]
-          });
-        }
-      } else {
-        contents.push({
-          role: "user",
-          parts: [{ text: `${CONSULTATIVE_SYSTEM_PROMPT}\n\nUser Question/Statement in ${detected.label}:\n${message}` }]
+          role: item.role === "assistant" ? "model" : "user",
+          parts: [{ text: i === 0 ? `${SYSTEM_PROMPT}\n${contextBlock}\n\n${item.content}` : item.content }],
         });
       }
+    }
 
-      const res = await fetch(
-        "https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash-lite:generateContent",
-        {
-          method: "POST",
-          headers: {
-            "x-goog-api-key": apiKey,
-            "Content-Type": "application/json",
+    const lastUserParts: any[] = [
+      {
+        text:
+          recentTurns.length <= 1
+            ? `${SYSTEM_PROMPT}\n${contextBlock}\n\nUser message (${detected.label}):\n${rawMessage || "Please listen to my attached voice question/instruction and reply helpfully in the same language."}`
+            : rawMessage || "Please respond to the attached voice recording.",
+      },
+    ];
+    if (audioBase64 && audioBase64.length > 100) {
+      lastUserParts.push({
+        inline_data: {
+          mime_type: audioMime || "audio/webm",
+          data: audioBase64,
+        },
+      });
+    }
+    contents.push({ role: "user", parts: lastUserParts });
+
+    const res = await fetch(
+      "https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash-lite:generateContent",
+      {
+        method: "POST",
+        headers: {
+          "x-goog-api-key": apiKey,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          contents,
+          generationConfig: {
+            temperature: 0.55,
+            maxOutputTokens: 1000,
           },
-          body: JSON.stringify({
-            contents,
-            generationConfig: {
-              temperature: 0.7,
-              maxOutputTokens: 1000,
-            }
-          }),
-        }
-      );
-
-      if (res.ok) {
-        const data = await res.json();
-        const replyText = data?.candidates?.[0]?.content?.parts?.[0]?.text?.trim();
-
-        if (replyText) {
-          const suggestedActions = [
-            { label: "WhatsApp Founder (+923174383702)", url: "https://wa.me/923174383702" },
-            { label: "Pricing & Plans", url: "/pricing" },
-            { label: "Find Leads Now", url: "/app/leads" }
-          ];
-
-          try {
-            await addNeonChatMessage(conversationId, workspaceId, "assistant", replyText, suggestedActions);
-          } catch (dbErr) {
-            console.warn("Could not save assistant message:", dbErr);
-          }
-
-          return NextResponse.json({
-            conversation_id: conversationId,
-            reply: replyText,
-            language: detected.label,
-            suggested_actions: suggestedActions
-          });
-        }
+        }),
       }
+    );
 
-      // If Gemini returned an error or empty text, use fallback
-      const fallback = getFallbackReply(message, detected.code);
-      try {
-        await addNeonChatMessage(conversationId, workspaceId, "assistant", fallback.reply, fallback.suggested_actions);
-      } catch {}
-      return NextResponse.json({
-        conversation_id: conversationId,
-        reply: fallback.reply,
-        language: detected.label,
-        suggested_actions: fallback.suggested_actions
-      });
-    } catch (geminiErr) {
-      console.error("Gemini Assistant error:", geminiErr);
-      const fallback = getFallbackReply(message, detected.code);
-      return NextResponse.json({
-        conversation_id: conversationId,
-        reply: fallback.reply,
-        language: detected.label,
-        suggested_actions: fallback.suggested_actions
-      });
+    if (res.ok) {
+      const data = await res.json();
+      const replyText = data?.candidates?.[0]?.content?.parts?.[0]?.text?.trim();
+      if (replyText) {
+        await addNeonChatMessage(conversationId, workspaceId, "assistant", replyText, dynamicActions).catch(() => {});
+        return NextResponse.json({
+          conversation_id: conversationId,
+          reply: replyText,
+          language: detected.label,
+          suggested_actions: dynamicActions,
+        });
+      }
     }
-  } catch (err: any) {
+
+    const honestFallback = `**Workspace Status (${wsCtx.plan_label}):** You currently have **${wsCtx.total_leads} saved leads** (${wsCtx.today_leads} saved today) and **${wsCtx.connected_gmails} connected Gmail account(s)**. The conversational engine was temporarily busy — please retry in a few seconds.`;
+    await addNeonChatMessage(conversationId, workspaceId, "assistant", honestFallback, dynamicActions).catch(() => {});
     return NextResponse.json({
-      error: err.message || "Failed to process message"
-    }, { status: 500 });
+      conversation_id: conversationId,
+      reply: honestFallback,
+      language: detected.label,
+      suggested_actions: dynamicActions,
+    });
+  } catch (err: any) {
+    return NextResponse.json(
+      { error: err?.message || "Failed to process assistant request." },
+      { status: 500 }
+    );
   }
 }

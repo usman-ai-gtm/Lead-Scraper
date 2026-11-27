@@ -1,16 +1,14 @@
 import { NextResponse } from "next/server";
 import { getCurrentUserFromRequest, verifyClientActiveSubscription } from "@/lib/serverless-auth";
 import { generatePersonalizedEmail, RecipientLead, SenderProfile } from "@/lib/gemini-email-assistant";
+import { getWorkspaceProfileForPersonalization } from "@/lib/lead-personalizer";
 import { updateNeonLeadOutreachStatus, getNeonGmailAccount } from "@/lib/neon-db";
 
 export async function POST(request: Request) {
   const currentUser = getCurrentUserFromRequest(request);
   const authCheck = await verifyClientActiveSubscription(currentUser, "cold_email");
   if (!authCheck.allowed) {
-    return NextResponse.json(
-      { error: authCheck.message },
-      { status: authCheck.statusCode || 403 }
-    );
+    return NextResponse.json({ error: authCheck.message }, { status: authCheck.statusCode || 403 });
   }
   const workspaceId = Number(authCheck.userRecord?.workspace_id || currentUser.workspace_id) || 1;
 
@@ -21,26 +19,40 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "Invalid JSON payload" }, { status: 400 });
   }
 
-  const { lead, sender } = body;
+  const {
+    lead,
+    sender,
+    instruction,
+    instruction_audio_base64,
+    instruction_audio_mime,
+    template_name,
+    output_language,
+    tone,
+  } = body;
 
-  if (!lead || !lead.business_name || !lead.email) {
+  if (!lead || !lead.business_name) {
     return NextResponse.json(
-      { error: "lead object with business_name and email is required." },
+      { error: "lead object with business_name is required." },
       { status: 400 }
     );
   }
 
-  // Retrieve sender profile defaults if not fully provided
-  const gmailAccount = await getNeonGmailAccount(workspaceId);
+  const [gmailAccount, businessProfile] = await Promise.all([
+    getNeonGmailAccount(workspaceId),
+    getWorkspaceProfileForPersonalization(workspaceId),
+  ]);
+
   const senderProfile: SenderProfile = {
-    company_name: sender?.company_name || currentUser?.company || "USMAN AI GTM",
-    sender_name: sender?.sender_name || gmailAccount?.sender_name || currentUser?.full_name || "Sales Outreach",
-    sender_title: sender?.sender_title || "Client Solutions",
+    company_name: sender?.company_name || businessProfile?.business_name || currentUser?.company || "Our Team",
+    sender_name: sender?.sender_name || gmailAccount?.sender_name || currentUser?.full_name || "Outreach Team",
+    sender_title: sender?.sender_title || "Business Development",
     sender_email: sender?.sender_email || gmailAccount?.sender_email || currentUser?.email || "",
     offer_description:
       sender?.offer_description ||
-      "B2B lead generation, market intelligence, and verified business data solutions to scale customer acquisition.",
-    website: sender?.website || "",
+      businessProfile?.products_services ||
+      businessProfile?.ai_summary ||
+      "B2B solutions and business growth services.",
+    website: sender?.website || businessProfile?.website || "",
   };
 
   const recipientLead: RecipientLead = {
@@ -48,20 +60,30 @@ export async function POST(request: Request) {
     business_name: lead.business_name,
     domain: lead.domain,
     website: lead.website,
-    email: lead.email,
+    email: lead.email || "",
     phone: lead.phone,
     city: lead.city,
     country: lead.country,
     industry: lead.industry,
     address: lead.address,
     notes: lead.notes,
+    snippet: lead.snippet,
     search_keyword: lead.search_keyword,
+    positive_signals: lead.positive_signals,
+    enrichment_data: lead.enrichment_data,
   };
 
   try {
-    const draft = await generatePersonalizedEmail(recipientLead, senderProfile);
+    const draft = await generatePersonalizedEmail(recipientLead, senderProfile, {
+      businessProfile,
+      customInstruction: instruction,
+      instructionAudioBase64: instruction_audio_base64,
+      instructionAudioMime: instruction_audio_mime,
+      templateName: template_name,
+      outputLanguage: output_language,
+      tone,
+    });
 
-    // Update lead CRM stage to 'DRAFT READY'
     if (lead.id) {
       await updateNeonLeadOutreachStatus(workspaceId, Number(lead.id), "DRAFT READY");
     }
@@ -69,15 +91,14 @@ export async function POST(request: Request) {
     return NextResponse.json({
       success: true,
       draft,
-      model: draft.model_used,
-      message: "Personalized cold outreach draft prepared by Gemini AI.",
+      model: "Smart Outreach Engine",
+      used_business_profile: Boolean(businessProfile),
+      message: "Personalized outreach draft generated cleanly.",
     });
   } catch (err: any) {
-    console.error("[Gemini Outreach Generation Error]:", err);
+    console.error("[Outreach Generation Error]:", err);
     return NextResponse.json(
-      {
-        error: err.message || "Failed to generate outreach email draft with Gemini AI.",
-      },
+      { error: err.message || "Failed to generate personalized outreach draft." },
       { status: 500 }
     );
   }

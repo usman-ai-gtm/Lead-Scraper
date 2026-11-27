@@ -9,6 +9,8 @@ import {
   Clock, AlertTriangle, ArrowRight, Ban, Filter, FileText,
   Plus, Trash2, BookmarkPlus
 } from "lucide-react";
+import { VoiceCaptureButton, VoiceCaptureResult } from "@/components/voice/VoiceCaptureButton";
+import { OUTREACH_LANGUAGES } from "@/lib/business-profile-ai";
 
 interface LeadItem {
   id: number;
@@ -71,8 +73,11 @@ function ColdEmailContent() {
   const [newTemplateName, setNewTemplateName] = useState<string>("");
   const [savingTemplate, setSavingTemplate] = useState<boolean>(false);
 
-  // Generation with Gemini AI
+  // Generation with Business Profile & Personalized Assistant
   const [aiGenerating, setAiGenerating] = useState(false);
+  const [assistantInstruction, setAssistantInstruction] = useState("");
+  const [outputLanguage, setOutputLanguage] = useState("Auto");
+  const [emailTone, setEmailTone] = useState<"Professional" | "Friendly" | "Concise">("Professional");
 
   // Modals & previews
   const [previewModalOpen, setPreviewModalOpen] = useState(false);
@@ -352,8 +357,8 @@ function ColdEmailContent() {
     return rendered.trim();
   };
 
-  // Generate personalized email draft using Gemini AI
-  const handleGeminiDraft = async () => {
+  // Generate personalized email draft using Business Profile + instruction (text or voice)
+  const handlePersonalizedDraft = async (audioCap?: VoiceCaptureResult) => {
     if (isLocked) {
       alert("Your account is currently locked. Please complete payment and contact the Owner for activation. Your premium access will begin after approval.");
       return;
@@ -364,6 +369,10 @@ function ColdEmailContent() {
       return;
     }
 
+    const activeTpl = templates.find((t) => String(t.id) === selectedTemplateId);
+    const effectiveInstruction = audioCap?.transcript || assistantInstruction;
+    if (audioCap?.transcript) setAssistantInstruction(audioCap.transcript);
+
     setAiGenerating(true);
     try {
       const res = await fetch("/api/outreach/generate-email", {
@@ -371,26 +380,39 @@ function ColdEmailContent() {
         headers: getAuthHeaders(),
         body: JSON.stringify({
           lead: firstSelected,
+          instruction: effectiveInstruction || undefined,
+          instruction_audio_base64: audioCap?.audioBase64,
+          instruction_audio_mime: audioCap?.audioMime,
+          template_name: activeTpl?.name,
+          output_language: outputLanguage,
+          tone: emailTone,
           sender: {
-            sender_name: senderAccount?.sender_name || user?.full_name || "Sales Outreach",
-            company_name: user?.company || "USMAN AI GTM",
+            sender_name: senderAccount?.sender_name || user?.full_name || "Outreach Team",
+            company_name: user?.company || "Our Company",
           },
         }),
       });
       const data = await res.json();
       const draftObj = data?.draft || data?.email_draft;
       if (res.ok && draftObj) {
+        if (draftObj.recognized_instruction) {
+          setAssistantInstruction(draftObj.recognized_instruction);
+        }
         setSubject(draftObj.subject || subject);
         setBodyText(
-          `${draftObj.greeting || "Hi {{contact_name}},"}\n\n${draftObj.body}\n\n${
+          `${draftObj.greeting || "Hi Team,"}\n\n${draftObj.body}\n\n${
             draftObj.call_to_action || ""
           }\n\n${draftObj.signature || "Best regards,\n{{sender_name}}"}`
         );
         setToastType("success");
-        setToastMsg("Personalized draft created with Gemini AI based on lead details.");
+        setToastMsg(
+          data.used_business_profile
+            ? "Personalized draft created using your Business Profile and lead details."
+            : "Personalized draft created from lead details."
+        );
       } else {
         setToastType("error");
-        setToastMsg(data.error || "Failed to generate AI email draft.");
+        setToastMsg(data.error || "Failed to generate personalized email draft.");
       }
     } catch (err: any) {
       alert("Error generating email: " + err.message);
@@ -765,13 +787,69 @@ function ColdEmailContent() {
               </button>
 
               <button
-                onClick={handleGeminiDraft}
+                onClick={() => handlePersonalizedDraft()}
                 disabled={aiGenerating || leads.length === 0}
-                className="px-3 py-1.5 text-xs font-semibold text-purple-300 bg-purple-500/10 hover:bg-purple-500/20 border border-purple-500/20 rounded-xl transition-all flex items-center gap-1.5 disabled:opacity-50"
+                className="px-3 py-1.5 text-xs font-semibold text-purple-300 bg-purple-500/10 hover:bg-purple-500/20 border border-purple-500/20 rounded-xl transition-all flex items-center gap-1.5 disabled:opacity-50 cursor-pointer"
               >
                 <Sparkles className={`h-3.5 w-3.5 ${aiGenerating ? "animate-spin" : ""}`} />
-                <span>{aiGenerating ? "Drafting with Gemini..." : "Draft with Gemini AI"}</span>
+                <span>{aiGenerating ? "Drafting Email..." : "Generate Personalized Email"}</span>
               </button>
+            </div>
+          </div>
+
+          {/* Multilingual Business-Profile-Aware Email Assistant */}
+          <div className="rounded-xl border border-indigo-500/25 bg-indigo-500/[0.04] p-3.5 space-y-3">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+              <span className="text-[11px] font-bold text-indigo-200">
+                Personalized Email Assistant (Uses Your Saved Business Profile)
+              </span>
+              <div className="flex items-center gap-2 flex-wrap">
+                <select
+                  value={outputLanguage}
+                  onChange={(e) => setOutputLanguage(e.target.value)}
+                  aria-label="Output email language"
+                  className="rounded-lg border border-white/10 bg-[#0c1017] px-2.5 py-1 text-[11px] text-slate-200 focus:outline-none"
+                >
+                  <option value="Auto">Language: Auto (Profile / Prospect)</option>
+                  {OUTREACH_LANGUAGES.map((lang) => (
+                    <option key={lang} value={lang}>
+                      {lang}
+                    </option>
+                  ))}
+                </select>
+                <select
+                  value={emailTone}
+                  onChange={(e) => setEmailTone(e.target.value as any)}
+                  aria-label="Email tone"
+                  className="rounded-lg border border-white/10 bg-[#0c1017] px-2.5 py-1 text-[11px] text-slate-200 focus:outline-none"
+                >
+                  <option value="Professional">Tone: Professional</option>
+                  <option value="Friendly">Tone: Friendly</option>
+                  <option value="Concise">Tone: Concise</option>
+                </select>
+              </div>
+            </div>
+
+            <div className="flex flex-col sm:flex-row gap-2 items-stretch sm:items-center">
+              <input
+                type="text"
+                dir="auto"
+                value={assistantInstruction}
+                onChange={(e) => setAssistantInstruction(e.target.value)}
+                placeholder='Tell the assistant what kind of email you want... (e.g. German, Urdu, or English instructions)'
+                className="flex-1 rounded-xl border border-white/10 bg-black/30 px-3 py-2 text-xs text-white placeholder-slate-500 focus:border-indigo-500 focus:outline-none"
+              />
+              <VoiceCaptureButton
+                compact
+                label="Speak Instruction"
+                disabled={aiGenerating}
+                onLiveTranscript={(txt) => setAssistantInstruction(txt)}
+                onCaptureComplete={(res) => handlePersonalizedDraft(res)}
+                onError={(msg) => {
+                  setToastType("info");
+                  setToastMsg(msg);
+                }}
+              />
             </div>
           </div>
 
@@ -786,9 +864,9 @@ function ColdEmailContent() {
                 className="w-full bg-transparent text-xs font-medium text-slate-200 focus:outline-none cursor-pointer"
               >
                 <option value="" disabled className="bg-[#0c1017] text-slate-500">
-                  Select an email template...
+                  Select a practical template...
                 </option>
-                <optgroup label="Default System Templates (10)" className="bg-[#0c1017] text-blue-400 font-semibold">
+                <optgroup label="Core Practical Templates (6)" className="bg-[#0c1017] text-blue-400 font-semibold">
                   {templates
                     .filter((t) => t.is_default)
                     .map((t) => (

@@ -17,6 +17,7 @@ import { MultiCountrySelector } from "@/components/leads/MultiCountrySelector";
 import { MultiCitySelector, SelectedCityTarget } from "@/components/leads/MultiCitySelector";
 import { WhatsAppModal } from "@/components/leads/WhatsAppModal";
 import { LeadQualityBadge } from "@/components/leads/LeadQualityBadge";
+import { BatchPersonalizeButton } from "@/components/leads/BatchPersonalizeButton";
 
 interface QualifiedLead {
   id: number;
@@ -454,6 +455,7 @@ function LeadsSearchComponent() {
 
         {qualifiedLeads.length > 0 && (
           <div className="flex items-center gap-2 self-start md:self-center flex-wrap">
+            <BatchPersonalizeButton leads={qualifiedLeads} />
             <button
               onClick={() => handleExport("pdf")}
               disabled={exportLoading}

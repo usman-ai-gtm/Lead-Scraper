@@ -25,12 +25,31 @@ async function ensureProfileTable() {
         exclusions text,
         additional_instructions text,
         ai_summary text,
+        raw_description text,
+        source_language text,
+        differentiator text,
+        outreach_goal text,
+        preferred_outreach_language text,
+        preferred_tone text,
+        is_rtl boolean DEFAULT false,
         created_at text,
         updated_at text
       )
     `);
+    const additiveCols = [
+      "ALTER TABLE workspace_profiles ADD COLUMN IF NOT EXISTS raw_description text",
+      "ALTER TABLE workspace_profiles ADD COLUMN IF NOT EXISTS source_language text",
+      "ALTER TABLE workspace_profiles ADD COLUMN IF NOT EXISTS differentiator text",
+      "ALTER TABLE workspace_profiles ADD COLUMN IF NOT EXISTS outreach_goal text",
+      "ALTER TABLE workspace_profiles ADD COLUMN IF NOT EXISTS preferred_outreach_language text",
+      "ALTER TABLE workspace_profiles ADD COLUMN IF NOT EXISTS preferred_tone text",
+      "ALTER TABLE workspace_profiles ADD COLUMN IF NOT EXISTS is_rtl boolean DEFAULT false",
+    ];
+    for (const ddl of additiveCols) {
+      await sql.query(ddl).catch(() => {});
+    }
   } catch (e) {
-    console.error("Error creating workspace_profiles table:", e);
+    console.error("Error ensuring workspace_profiles table:", e);
   }
 }
 
@@ -91,8 +110,13 @@ export async function POST(req: Request) {
         workspace_id, business_name, website, country, city, industry,
         products_services, target_customer_type, ideal_industries,
         target_business_size, preferred_locations, keywords, exclusions,
-        additional_instructions, ai_summary, created_at, updated_at
-      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $16)
+        additional_instructions, ai_summary, raw_description, source_language,
+        differentiator, outreach_goal, preferred_outreach_language, preferred_tone,
+        is_rtl, created_at, updated_at
+      ) VALUES (
+        $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15,
+        $16, $17, $18, $19, $20, $21, $22, $23, $23
+      )
       ON CONFLICT (workspace_id) DO UPDATE SET
         business_name = EXCLUDED.business_name,
         website = EXCLUDED.website,
@@ -108,6 +132,13 @@ export async function POST(req: Request) {
         exclusions = EXCLUDED.exclusions,
         additional_instructions = EXCLUDED.additional_instructions,
         ai_summary = EXCLUDED.ai_summary,
+        raw_description = EXCLUDED.raw_description,
+        source_language = EXCLUDED.source_language,
+        differentiator = EXCLUDED.differentiator,
+        outreach_goal = EXCLUDED.outreach_goal,
+        preferred_outreach_language = EXCLUDED.preferred_outreach_language,
+        preferred_tone = EXCLUDED.preferred_tone,
+        is_rtl = EXCLUDED.is_rtl,
         updated_at = EXCLUDED.updated_at`,
       [
         workspaceId,
@@ -125,6 +156,13 @@ export async function POST(req: Request) {
         body.exclusions || "",
         body.additional_instructions || "",
         body.ai_summary || "",
+        body.raw_description || "",
+        body.source_language || "",
+        body.differentiator || "",
+        body.outreach_goal || "",
+        body.preferred_outreach_language || "English",
+        body.preferred_tone || "Professional",
+        Boolean(body.is_rtl),
         nowIso,
       ]
     );

@@ -157,7 +157,7 @@ export function AiSupportWidget() {
                     Live
                   </span>
                 </div>
-                <p className="text-[10px] text-slate-400">Powered by Gemini AI • GTM Intelligence</p>
+                <p className="text-[10px] text-slate-400">Intelligent B2B Assistant</p>
               </div>
             </div>
 

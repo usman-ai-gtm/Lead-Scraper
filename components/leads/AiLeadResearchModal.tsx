@@ -166,7 +166,7 @@ export function AiLeadResearchModal({ isOpen, onClose, lead, onPushToOutreach }:
               <RefreshCw className="h-7 w-7 animate-spin mx-auto text-amber-400" />
               <p className="text-sm font-semibold text-white">Analyzing Company Intelligence...</p>
               <p className="text-xs text-slate-400 max-w-sm mx-auto">
-                Reviewing public domain data, industry positioning, and drafting tailored cold email proposals via Gemini AI.
+                Reviewing public domain data, industry positioning, and drafting tailored cold email proposals via Smart Business Research.
               </p>
             </div>
           )}
@@ -305,7 +305,7 @@ export function AiLeadResearchModal({ isOpen, onClose, lead, onPushToOutreach }:
         {/* Footer */}
         <div className="p-3 bg-[#0a0e14] border-t border-white/[0.08] flex items-center justify-between shrink-0">
           <span className="text-[10px] text-slate-500">
-            Powered by USMAN AI GTM • Gemini Intelligence
+            Powered by USMAN AI GTM • Business Intelligence Engine
           </span>
           <button
             onClick={onClose}

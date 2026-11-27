@@ -8,6 +8,7 @@ import {
   ExternalLink, Bot, User, Check, Copy, ArrowRight, ShieldCheck,
   PhoneCall, Zap, Building2, HelpCircle
 } from "lucide-react";
+import { VoiceCaptureButton, VoiceCaptureResult } from "@/components/voice/VoiceCaptureButton";
 
 interface Conversation {
   id: string;
@@ -27,20 +28,20 @@ interface Message {
 
 const STARTER_PROMPTS = [
   {
-    title: "Agency Growth Strategy",
-    prompt: "I run a B2B digital marketing agency. How can USMAN AI GTM help me acquire 5 to 10 high-ticket clients every month?",
+    title: "Find Companies Needing My Services",
+    prompt: "Based on my Business Profile, suggest the best target industries and search queries to find high-fit prospects today.",
   },
   {
-    title: "Basic vs Lifetime",
-    prompt: "Can you explain the exact differences between the $25/30-day Basic Plan and the $100 Lifetime Plan?",
+    title: "Summarize Today's Lead Activity",
+    prompt: "Summarize my saved leads, recent searches, and suggest what outreach steps I should take next.",
   },
   {
-    title: "Google Maps Scraper",
-    prompt: "How does the Lifetime Google Maps Lead Generator extract local business emails and phone numbers?",
+    title: "Translate or Rewrite an Email",
+    prompt: "Help me write or translate a concise, professional cold introduction email into German for a prospective client.",
   },
   {
     title: "اردو رہنمائی",
-    prompt: "کیا آپ مجھے بتا سکتے ہیں کہ اکاؤنٹ کیسے ایکٹیویٹ ہوگا اور پیمنٹ کا کیا طریقہ ہے؟",
+    prompt: "میری پروفائل کے مطابق مجھے بتائیں کہ میں بہتر لیڈز کیسے تلاش کروں اور ای میل کیسے بھیجوں؟",
   },
 ];
 
@@ -294,7 +295,7 @@ function AssistantContent() {
             <ShieldCheck className="h-3.5 w-3.5 text-emerald-400" />
             <span>Workspace #{user?.workspace_id || 1} Private</span>
           </span>
-          <span className="font-mono text-[10px] text-purple-400 font-semibold">Gemini 3.5</span>
+          <span className="font-mono text-[10px] text-purple-400 font-semibold">Workspace Engine</span>
         </div>
       </aside>
 
@@ -400,7 +401,7 @@ function AssistantContent() {
                         : "bg-gradient-to-r from-blue-600 to-indigo-600 text-white shadow-glow-sm"
                     }`}
                   >
-                    <div className="whitespace-pre-wrap font-sans">{msg.content}</div>
+                    <div dir="auto" className="whitespace-pre-wrap font-sans">{msg.content}</div>
 
                     {/* Suggested Action Buttons if present */}
                     {isAssistant && msg.suggested_actions && msg.suggested_actions.length > 0 && (
@@ -464,16 +465,11 @@ function AssistantContent() {
         </div>
 
         {/* Input Bar */}
-        <div className="p-4 border-t border-white/[0.08] bg-[#090d16]/70 backdrop-blur-sm">
-          <form
-            onSubmit={(e) => {
-              e.preventDefault();
-              handleSendMessage();
-            }}
-            className="flex items-end gap-2"
-          >
+        <div className="p-4 border-t border-white/[0.08] bg-[#090d16]/70 backdrop-blur-sm space-y-2">
+          <div className="flex items-end gap-2">
             <div className="flex-1 relative">
               <textarea
+                dir="auto"
                 value={inputText}
                 onChange={(e) => setInputText(e.target.value)}
                 onKeyDown={(e) => {
@@ -483,23 +479,59 @@ function AssistantContent() {
                   }
                 }}
                 rows={2}
-                placeholder="Ask about high-ticket B2B client acquisition, plan differences, or speak in Urdu / Roman Urdu..."
+                placeholder="Ask about your Business Profile, today's leads, search queries, or speak in English, Urdu, German, Arabic..."
                 className="w-full rounded-xl border border-white/10 bg-white/[0.03] p-3 text-xs text-white placeholder-slate-500 focus:border-purple-500 focus:outline-none resize-none leading-relaxed"
               />
             </div>
 
+            <VoiceCaptureButton
+              compact
+              label="Voice"
+              disabled={isSending}
+              onLiveTranscript={(txt) => setInputText(txt)}
+              onCaptureComplete={async (cap: VoiceCaptureResult) => {
+                if (cap.transcript) setInputText(cap.transcript);
+                if (!cap.transcript && !cap.audioBase64) return;
+                setIsSending(true);
+                const previewText = cap.transcript || "[Voice input]";
+                setMessages((prev) => [...prev, { role: "user", content: previewText }]);
+                setInputText("");
+                try {
+                  const res = await fetch("/api/assistant/chat", {
+                    method: "POST",
+                    headers: getAuthHeaders(),
+                    body: JSON.stringify({
+                      message: cap.transcript || "",
+                      audioBase64: cap.audioBase64,
+                      audioMime: cap.audioMime,
+                      conversation_id: activeConvId,
+                    }),
+                  });
+                  const data = await res.json();
+                  if (data.conversation_id && !activeConvId) setActiveConvId(data.conversation_id);
+                  if (data.language) setActiveLanguage(data.language);
+                  setMessages((prev) => [
+                    ...prev,
+                    { role: "assistant", content: data.reply || "Processed voice request.", suggested_actions: data.suggested_actions || [] },
+                  ]);
+                } catch {}
+                setIsSending(false);
+              }}
+            />
+
             <button
-              type="submit"
+              type="button"
+              onClick={() => handleSendMessage()}
               disabled={isSending || !inputText.trim()}
               className="h-11 px-5 rounded-xl bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-500 hover:to-indigo-500 text-white text-xs font-bold flex items-center gap-2 transition-all shadow-glow-sm disabled:opacity-50 cursor-pointer shrink-0"
             >
               <Send className="h-4 w-4" />
               <span className="hidden sm:inline">Send</span>
             </button>
-          </form>
+          </div>
 
-          <p className="mt-2 text-[10px] text-slate-500 text-center">
-            USMAN AI GTM Consultant gives strategic B2B recommendations. Direct account activation is provided via WhatsApp (+923174383702).
+          <p className="text-[10px] text-slate-500 text-center">
+            USMAN AI Business Assistant uses your saved workspace context. Direct support via WhatsApp (+923174383702).
           </p>
         </div>
       </main>

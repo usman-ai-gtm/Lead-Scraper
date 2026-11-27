@@ -12,7 +12,7 @@ export default function OnboardingPage() {
   const [currentStep, setCurrentStep] = useState(1);
   const [useCase, setUseCase] = useState("Enterprise Outbound");
   const [aiMode, setAiMode] = useState("QUALITY MODE");
-  const [searchProvider, setSearchProvider] = useState("Serper API");
+  const [searchProvider, setSearchProvider] = useState("Global Web & Places Engine");
 
   const steps = [
     { num: 1, title: "Workspace Created", icon: Building },
@@ -105,7 +105,7 @@ export default function OnboardingPage() {
               <h2 className="text-xl font-bold text-white mb-2">Configure Default Multi-AI Mode</h2>
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 {[
-                  { name: "QUALITY MODE", desc: "Best reasoning & deep research (GPT-4o & Claude 3.5 Sonnet)" },
+                  { name: "QUALITY MODE", desc: "Best reasoning & deep company research" },
                   { name: "BALANCED MODE", desc: "Optimal blend of speed and intelligence" },
                   { name: "FAST MODE", desc: "High throughput for bulk volume prospecting" },
                   { name: "ECONOMY MODE", desc: "Maximum token efficiency for large datasets" },
@@ -133,8 +133,8 @@ export default function OnboardingPage() {
               <h2 className="text-xl font-bold text-white mb-2">Search & Web Evidence Providers</h2>
               <div className="space-y-2">
                 {[
-                  { name: "Serper API", desc: "Fastest Google Business & Maps search provider" },
-                  { name: "SerpApi", desc: "Global multi-engine crawler" },
+                  { name: "Global Web & Places Engine", desc: "Live web & Google Places business discovery" },
+                  { name: "Multi-Source Registry Index", desc: "Public corporate registries & website crawler" },
                   { name: "USMAN Internal Crawl Engine", desc: "Zero external key required (Built-in)" },
                 ].map((item) => (
                   <div

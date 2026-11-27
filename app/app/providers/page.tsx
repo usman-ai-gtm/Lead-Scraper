@@ -86,7 +86,7 @@ export default function ProvidersPage() {
             <tr>
               <th className="py-3.5 px-4">Provider Name</th>
               <th className="py-3.5 px-4">Type</th>
-              <th className="py-3.5 px-4">Target Model</th>
+              <th className="py-3.5 px-4">Engine Tier</th>
               <th className="py-3.5 px-4">Masked Key</th>
               <th className="py-3.5 px-4">Status</th>
               <th className="py-3.5 px-4">Latency</th>
@@ -108,8 +108,8 @@ export default function ProvidersPage() {
                     <Zap className="h-3.5 w-3.5 text-blue-400 shrink-0" />
                     <span>{p.provider_name}</span>
                   </td>
-                  <td className="py-3 px-4 text-slate-400">{p.provider_type || "LLM Core"}</td>
-                  <td className="py-3 px-4 font-mono text-purple-400 text-[11px]">{p.model_name || "Auto-Select"}</td>
+                  <td className="py-3 px-4 text-slate-400">{p.provider_type || "Core Engine"}</td>
+                  <td className="py-3 px-4 font-mono text-purple-400 text-[11px]">Server Managed</td>
                   <td className="py-3 px-4 font-mono text-slate-400 text-[11px]">{p.masked_key}</td>
                   <td className="py-3 px-4">
                     <span

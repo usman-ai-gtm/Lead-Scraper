@@ -53,7 +53,7 @@ export default function IntegrationsPage() {
           name: "Model Context Protocol (MCP) Host",
           category: "Developer & AI",
           icon: "terminal",
-          description: "Expose USMAN AI GTM tools, lead databases, and GTM memory to external IDEs and Anthropic/Claude MCP clients.",
+          description: "Expose USMAN AI GTM tools, lead databases, and GTM memory to external IDEs and compatible MCP clients.",
           env_keys: [],
           auth_type: "Local SSE / stdio MCP Server",
           scopes: ["read_leads", "execute_feature", "query_intelligence"],

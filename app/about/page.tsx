@@ -4,7 +4,7 @@ import React from "react";
 import Link from "next/link";
 import { Header } from "@/components/marketing/Header";
 import { Footer } from "@/components/marketing/Footer";
-import { ShieldCheck, Lock, Globe2, Sparkles, Server } from "lucide-react";
+import { ShieldCheck, Lock, Globe2, Sparkles, Server, Mic } from "lucide-react";
 
 export default function AboutPage() {
   return (
@@ -23,7 +23,7 @@ export default function AboutPage() {
           </h1>
 
           <p className="text-lg text-slate-300 leading-relaxed mb-12 max-w-3xl mx-auto">
-            USMAN AI GTM unifies real-time web and Google Maps business discovery, direct website contact extraction, DNS domain MX checks, isolated lead storage, structured multi-format exports, and 1-to-1 Gmail OAuth outreach into one streamlined workspace.
+            USMAN AI GTM unifies multilingual business onboarding (text and optional microphone input), live web and local Maps discovery, direct website inspection, DNS MX checks, personalized cold outreach drafting, multi-format exports, and 1-to-1 Gmail OAuth sending in one isolated workspace.
           </p>
 
           {/* Pillars */}
@@ -32,25 +32,32 @@ export default function AboutPage() {
               <ShieldCheck className="h-8 w-8 text-emerald-400 mb-4" />
               <h3 className="text-lg font-bold text-white mb-2">Official OAuth &amp; Encryption</h3>
               <p className="text-sm text-slate-400 leading-relaxed">
-                Uses official Google OAuth 2.0 with minimal <code className="text-xs text-slate-300">gmail.send</code> scope for 1-to-1 user-initiated sending, with AES-256-GCM encrypted token storage and PBKDF2-SHA256 salted password hashes.
+                Uses official Google OAuth 2.0 with minimal <code className="text-xs text-slate-300">gmail.send</code> scope for 1-to-1 user-initiated sending, AES-256-GCM encrypted token storage, and PBKDF2-SHA256 salted password hashes.
               </p>
             </div>
 
             <div className="rounded-2xl border border-white/[0.08] bg-[#0c1017] p-6">
               <Server className="h-8 w-8 text-blue-400 mb-4" />
-              <h3 className="text-lg font-bold text-white mb-2">Live Search &amp; Gemini AI</h3>
+              <h3 className="text-lg font-bold text-white mb-2">Multi-Source Business Intelligence</h3>
               <p className="text-sm text-slate-400 leading-relaxed">
-                Pairs Serper live web/Places queries and direct website crawling with Google Gemini AI for search strategy parsing, company research briefs, and outreach copy assistance.
+                Pairs live commercial web and directory searches, direct HTML inspection, and official business registries with structured server-side AI workflows tailored to your saved Business Profile.
               </p>
             </div>
 
             <div className="rounded-2xl border border-white/[0.08] bg-[#0c1017] p-6">
-              <Globe2 className="h-8 w-8 text-purple-400 mb-4" />
-              <h3 className="text-lg font-bold text-white mb-2">Honest Verification Status</h3>
+              <Mic className="h-8 w-8 text-purple-400 mb-4" />
+              <h3 className="text-lg font-bold text-white mb-2">Multilingual &amp; Transparent</h3>
               <p className="text-sm text-slate-400 leading-relaxed">
-                Distinguishes syntax validation, domain MX record detection, and source URL evidence without fabricating mailbox delivery guarantees or synthetic contacts.
+                Accepts natural voice or typed descriptions across Urdu, English, Arabic, German, Hindi, and other languages with LTR/RTL rendering, while keeping contact status labels honest and evidence-backed.
               </p>
             </div>
+          </div>
+
+          <div className="mb-12 rounded-2xl border border-white/[0.08] bg-[#0c1017] p-6 text-left text-xs text-slate-400 space-y-1.5">
+            <div className="text-sm font-bold text-white mb-1">Operator &amp; Support Disclosure</div>
+            <p>Platform Operator: <span className="text-slate-200 font-medium">USMAN AI GTM</span></p>
+            <p>Official Support Email: <a href="mailto:telegramtiktokn1@gmail.com" className="text-blue-400 hover:underline">telegramtiktokn1@gmail.com</a> • Official Support WhatsApp: <a href="tel:+923174383702" className="text-blue-400 hover:underline">+923174383702</a></p>
+            <p className="text-slate-500">Registered legal entity details and postal business address can be confirmed via official support upon written request.</p>
           </div>
 
           {/* Compliance & Trust Section */}

@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useState, useEffect } from "react";
+import Link from "next/link";
 import { useAuth } from "@/lib/auth-context";
 import { api } from "@/lib/api";
 import {
@@ -892,63 +893,33 @@ export default function SettingsPage() {
         </div>
       )}
 
-      {/* TAB CONTENT: API VAULT */}
+      {/* TAB CONTENT: ENGINE STATUS (Masked / Read-Only Security View for Workspace Members) */}
       {activeTab === "vault" && (
         <div className="rounded-2xl border border-white/[0.08] bg-[#0c1017] p-6 space-y-4">
           <div className="flex items-center justify-between">
             <h2 className="text-base font-bold text-white flex items-center gap-2">
-              <Key className="h-4 w-4 text-amber-400" /> Encrypted API Key Vault
+              <Key className="h-4 w-4 text-amber-400" /> Platform Intelligence &amp; Credential Security
             </h2>
-            <span className="text-[10px] text-emerald-400 font-mono">AES-256 Gated</span>
+            <span className="text-[10px] text-emerald-400 font-mono">Server-Managed &amp; Protected</span>
           </div>
 
-          <p className="text-xs text-slate-400">
-            Keys are encrypted at rest using AES-256 before writing to database. Once saved, secrets are never exposed in plaintext to the browser.
+          <p className="text-xs text-slate-400 leading-relaxed">
+            All search, speech comprehension, and intelligence engine keys are securely managed strictly on protected backend servers and never exposed to browsers. Connect your personal outreach Gmail mailbox safely from{" "}
+            <Link href="/app/accounts" className="text-blue-400 hover:underline font-semibold">
+              Email Accounts
+            </Link>.
           </p>
 
-          <form onSubmit={handleSaveVault} className="space-y-4">
-            <div>
-              <label className="block text-xs font-semibold text-slate-300 mb-1">Serper API Key (Search & Google Live Results)</label>
-              <input
-                type="password"
-                value={serperKey}
-                onChange={(e) => setSerperKey(e.target.value)}
-                placeholder="••••••••••••••••••••••••••••••••"
-                className="w-full rounded-xl border border-white/10 bg-white/[0.03] px-3.5 py-2 text-xs text-white focus:outline-none font-mono"
-              />
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs">
+            <div className="p-4 rounded-xl bg-white/[0.02] border border-white/[0.06]">
+              <div className="text-slate-400 text-[11px]">Lead Search &amp; Contact Engine</div>
+              <div className="text-emerald-400 font-bold mt-1 font-mono">Configured (Server-Side)</div>
             </div>
-
-            <div>
-              <label className="block text-xs font-semibold text-slate-300 mb-1">Google Gemini API Key (Dedicated AI Email Assistant)</label>
-              <input
-                type="password"
-                value={geminiKey}
-                onChange={(e) => setGeminiKey(e.target.value)}
-                placeholder="••••••••••••••••••••••••••••••••"
-                className="w-full rounded-xl border border-white/10 bg-white/[0.03] px-3.5 py-2 text-xs text-white focus:outline-none font-mono"
-              />
+            <div className="p-4 rounded-xl bg-white/[0.02] border border-white/[0.06]">
+              <div className="text-slate-400 text-[11px]">Intelligent Outreach &amp; Voice Engine</div>
+              <div className="text-emerald-400 font-bold mt-1 font-mono">Configured (Server-Side)</div>
             </div>
-
-            <div>
-              <label className="block text-xs font-semibold text-slate-300 mb-1">OpenAI API Key (Optional Override)</label>
-              <input
-                type="password"
-                value={openaiKey}
-                onChange={(e) => setOpenaiKey(e.target.value)}
-                placeholder="sk-••••••••••••••••••••••••••••••••"
-                className="w-full rounded-xl border border-white/10 bg-white/[0.03] px-3.5 py-2 text-xs text-white focus:outline-none font-mono"
-              />
-            </div>
-
-            <div className="pt-2">
-              <button
-                type="submit"
-                className="px-6 py-2 rounded-xl bg-blue-600 hover:bg-blue-500 text-white font-bold text-xs shadow-glow-sm"
-              >
-                Update Vault Credentials
-              </button>
-            </div>
-          </form>
+          </div>
         </div>
       )}
 

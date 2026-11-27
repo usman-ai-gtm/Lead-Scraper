@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useEffect, useMemo } from "react";
+import React, { useState, useEffect, useMemo, useRef } from "react";
 import {
   Crown,
   Zap,
@@ -13,6 +13,9 @@ import {
   Database,
   MapPin,
   AlertCircle,
+  Search,
+  ChevronDown,
+  Globe,
 } from "lucide-react";
 import {
   FixedOrCustomPlan,
@@ -20,6 +23,12 @@ import {
   FIXED_PLAN_SPECS,
   CUSTOM_UNIT_PRICING,
 } from "@/lib/custom-plans";
+import {
+  GLOBAL_CURRENCIES,
+  POPULAR_CURRENCY_CODES,
+  findCurrencyMeta,
+  searchGlobalCurrencies,
+} from "@/lib/currencies-iso4217";
 
 export interface FxRateItem {
   currency: string;
@@ -46,17 +55,6 @@ export interface PlanSelectionValue {
   fxUpdatedAt?: string;
 }
 
-const CURRENCY_CHOICES = [
-  { code: "USD", label: "USD ($)", decimals: 2, symbol: "$" },
-  { code: "PKR", label: "PKR (Rs)", decimals: 0, symbol: "Rs " },
-  { code: "INR", label: "INR (₹)", decimals: 0, symbol: "₹" },
-  { code: "GBP", label: "GBP (£)", decimals: 2, symbol: "£" },
-  { code: "EUR", label: "EUR (€)", decimals: 2, symbol: "€" },
-  { code: "AED", label: "AED", decimals: 2, symbol: "AED " },
-  { code: "CAD", label: "CAD (C$)", decimals: 2, symbol: "C$" },
-  { code: "AUD", label: "AUD (A$)", decimals: 2, symbol: "A$" },
-];
-
 export function CustomPlanBuilder({
   initialPlan = "BASIC",
   initialUnit = "hours",
@@ -82,9 +80,26 @@ export function CustomPlanBuilder({
   const [includeMaps, setIncludeMaps] = useState<boolean>(true);
   const [currency, setCurrency] = useState<string>(initialCurrency || "USD");
 
+  const [currencyMenuOpen, setCurrencyMenuOpen] = useState<boolean>(false);
+  const [currencySearch, setCurrencySearch] = useState<string>("");
+  const currencyMenuRef = useRef<HTMLDivElement>(null);
+
   const [rates, setRates] = useState<Record<string, FxRateItem>>({});
   const [fxLoading, setFxLoading] = useState<boolean>(true);
   const [fxError, setFxError] = useState<string | null>(null);
+
+  useEffect(() => {
+    const onDocClick = (e: MouseEvent) => {
+      if (currencyMenuRef.current && !currencyMenuRef.current.contains(e.target as Node)) {
+        setCurrencyMenuOpen(false);
+      }
+    };
+    document.addEventListener("mousedown", onDocClick);
+    return () => document.removeEventListener("mousedown", onDocClick);
+  }, []);
+
+  const selectedCurrencyMeta = useMemo(() => findCurrencyMeta(currency), [currency]);
+  const filteredGlobalCurrencies = useMemo(() => searchGlobalCurrencies(currencySearch), [currencySearch]);
 
   const loadRates = async () => {
     setFxLoading(true);
@@ -148,7 +163,7 @@ export function CustomPlanBuilder({
       planLabel = `Custom (${clampedQty} ${unitWord} • $${priceUsd} • ${leadAllowance.toLocaleString()} Leads)`;
     }
 
-    const curMeta = CURRENCY_CHOICES.find((c) => c.code === currency) || CURRENCY_CHOICES[0];
+    const curMeta = findCurrencyMeta(currency);
     if (curMeta.code === "USD") {
       return {
         plan: planOverride,
@@ -204,7 +219,7 @@ export function CustomPlanBuilder({
       exchangeRate: Number(rate.toFixed(4)),
       convertedAmount,
       fxAvailable: true,
-      fxSource: fxItem.source,
+      fxSource: curMeta.note ? `${fxItem.source} • ${curMeta.note}` : fxItem.source,
       fxUpdatedAt: fxItem.updatedAt,
     };
   };
@@ -226,7 +241,7 @@ export function CustomPlanBuilder({
   }, [selection]);
 
   const formatTargetAmount = (usdAmount: number) => {
-    const meta = CURRENCY_CHOICES.find((c) => c.code === selection.currency) || CURRENCY_CHOICES[0];
+    const meta = findCurrencyMeta(selection.currency);
     if (selection.currency === "USD" || !selection.fxAvailable) return `$${usdAmount.toFixed(2)} USD`;
     const conv =
       meta.decimals === 0
@@ -237,43 +252,136 @@ export function CustomPlanBuilder({
 
   return (
     <div className="space-y-6">
-      {/* Currency Selector Header */}
-      <div className="rounded-2xl border border-white/[0.08] bg-[#0c1017] p-5 flex flex-col md:flex-row md:items-center justify-between gap-4">
-        <div>
-          <div className="text-xs font-bold uppercase tracking-wider text-emerald-400 flex items-center gap-1.5">
-            <DollarSign className="h-3.5 w-3.5" />
-            <span>Payment Currency Selector (USD Base)</span>
+      {/* Global Currency Selector Header */}
+      <div className="rounded-2xl border border-white/[0.08] bg-[#0c1017] p-5 space-y-4">
+        <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
+          <div>
+            <div className="text-xs font-bold uppercase tracking-wider text-emerald-400 flex items-center gap-1.5">
+              <Globe className="h-3.5 w-3.5" />
+              <span>Global Payment Currency Selector (USD Base • {GLOBAL_CURRENCIES.length} ISO 4217 + USDT)</span>
+            </div>
+            <p className="text-xs text-slate-400 mt-1">
+              All subscriptions are priced strictly in USD. Converted totals are estimated from current FX or Owner rates; final verification confirms receipt.
+            </p>
           </div>
-          <p className="text-xs text-slate-400 mt-0.5">
-            All plans are priced strictly in USD and automatically converted using live or Owner-verified exchange rates.
-          </p>
+
+          <div className="flex flex-wrap items-center gap-2">
+            {/* Searchable All-Currencies Dropdown */}
+            <div className="relative" ref={currencyMenuRef}>
+              <button
+                type="button"
+                onClick={() => setCurrencyMenuOpen((v) => !v)}
+                className="px-3.5 py-2 rounded-xl bg-white/[0.05] hover:bg-white/[0.09] border border-white/15 text-xs font-bold text-white inline-flex items-center gap-2 cursor-pointer"
+                aria-expanded={currencyMenuOpen}
+                aria-label="Browse all ISO 4217 currencies"
+              >
+                <Search className="h-3.5 w-3.5 text-emerald-400" />
+                <span>
+                  {selectedCurrencyMeta.code} — {selectedCurrencyMeta.name}
+                </span>
+                <ChevronDown className="h-3.5 w-3.5 text-slate-400" />
+              </button>
+
+              {currencyMenuOpen && (
+                <div className="absolute right-0 mt-2 w-80 sm:w-96 max-w-[90vw] rounded-2xl border border-white/15 bg-[#0a0f19] shadow-2xl z-40 p-3 space-y-2">
+                  <div className="relative">
+                    <Search className="h-3.5 w-3.5 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
+                    <input
+                      type="text"
+                      value={currencySearch}
+                      onChange={(e) => setCurrencySearch(e.target.value)}
+                      placeholder="Search code, currency, or country (e.g. JPY, Naira, Germany)..."
+                      autoFocus
+                      className="w-full rounded-xl border border-white/15 bg-[#060911] pl-8 pr-3 py-2 text-xs text-white placeholder:text-slate-500 focus:border-emerald-500 focus:outline-none"
+                    />
+                  </div>
+                  <div className="max-h-64 overflow-y-auto space-y-1 pr-1">
+                    {filteredGlobalCurrencies.length === 0 ? (
+                      <div className="py-4 text-center text-xs text-slate-400">No matching ISO currency found.</div>
+                    ) : (
+                      filteredGlobalCurrencies.map((c) => {
+                        const active = currency === c.code;
+                        const hasRate = c.code === "USD" || Boolean(rates[c.code]?.rateFromUsd);
+                        return (
+                          <button
+                            key={c.code}
+                            type="button"
+                            onClick={() => {
+                              setCurrency(c.code);
+                              setCurrencyMenuOpen(false);
+                              setCurrencySearch("");
+                            }}
+                            className={`w-full text-left px-3 py-2 rounded-xl flex items-center justify-between gap-2 text-xs transition-colors cursor-pointer ${
+                              active
+                                ? "bg-emerald-600/25 border border-emerald-500/40 text-white"
+                                : "hover:bg-white/[0.06] text-slate-200 border border-transparent"
+                            }`}
+                          >
+                            <div className="min-w-0">
+                              <div className="font-bold flex items-center gap-1.5">
+                                <span className="font-mono text-emerald-300">{c.code}</span>
+                                <span className="truncate">{c.name}</span>
+                              </div>
+                              <div className="text-[10px] text-slate-400 truncate">
+                                {c.countries.slice(0, 3).join(", ")}
+                                {c.note ? ` • ${c.note}` : ""}
+                              </div>
+                            </div>
+                            <span className="text-[10px] font-mono text-slate-400 shrink-0">
+                              {hasRate ? "Live" : "USD fallback"}
+                            </span>
+                          </button>
+                        );
+                      })
+                    )}
+                  </div>
+                </div>
+              )}
+            </div>
+
+            <button
+              type="button"
+              onClick={loadRates}
+              disabled={fxLoading}
+              title="Refresh exchange rates"
+              className="p-2 rounded-xl bg-white/[0.04] hover:bg-white/[0.08] border border-white/10 text-slate-300 cursor-pointer"
+            >
+              <RefreshCw className={`h-3.5 w-3.5 ${fxLoading ? "animate-spin" : ""}`} />
+            </button>
+          </div>
         </div>
 
-        <div className="flex flex-wrap items-center gap-2">
-          {CURRENCY_CHOICES.map((c) => (
+        {/* Popular Currency Quick Selector */}
+        <div className="flex flex-wrap items-center gap-1.5 pt-1">
+          {POPULAR_CURRENCY_CODES.map((code) => (
             <button
-              key={c.code}
+              key={code}
               type="button"
-              onClick={() => setCurrency(c.code)}
-              className={`px-3 py-1.5 rounded-xl text-xs font-bold border transition-all cursor-pointer ${
-                currency === c.code
+              onClick={() => setCurrency(code)}
+              className={`px-3 py-1.5 rounded-xl text-xs font-bold border transition-all cursor-pointer inline-flex items-center gap-1 ${
+                currency === code
                   ? "bg-emerald-600 text-white border-emerald-400 shadow-sm"
                   : "bg-white/[0.03] text-slate-300 border-white/10 hover:bg-white/[0.07]"
               }`}
             >
-              {c.code}
+              <span>{code}</span>
+              {code === "USDT" && (
+                <span className="text-[9px] font-mono uppercase opacity-80">TRC20</span>
+              )}
             </button>
           ))}
-          <button
-            type="button"
-            onClick={loadRates}
-            disabled={fxLoading}
-            title="Refresh exchange rates"
-            className="p-1.5 rounded-xl bg-white/[0.04] hover:bg-white/[0.08] border border-white/10 text-slate-300 cursor-pointer"
-          >
-            <RefreshCw className={`h-3.5 w-3.5 ${fxLoading ? "animate-spin" : ""}`} />
-          </button>
+          {!POPULAR_CURRENCY_CODES.includes(currency as any) && (
+            <span className="px-3 py-1.5 rounded-xl text-xs font-bold bg-emerald-600 text-white border border-emerald-400">
+              {selectedCurrencyMeta.code} ({selectedCurrencyMeta.name})
+            </span>
+          )}
         </div>
+
+        {currency === "USDT" && (
+          <div className="p-2.5 rounded-xl bg-amber-500/10 border border-amber-500/30 text-[11px] text-amber-200">
+            <strong>USDT — TRC20 Network Only:</strong> Only send USDT over the TRC20 network when paying via crypto. Wrong-network transfers may be permanently lost.
+          </div>
+        )}
       </div>
 
       {(fxError || (!selection.fxAvailable && currency !== "USD")) && (
@@ -603,7 +711,9 @@ export function CustomPlanBuilder({
             </div>
           </div>
           <div className="p-2.5 rounded-xl bg-emerald-500/15 border border-emerald-500/35">
-            <div className="text-[10px] text-emerald-200 font-semibold">Exact Payment Due</div>
+            <div className="text-[10px] text-emerald-200 font-semibold">
+              {selection.currency === "USD" || !selection.fxAvailable ? "Payable Total (USD Base)" : `Estimated Total (${selection.currency})`}
+            </div>
             <div className="font-black text-white text-sm">
               {selection.currency === "USD" || !selection.fxAvailable
                 ? `$${selection.priceUsd.toFixed(2)} USD`
@@ -613,7 +723,10 @@ export function CustomPlanBuilder({
         </div>
 
         <p className="text-[11px] text-amber-200/90">
-          Your transfer must match the exact displayed amount above. Custom rate table: $1/hour (50 leads/hr) • $15/day (250 leads/day) • $50/week (1,000 leads/wk) • $75/month (5,000 leads/mo).
+          {selection.currency === "USD" || !selection.fxAvailable
+            ? "Transfer the exact USD figure shown above."
+            : "Subscriptions are priced in USD. Converted local figures are estimates using current FX or Owner rates; manual verification confirms final receipt."}{" "}
+          Custom rate table: $1/hour (50 leads/hr) • $15/day (250 leads/day) • $50/week (1,000 leads/wk) • $75/month (5,000 leads/mo).
         </p>
 
         {ctaSlot && <div className="pt-2">{ctaSlot(selection)}</div>}

@@ -186,7 +186,7 @@ Respond ONLY with valid JSON matching this exact schema:
             industry: lead.industry,
             location: [lead.city, lead.country].filter(Boolean).join(", "),
             ...parsed,
-            generated_by: "Gemini 3.5 Flash Lite (AI Lead Research Agent)",
+            generated_by: "Smart Business Research Engine (USMAN AI GTM)",
           });
         }
       }

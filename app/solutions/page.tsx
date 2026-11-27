@@ -55,7 +55,7 @@ export default function SolutionsPage() {
       benefits: [
         "Predictable $25/month Basic or $100 one-time Lifetime pricing",
         "Server-enforced daily sending caps & duplicate recipient checks",
-        "Gemini AI email copy & research briefs per saved company",
+        "Intelligent outreach email copy & research briefs per saved company",
         "Direct WhatsApp & Dashboard Owner support (+923174383702)",
       ],
       href: "/pricing",

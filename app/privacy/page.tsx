@@ -117,10 +117,27 @@ export default function PrivacyPage() {
                 <span>2. Public Business Directory Data &amp; Provider Attribution</span>
               </h2>
               <p>
-                Lead records surfaced by Find Leads and Google Maps discovery come from publicly accessible commercial web pages, Google Places search results via Serper API, and public business profiles. Every record retains original source evidence URLs, collection timestamps, and honest contact verification classifications (distinguishing syntax validation vs DNS MX domain resolution without misrepresenting unverified mailbox delivery).
+                Lead records surfaced by Find Leads and Google Maps discovery come from publicly accessible commercial web pages, Google Places search results, public company registries, and public business profiles. Every record retains original source evidence URLs, collection timestamps, and honest contact verification classifications (distinguishing syntax validation vs DNS MX domain resolution without misrepresenting unverified mailbox delivery).
               </p>
               <p className="text-xs text-slate-400">
-                Subprocessors used strictly for runtime functionality include Vercel (application hosting), Neon PostgreSQL (database storage), Serper API (live search &amp; Places queries), and Google Gemini API (AI text drafts &amp; research summaries).
+                Trusted infrastructure providers used strictly for runtime functionality include Vercel (application hosting), Neon PostgreSQL (database storage), third-party live search/directory APIs, and managed AI processing APIs strictly on private server infrastructure.
+              </p>
+            </section>
+
+            {/* Section 2B */}
+            <section className="p-6 rounded-2xl bg-[#0c1017] border border-white/[0.08] space-y-3">
+              <h2 className="text-lg font-bold text-white flex items-center gap-2">
+                <ShieldCheck className="h-5 w-5 text-cyan-400" />
+                <span>2B. Business Profile, Optional Microphone Audio &amp; Payment Verification Proofs</span>
+              </h2>
+              <ul className="list-disc list-inside space-y-1.5 text-slate-400 pl-2">
+                <li><strong className="text-white">Optional Voice Input:</strong> Microphone audio recorded inside Business Profile, Cold Email Studio, or AI Assistant is transmitted over encrypted HTTPS solely to extract structured text/fields for your request. Audio buffers are processed transiently and not stored as permanent voice recordings in the database.</li>
+                <li><strong className="text-white">Business Profile Context:</strong> Structured business descriptions, language preferences, and offers saved to your workspace remain strictly scoped to your tenant workspace to tailor lead discovery and outreach drafts.</li>
+                <li><strong className="text-white">Manual Payment Proofs:</strong> Payment receipts and transfer screenshots submitted for subscription verification are accessible only to your workspace and the authorized platform Owner for payment verification and accounting compliance.</li>
+              </ul>
+              <p className="text-xs text-slate-400">
+                Registered business entity details may be confirmed upon written request via{" "}
+                <a href="mailto:telegramtiktokn1@gmail.com" className="text-blue-400 hover:underline">telegramtiktokn1@gmail.com</a>.
               </p>
             </section>
 

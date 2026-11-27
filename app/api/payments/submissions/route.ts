@@ -144,8 +144,11 @@ export async function POST(req: Request) {
       return NextResponse.json({ detail: orderSpec.error || "Invalid custom plan configuration." }, { status: 400 });
     }
 
-    const requestedCurrency = String(formData.get("currency") || "USD").trim().toUpperCase().slice(0, 12) || "USD";
-    const targetCurrency = SUPPORTED_CURRENCY_CODES.includes(requestedCurrency) ? requestedCurrency : "USD";
+    const requestedCurrency = String(formData.get("currency") || "USD").trim().toUpperCase().replace(/[^A-Z0-9]/g, "").slice(0, 10) || "USD";
+    const targetCurrency =
+      SUPPORTED_CURRENCY_CODES.includes(requestedCurrency) || /^[A-Z]{3}$/.test(requestedCurrency)
+        ? requestedCurrency
+        : "USD";
     const fx = await convertUsdAmount(orderSpec.priceUsd, targetCurrency);
     const effectiveCurrency = fx.fallbackToUsd ? "USD" : fx.targetCurrency;
 

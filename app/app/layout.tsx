@@ -179,7 +179,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
 
   const searchShortcuts = [
     { title: "Dashboard Overview", subtitle: "Command center and real workspace metrics", url: "/app", badge: "DASHBOARD" },
-    { title: "Business Profile", subtitle: "Gemini-assisted ICP and target keyword setup wizard", url: "/app/business-profile", badge: "PROFILE" },
+    { title: "Business Profile", subtitle: "Voice and text business setup wizard for smart matching", url: "/app/business-profile", badge: "PROFILE" },
     { title: "Find Leads", subtitle: "Extract public commercial contacts across countries & cities", url: "/app/leads", badge: "SEARCH" },
     { title: "Google Maps Leads", subtitle: "Live local Places search with website email & phone extraction", url: "/app/google-maps", badge: "MAPS" },
     { title: "Saved Leads", subtitle: "Manage saved leads, dynamic sources, dates, and private data", url: "/app/saved-leads", badge: "SAVED" },
@@ -192,7 +192,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
       { title: "Client Accounts", subtitle: "Manage client workspaces, activation, and usage limits", url: "/app/admin/clients", badge: "ADMIN" },
       { title: "Payments & Bank Verification", subtitle: "Configure Easypaisa, JazzCash, Meezan, Binance, Payoneer & approve proofs", url: "/app/admin/payments", badge: "ADMIN" },
       { title: "Google OAuth & Bonus Time", subtitle: "Shared OAuth config, custom JSON review, and Gmail setup time bonuses", url: "/app/admin/integrations/google", badge: "ADMIN" },
-      { title: "API Provider Configuration", subtitle: "Check Serper and Gemini API engine status", url: "/app/admin/providers", badge: "ADMIN" },
+      { title: "API Provider Configuration", subtitle: "Check platform search & intelligence engine status", url: "/app/admin/providers", badge: "ADMIN" },
       { title: "System Usage & Telemetry", subtitle: "Database metrics and live serverless activity", url: "/app/admin", badge: "ADMIN" },
     ] : [])
   ];

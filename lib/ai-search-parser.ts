@@ -243,12 +243,17 @@ export async function interpretSearchIntent(
       profileContext = `
 USER'S SAVED BUSINESS PROFILE:
 - Business Name: ${businessProfile.business_name || "N/A"}
+- What Business Does: ${businessProfile.ai_summary || businessProfile.products_services || "N/A"}
 - Industry: ${businessProfile.industry || "N/A"}
 - Offerings/Services: ${businessProfile.products_services || "N/A"}
 - Ideal Customer Profile: ${businessProfile.target_customer_type || "N/A"}
+- Differentiator: ${businessProfile.differentiator || "N/A"}
+- Outreach Goal: ${businessProfile.outreach_goal || "N/A"}
 - Target Industries: ${businessProfile.ideal_industries || "N/A"}
+- Search Keywords Hint: ${businessProfile.keywords || "N/A"}
+- Exclusions: ${businessProfile.exclusions || "N/A"}
 - Preferred Locations: ${businessProfile.preferred_locations || businessProfile.country || "N/A"}
-- Instructions: Prioritize potential buyers who NEED the user's offerings rather than direct competitors unless user explicitly requested competitors.`;
+- Instructions: Prioritize potential BUYERS who NEED the user's offerings (e.g. "I sell accounting software" -> find SMBs/bookkeeping/finance teams, NOT direct software competitors).`;
     }
 
     const validUseCases = Object.keys(B2B_USE_CASE_PROFILES).join(", ");

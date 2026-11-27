@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { getCurrentUserFromRequest, verifyClientActiveSubscription } from "@/lib/serverless-auth";
 import { generateFollowupEmail, RecipientLead, SenderProfile } from "@/lib/gemini-email-assistant";
+import { getWorkspaceProfileForPersonalization } from "@/lib/lead-personalizer";
 import { getNeonGmailAccount } from "@/lib/neon-db";
 
 export async function POST(request: Request) {
@@ -30,16 +31,20 @@ export async function POST(request: Request) {
     );
   }
 
-  const gmailAccount = await getNeonGmailAccount(workspaceId);
+  const [gmailAccount, businessProfile] = await Promise.all([
+    getNeonGmailAccount(workspaceId),
+    getWorkspaceProfileForPersonalization(workspaceId),
+  ]);
   const senderProfile: SenderProfile = {
-    company_name: sender?.company_name || currentUser?.company || "USMAN AI GTM",
-    sender_name: sender?.sender_name || gmailAccount?.sender_name || currentUser?.full_name || "Sales Outreach",
-    sender_title: sender?.sender_title || "Client Solutions",
+    company_name: sender?.company_name || businessProfile?.business_name || currentUser?.company || "Our Team",
+    sender_name: sender?.sender_name || gmailAccount?.sender_name || currentUser?.full_name || "Outreach Team",
+    sender_title: sender?.sender_title || "Business Development",
     sender_email: sender?.sender_email || gmailAccount?.sender_email || currentUser?.email || "",
     offer_description:
       sender?.offer_description ||
-      "B2B lead generation, market intelligence, and verified business data solutions.",
-    website: sender?.website || "",
+      businessProfile?.products_services ||
+      "B2B business solutions.",
+    website: sender?.website || businessProfile?.website || "",
   };
 
   const recipientLead: RecipientLead = {
@@ -61,17 +66,18 @@ export async function POST(request: Request) {
       original_subject,
       original_body || "",
       recipientLead,
-      senderProfile
+      senderProfile,
+      { businessProfile, outputLanguage: body.output_language, tone: body.tone }
     );
 
     return NextResponse.json({
       success: true,
       draft,
-      model: draft.model_used,
+      model: "Smart Outreach Engine",
       message: "Follow-up email draft generated successfully.",
     });
   } catch (err: any) {
-    console.error("[Gemini Follow-up Generation Error]:", err);
+    console.error("[Follow-up Generation Error]:", err);
     return NextResponse.json(
       {
         error: err.message || "Failed to generate follow-up email draft.",

@@ -29,7 +29,7 @@ export default function FeaturesPage() {
       icon: Search,
       href: "/app/google-maps",
       items: [
-        "Google Places queries via Serper API",
+        "Global Places discovery via Live Intelligence",
         "Email Only, Phone Only, Email & Phone, or Either filter",
         "Background batch processing with live progress & stop control",
         "Maps listing & contact source URL preservation",
@@ -49,7 +49,7 @@ export default function FeaturesPage() {
     },
     {
       title: "AI Lead Research & Copy Assistant",
-      desc: "Generate practical outreach drafts, company summaries, and conversational B2B targeting guidance with Gemini AI.",
+      desc: "Generate practical outreach drafts, company summaries, and conversational B2B targeting guidance automatically.",
       icon: Zap,
       href: "/app/assistant",
       items: [
