@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
-import { proxyToBackend } from "@/lib/backend-proxy";
 import { getCurrentUserFromRequest, verifyClientActiveSubscription } from "@/lib/serverless-auth";
+import { getNeonSql, isNeonConfigured } from "@/lib/neon-db";
+import { calculateLeadQualityScore, evaluateContactReadiness } from "@/lib/lead-quality-engine";
 
 interface RouteParams {
   params: { id: string };
@@ -12,28 +13,40 @@ export async function POST(req: Request, { params }: RouteParams) {
   if (!subCheck.allowed) {
     return NextResponse.json({ detail: subCheck.message }, { status: subCheck.statusCode || 403 });
   }
-  const id = params.id;
-  
-  // Real deterministic 5-factor fallback matching Feature #18
-  const fallback = {
-    lead_id: Number(id),
-    lead_score: 78,
-    final_lead_score: 78,
-    icp_fit_score: 80,
-    data_confidence_score: 75,
-    business_opportunity_score: 80,
-    buying_potential_score: 75,
-    qualification_level: "🟢 High Potential",
-    priority: "HIGH",
-    lead_temperature: "WARM",
-    positive_signals: "Verified active website URL present | Discovered via high-intent professional channel | Rich business metadata and operating description available",
-    negative_signals: "None identified",
-    missing_info: "None",
-    main_opportunity: "Implement custom digital dashboard, automated lead routing, or web optimization.",
-    main_risk: "Standard B2B sales cycle friction.",
-    recommended_action: "Initiate personalized multi-channel outreach immediately.",
-    scoring_confidence: 0.75
-  };
 
-  return proxyToBackend(`/api/leads/${id}/score`, req, fallback);
+  const workspaceId = Number(subCheck.userRecord?.workspace_id || user.workspace_id) || 1;
+  const leadId = parseInt(params.id, 10);
+  let lead: any = null;
+
+  if (!isNaN(leadId) && isNeonConfigured()) {
+    const sql = getNeonSql();
+    if (sql) {
+      const rows = await sql`SELECT * FROM leads WHERE id = ${leadId} AND workspace_id = ${workspaceId} LIMIT 1`;
+      if (rows?.[0]) lead = rows[0];
+    }
+  }
+
+  if (!lead) {
+    return NextResponse.json({ detail: "Lead record not found in workspace." }, { status: 404 });
+  }
+
+  const q = calculateLeadQualityScore(lead);
+  const r = evaluateContactReadiness(lead);
+  const missingList = r.factors.filter((f) => !f.met).map((f) => f.label);
+
+  return NextResponse.json({
+    lead_id: Number(lead.id),
+    lead_score: q.score,
+    final_lead_score: q.score,
+    data_confidence_score: r.score,
+    qualification_level: q.category,
+    priority: q.score >= 80 ? "HIGH" : q.score >= 55 ? "MEDIUM" : "LOW",
+    positive_signals: q.reasons.join(" | ") || lead.positive_signals || "None observed",
+    negative_signals: missingList.length > 0 ? `Missing: ${missingList.join(", ")}` : "None",
+    missing_info: missingList.join(", ") || "None",
+    recommended_action: r.emailSyntaxValid
+      ? "Verify message fit and initiate personalized outreach."
+      : "Enrich lead or check official website for email before outreach.",
+    scoring_confidence: Number((r.factors.filter((f) => f.met).length / r.factors.length).toFixed(2)),
+  });
 }

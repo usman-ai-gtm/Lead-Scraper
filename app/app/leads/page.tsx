@@ -46,7 +46,29 @@ interface QualifiedLead {
   quality_score?: number;
   quality_category?: string;
   quality_reasons?: string[];
+  relevance_score?: number;
+  snippet?: string;
+  positive_signals?: string;
+  enrichment_data?: {
+    tech_stack?: string[];
+    careers_url?: string;
+    hiring_detected?: boolean;
+    website_weaknesses?: string[];
+    gleif?: { lei?: string; registryUrl?: string; countryCode?: string };
+    companies_house?: { companyNumber?: string; registryUrl?: string };
+  };
   contact_requirement?: string;
+}
+
+interface SearchMetricsState {
+  candidates_scanned: number;
+  duplicates_skipped: number;
+  missing_contact_skipped: number;
+  emails_found_count: number;
+  mx_verified_emails_count: number;
+  leads_with_phone_count: number;
+  failed_providers: string[];
+  duration_ms: number;
 }
 
 interface SourceStatus {
@@ -70,6 +92,8 @@ function LeadsSearchComponent() {
     "EMAIL_AND_PHONE" | "EMAIL_ONLY" | "PHONE_ONLY" | "EMAIL_OR_PHONE"
   >("EMAIL_OR_PHONE");
 
+  const [searchFocus, setSearchFocus] = useState<string>("auto");
+  const [searchMetrics, setSearchMetrics] = useState<SearchMetricsState | null>(null);
   const [isExtracting, setIsExtracting] = useState<boolean>(false);
   const [qualifiedLeads, setQualifiedLeads] = useState<QualifiedLead[]>([]);
   const [sourcesBreakdown, setSourcesBreakdown] = useState<SourceStatus[]>([]);
@@ -241,6 +265,7 @@ function LeadsSearchComponent() {
           cities: specificCitiesEnabled ? selectedCities.map((c) => ({ city: c.city, country: c.country })) : [],
           target_count: targetCount,
           contact_requirement: contactRequirement,
+          search_focus: searchFocus,
           use_business_profile: useBusinessProfile,
         }),
       });
@@ -266,14 +291,26 @@ function LeadsSearchComponent() {
       if (data.sources_breakdown) {
         setSourcesBreakdown(data.sources_breakdown);
       }
+      setSearchMetrics({
+        candidates_scanned: Number(data.candidates_scanned || 0),
+        duplicates_skipped: Number(data.duplicates_skipped || 0),
+        missing_contact_skipped: Number(data.missing_contact_skipped || 0),
+        emails_found_count: Number(data.emails_found_count ?? fresh.filter((l) => Boolean(l.email)).length),
+        mx_verified_emails_count: Number(data.mx_verified_emails_count ?? 0),
+        leads_with_phone_count: Number(data.leads_with_phone_count ?? fresh.filter((l) => Boolean(l.phone)).length),
+        failed_providers: Array.isArray(data.failed_providers) ? data.failed_providers : [],
+        duration_ms: Number(data.duration_ms || 0),
+      });
       syncStorage(fresh);
-      setSaveStatus("SAVED");
+      setSaveStatus(fresh.length > 0 ? "SAVED" : "IDLE");
 
-      setStatusMessage(data.message || `Successfully discovered ${fresh.length} unique qualified prospects with verified emails.`);
+      setStatusMessage(data.message || `Discovered ${fresh.length} unique qualified prospects.`);
       setToastMsg(
         fresh.length >= targetCount
-          ? `Target reached: ${fresh.length} verified qualified leads extracted and saved to your workspace!`
-          : `Extracted ${fresh.length} legitimate qualified leads. Permanently saved to your workspace.`
+          ? `Target reached: ${fresh.length} unique qualified leads extracted and saved!`
+          : fresh.length > 0
+          ? `Extracted ${fresh.length} unique qualified leads and saved to your workspace.`
+          : `Search completed with 0 new leads (${data.duplicates_skipped || 0} duplicates excluded).`
       );
     } catch (err: any) {
       setSaveStatus("FAILED");
@@ -368,7 +405,20 @@ function LeadsSearchComponent() {
     }
   };
 
+  const leadsWithEmailCount = qualifiedLeads.filter((l) => Boolean(l.email && l.email.includes("@"))).length;
+  const mxValidEmailCount = qualifiedLeads.filter((l) => String(l.email_status || "").includes("Domain Valid")).length;
   const leadsWithPhoneCount = qualifiedLeads.filter((l) => Boolean(l.phone && l.phone !== "Not Listed")).length;
+
+  const focusOptions = [
+    { id: "auto", label: "Auto-Detect" },
+    { id: "hiring_signals", label: "Hiring Now" },
+    { id: "agency_web_audit", label: "Agency / Web Audit" },
+    { id: "decision_makers", label: "Decision Makers" },
+    { id: "ecommerce_shopify", label: "Shopify / E-com" },
+    { id: "commercial_real_estate", label: "Commercial RE" },
+    { id: "wholesale_manufacturing", label: "Wholesale / Mfg" },
+    { id: "finance_accounting", label: "Finance / CPA" },
+  ];
 
   return (
     <div className="space-y-6 max-w-7xl mx-auto pb-16">
@@ -390,15 +440,15 @@ function LeadsSearchComponent() {
         <div>
           <div className="flex items-center gap-2 mb-1.5 flex-wrap">
             <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 font-mono tracking-wider uppercase">
-              <ShieldCheck className="h-3 w-3" /> Multi-Platform Non-Maps Engine
+              <ShieldCheck className="h-3 w-3" /> Global B2B Web &amp; Signal Engine
             </span>
             <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-semibold bg-blue-500/10 text-blue-400 border border-blue-500/20 font-mono">
-              Email Compulsory • Phone Optional • Zero Synthetic Data
+              {contactRequirement.replace(/_/g, " ")} • DNS MX Checked • Zero Synthetic Data
             </span>
           </div>
           <h1 className="text-2xl font-extrabold text-white tracking-tight">Real B2B Lead Extraction Engine</h1>
           <p className="text-xs text-slate-400 mt-1 max-w-2xl leading-relaxed">
-            Discover verified business prospects across Google Organic Search, official company domains, and public business profiles. Every qualifying prospect is backed by an authentic, source-supported public email.
+            Discover verified B2B prospects, hiring companies, Shopify storefronts, decision makers, and registered enterprises with real source URLs and DNS MX checked contacts.
           </p>
         </div>
 
@@ -484,7 +534,7 @@ function LeadsSearchComponent() {
               value={keyword}
               onChange={(e) => setKeyword(e.target.value)}
               onKeyDown={(e) => e.key === "Enter" && handleStartExtraction()}
-              placeholder="Enter keywords, category, or natural description (e.g. Dentists in London, or 'Businesses selling office furniture that need a website')..."
+              placeholder="e.g. Dental clinics in New York, Companies hiring accountants in US, Shopify stores in Australia..."
               className="w-full rounded-xl border border-white/10 bg-white/[0.03] px-3.5 py-2.5 text-xs text-white placeholder-slate-500 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500/50"
             />
           </div>
@@ -529,6 +579,27 @@ function LeadsSearchComponent() {
               onChange={(e) => setTargetCount(Math.max(1, parseInt(e.target.value, 10) || 50))}
               className="w-full rounded-xl border border-white/10 bg-white/[0.03] px-3 py-2.5 text-xs text-white font-mono text-center focus:border-blue-500 focus:outline-none"
             />
+          </div>
+        </div>
+
+        {/* Optional B2B Use-Case Focus */}
+        <div className="pt-2 border-t border-white/[0.06] flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+          <span className="text-[11px] font-bold text-slate-300 shrink-0">B2B Search Focus (Optional):</span>
+          <div className="flex items-center gap-1.5 flex-wrap">
+            {focusOptions.map((opt) => (
+              <button
+                key={opt.id}
+                type="button"
+                onClick={() => setSearchFocus(opt.id)}
+                className={`px-2.5 py-1 rounded-lg text-[11px] font-medium transition-all cursor-pointer ${
+                  searchFocus === opt.id
+                    ? "bg-indigo-600/30 border border-indigo-400 text-indigo-200 font-semibold"
+                    : "bg-white/[0.02] border border-white/10 text-slate-400 hover:text-white hover:border-white/20"
+                }`}
+              >
+                {opt.label}
+              </button>
+            ))}
           </div>
         </div>
 
@@ -701,29 +772,61 @@ function LeadsSearchComponent() {
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-white/[0.06] pb-2.5">
           <span className="text-slate-300 font-bold flex items-center gap-1.5">
             <Layers className="h-3.5 w-3.5 text-blue-400" />
-            <span>Configured Non-Maps Data Sources & Platform Status:</span>
+            <span>Live Data Sources &amp; Extraction Telemetry</span>
           </span>
-          <span className="text-[11px] text-slate-500 font-mono">
-            Google Maps Completely Excluded
-          </span>
+          <div className="flex items-center gap-3 flex-wrap">
+            {searchMetrics && (
+              <span className="text-[11px] text-slate-400 font-mono">
+                Scanned {searchMetrics.candidates_scanned} • Duplicates skipped {searchMetrics.duplicates_skipped} • {(searchMetrics.duration_ms / 1000).toFixed(1)}s
+              </span>
+            )}
+            {(saveStatus === "FAILED" || (searchMetrics?.failed_providers?.length || 0) > 0) && !isExtracting && (
+              <button
+                type="button"
+                onClick={handleStartExtraction}
+                className="px-2.5 py-1 rounded bg-blue-600/20 hover:bg-blue-600/30 border border-blue-500/30 text-blue-300 text-[10px] font-bold cursor-pointer"
+              >
+                Retry Search
+              </button>
+            )}
+          </div>
         </div>
 
+        {statusMessage && (
+          <div className={`text-[11px] px-3 py-2 rounded-lg border ${saveStatus === "FAILED" ? "border-rose-500/30 bg-rose-500/10 text-rose-200" : "border-white/[0.06] bg-white/[0.02] text-slate-300"}`}>
+            {statusMessage}
+          </div>
+        )}
+
         <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-5 gap-2">
-          {configuredSourcesList.map((srcName, idx) => {
-            const foundBreakdown = sourcesBreakdown.find((s) => s.source_name.toLowerCase().includes(srcName.toLowerCase().slice(0, 10)));
-            const status = foundBreakdown ? foundBreakdown.status : "WORKING";
-            const count = foundBreakdown ? foundBreakdown.leads_contributed : 0;
+          {(sourcesBreakdown.length > 0
+            ? sourcesBreakdown
+            : configuredSourcesList.slice(0, 5).map((srcName) => ({
+                source_name: srcName,
+                status: "READY",
+                leads_contributed: 0,
+              }))
+          ).map((src: any, idx: number) => {
+            const st = String(src.status || "READY");
+            const count = Number(src.leads_contributed || 0);
+            const statusColor =
+              st === "WORKING" && count > 0
+                ? "text-emerald-400"
+                : st === "RATE LIMITED" || st === "ERROR"
+                ? "text-rose-400"
+                : st === "NOT CONFIGURED"
+                ? "text-amber-400"
+                : "text-slate-400";
 
             return (
               <div
                 key={idx}
                 className="p-2 rounded-lg bg-white/[0.02] border border-white/[0.06] flex flex-col justify-between space-y-1"
+                title={src.error_detail || src.source_name}
               >
-                <div className="text-[11px] text-slate-300 font-medium truncate">{srcName}</div>
+                <div className="text-[11px] text-slate-300 font-medium truncate">{src.source_name}</div>
                 <div className="flex items-center justify-between text-[10px] font-mono">
-                  <span className={status === "WORKING" ? "text-emerald-400" : "text-slate-400"}>
-                    {status}
-                  </span>
+                  <span className={statusColor}>{st}</span>
                   {count > 0 && <span className="text-blue-400 font-bold">+{count}</span>}
                 </div>
               </div>
@@ -736,14 +839,16 @@ function LeadsSearchComponent() {
       {qualifiedLeads.length > 0 && (
         <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
           <div className="p-3.5 rounded-xl border border-white/[0.08] bg-[#0c1017]">
-            <div className="text-[11px] text-slate-400 uppercase tracking-wider font-semibold">Total Discovered</div>
+            <div className="text-[11px] text-slate-400 uppercase tracking-wider font-semibold">Unique Leads Found</div>
             <div className="text-xl font-extrabold text-white mt-0.5">{qualifiedLeads.length}</div>
-            <div className="text-[10px] text-emerald-400 mt-0.5 font-mono">100% Unique Businesses</div>
+            <div className="text-[10px] text-emerald-400 mt-0.5 font-mono">Deduplicated across sources</div>
           </div>
           <div className="p-3.5 rounded-xl border border-white/[0.08] bg-[#0c1017]">
             <div className="text-[11px] text-slate-400 uppercase tracking-wider font-semibold">Emails Extracted</div>
-            <div className="text-xl font-extrabold text-emerald-400 mt-0.5">{qualifiedLeads.length}</div>
-            <div className="text-[10px] text-emerald-300 mt-0.5 font-mono">Syntax &amp; Domain MX Checked</div>
+            <div className="text-xl font-extrabold text-emerald-400 mt-0.5">{leadsWithEmailCount}</div>
+            <div className="text-[10px] text-emerald-300 mt-0.5 font-mono">
+              {mxValidEmailCount} MX-Domain Valid
+            </div>
           </div>
           <div className="p-3.5 rounded-xl border border-white/[0.08] bg-[#0c1017]">
             <div className="text-[11px] text-slate-400 uppercase tracking-wider font-semibold">Phones Included</div>
@@ -771,7 +876,7 @@ function LeadsSearchComponent() {
           </div>
           <div className="flex items-center gap-2">
             <span className="text-[11px] font-mono text-emerald-400 font-semibold bg-emerald-500/10 px-2 py-0.5 rounded border border-emerald-500/20">
-              Email Compulsory • Single Results View
+              {contactRequirement.replace(/_/g, " ")} • Consolidated View
             </span>
           </div>
         </div>
@@ -794,9 +899,9 @@ function LeadsSearchComponent() {
                 <tr>
                   <td colSpan={7} className="text-center py-20 text-slate-400">
                     <RefreshCw className="h-8 w-8 animate-spin mx-auto mb-3 text-blue-400" />
-                    <p className="font-semibold text-white">Extracting genuine business leads across non-Maps channels...</p>
+                    <p className="font-semibold text-white">Running live multi-source B2B discovery &amp; DNS MX verification...</p>
                     <p className="text-xs text-slate-500 mt-1">
-                      Querying official websites, Facebook, Instagram, LinkedIn, and commercial directories.
+                      Inspecting official company websites, career portals, LinkedIn/social profiles, and public registries.
                     </p>
                   </td>
                 </tr>
@@ -843,34 +948,63 @@ function LeadsSearchComponent() {
                             category={lead.quality_category}
                             reasons={lead.quality_reasons}
                           />
+                          {lead.enrichment_data?.tech_stack?.map((tech) => (
+                            <span
+                              key={tech}
+                              className="px-1.5 py-0.5 rounded bg-indigo-500/10 text-indigo-300 border border-indigo-500/20 text-[9px] font-mono"
+                            >
+                              {tech}
+                            </span>
+                          ))}
+                          {lead.enrichment_data?.hiring_detected && (
+                            <span className="px-1.5 py-0.5 rounded bg-emerald-500/10 text-emerald-300 border border-emerald-500/20 text-[9px] font-mono">
+                              Hiring Active
+                            </span>
+                          )}
+                          {lead.enrichment_data?.gleif?.lei && (
+                            <span className="px-1.5 py-0.5 rounded bg-cyan-500/10 text-cyan-300 border border-cyan-500/20 text-[9px] font-mono">
+                              LEI Verified
+                            </span>
+                          )}
                         </div>
+                        {lead.snippet && (
+                          <div className="text-[10px] text-slate-500 mt-1 line-clamp-2 max-w-xs">
+                            {lead.snippet}
+                          </div>
+                        )}
                       </td>
 
                       {/* Public Email Address & Clickable Email Source Evidence */}
                       <td className="py-3.5 px-4">
-                        <div className="inline-flex items-center gap-1.5">
-                          <Mail className="h-3.5 w-3.5 text-emerald-400 shrink-0" />
-                          <a
-                            href={`mailto:${lead.email}`}
-                            className="text-emerald-300 font-mono text-[11px] hover:underline"
-                          >
-                            {lead.email}
-                          </a>
-                        </div>
-                        <div className="text-[10px] text-emerald-400/80 font-mono mt-0.5">
-                          {lead.email_status || "FOUND ON OFFICIAL WEBSITE"}
-                        </div>
-                        {lead.email_source_url && (
-                          <a
-                            href={lead.email_source_url}
-                            target="_blank"
-                            rel="noreferrer"
-                            className="text-[10px] text-slate-400 hover:text-blue-400 hover:underline inline-flex items-center gap-1 font-mono mt-0.5"
-                            title="Verify email on source page"
-                          >
-                            <span>Email Source Link</span>
-                            <ExternalLink className="h-2 w-2" />
-                          </a>
+                        {lead.email && lead.email.includes("@") ? (
+                          <>
+                            <div className="inline-flex items-center gap-1.5">
+                              <Mail className="h-3.5 w-3.5 text-emerald-400 shrink-0" />
+                              <a
+                                href={`mailto:${lead.email}`}
+                                className="text-emerald-300 font-mono text-[11px] hover:underline"
+                              >
+                                {lead.email}
+                              </a>
+                            </div>
+                            <div className="text-[10px] text-emerald-400/80 font-mono mt-0.5">
+                              {lead.email_status || "Syntax Valid"}
+                            </div>
+                            {lead.email_source_url && (
+                              <a
+                                href={lead.email_source_url}
+                                target="_blank"
+                                rel="noreferrer"
+                                className="text-[10px] text-slate-400 hover:text-blue-400 hover:underline inline-flex items-center gap-1 font-mono mt-0.5"
+                                title="Verify email on source page"
+                              >
+                                <span>Email Source Link</span>
+                                <ExternalLink className="h-2 w-2" />
+                              </a>
+                            )}
+                          </>
+                        ) : (
+                          <span className="text-slate-500 font-mono text-[11px]">Not Listed</span>
                         )}
                       </td>
 

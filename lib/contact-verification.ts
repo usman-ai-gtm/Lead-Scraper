@@ -50,19 +50,27 @@ const ROLE_BASED_PREFIXES = new Set([
   "inquiries",
 ]);
 
-const mxCache = new Map<string, { hasMx: boolean; ts: number }>();
+const mxCache = new Map<string, { state: "FOUND" | "MISSING" | "TIMEOUT"; ts: number }>();
 const MX_TTL_MS = 10 * 60 * 1000;
 
 export async function checkDomainHasMx(domain: string, timeoutMs = 1800): Promise<boolean> {
+  const status = await checkDomainMxStatus(domain, timeoutMs);
+  return status === "FOUND";
+}
+
+export async function checkDomainMxStatus(
+  domain: string,
+  timeoutMs = 1800
+): Promise<"FOUND" | "MISSING" | "TIMEOUT"> {
   const clean = String(domain || "").trim().toLowerCase();
-  if (!clean || !clean.includes(".")) return false;
+  if (!clean || !clean.includes(".")) return "MISSING";
 
   const cached = mxCache.get(clean);
   if (cached && Date.now() - cached.ts < MX_TTL_MS) {
-    return cached.hasMx;
+    return cached.state;
   }
 
-  let hasMx = false;
+  let state: "FOUND" | "MISSING" | "TIMEOUT" = "MISSING";
   try {
     const res = await Promise.race([
       dns.resolveMx(clean),
@@ -70,17 +78,23 @@ export async function checkDomainHasMx(domain: string, timeoutMs = 1800): Promis
         setTimeout(() => reject(new Error("MX_TIMEOUT")), timeoutMs)
       ),
     ]);
-    hasMx = Array.isArray(res) && res.length > 0 && Boolean(res[0]?.exchange);
-  } catch {
-    hasMx = false;
+    state = Array.isArray(res) && res.length > 0 && Boolean(res[0]?.exchange) ? "FOUND" : "MISSING";
+  } catch (err: any) {
+    const code = String(err?.code || "").toUpperCase();
+    if (err?.message === "MX_TIMEOUT" || code === "ETIMEOUT" || code === "EAI_AGAIN") {
+      state = "TIMEOUT";
+    } else {
+      // ENODATA, ENOTFOUND, ESERVFAIL indicate no valid MX routing record
+      state = "MISSING";
+    }
   }
 
   if (mxCache.size > 500) {
     const firstKey = mxCache.keys().next().value;
     if (firstKey) mxCache.delete(firstKey);
   }
-  mxCache.set(clean, { hasMx, ts: Date.now() });
-  return hasMx;
+  mxCache.set(clean, { state, ts: Date.now() });
+  return state;
 }
 
 export async function verifyLeadEmailTruthfully(
@@ -143,12 +157,12 @@ export async function verifyLeadEmailTruthfully(
     };
   }
 
-  let hasMx = false;
+  let mxState: "FOUND" | "MISSING" | "TIMEOUT" = "TIMEOUT";
   if (options?.resolveMx !== false) {
-    hasMx = await checkDomainHasMx(domain);
+    mxState = await checkDomainMxStatus(domain);
   }
 
-  if (hasMx) {
+  if (mxState === "FOUND") {
     return {
       email: normalized,
       canonicalStatus: "Domain Valid",
@@ -162,13 +176,25 @@ export async function verifyLeadEmailTruthfully(
     };
   }
 
+  if (options?.resolveMx !== false && mxState === "MISSING") {
+    return {
+      email: normalized,
+      canonicalStatus: "Risky",
+      displayLabel: "Risky (No MX Record Found)",
+      mxRecordsFound: false,
+      domain,
+      isRoleBased,
+      checkedAt,
+    };
+  }
+
   return {
     email: normalized,
     canonicalStatus: "Syntax Valid",
     displayLabel:
       options?.resolveMx === false
         ? "Syntax Valid (Domain Check Pending)"
-        : "Syntax Valid (No MX Record Found — Risky)",
+        : "Syntax Valid (MX Check Timed Out)",
     mxRecordsFound: false,
     domain,
     isRoleBased,

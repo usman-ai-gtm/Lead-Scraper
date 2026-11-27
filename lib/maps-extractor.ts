@@ -2,7 +2,9 @@ import {
   cleanDomain,
   crawlWebsiteForContacts,
   querySerperForDomainContact,
+  DiscoveredContact,
 } from "@/lib/search-intelligence";
+import { extractOwnedCompanyDomain } from "@/lib/b2b-verticals";
 import {
   evaluateContactRequirement,
   calculateLeadQualityScore,
@@ -62,6 +64,15 @@ export interface MapsLeadItem {
   quality_category?: string;
   quality_reasons?: string[];
   contact_requirement?: string;
+  snippet?: string;
+  positive_signals?: string;
+  instagram?: string;
+  facebook?: string;
+  linkedin?: string;
+  youtube?: string;
+  twitter?: string;
+  tiktok?: string;
+  enrichment_data?: Record<string, any>;
 }
 
 export interface MapsJobPayload {
@@ -440,9 +451,10 @@ export async function processMapsBatchStep(
       if (!title) continue;
 
       const rawWebsite = String(place.website || "").trim();
-      const domain = rawWebsite ? cleanDomain(rawWebsite) : "";
+      const ownedDom = extractOwnedCompanyDomain(rawWebsite);
+      const domain = ownedDom || (rawWebsite ? cleanDomain(rawWebsite) : "");
 
-      if (domain && input.seenDomains.has(domain)) {
+      if (ownedDom && input.seenDomains.has(ownedDom)) {
         duplicatesDelta++;
         input.countryStats[task.country].duplicates++;
         continue;
@@ -496,34 +508,32 @@ export async function processMapsBatchStep(
       const chunk = crawlCandidates.slice(i, i + chunkSize);
 
       const contactResults = await Promise.all(
-        chunk.map(async (c) => {
+        chunk.map(async (c): Promise<Partial<DiscoveredContact> & { email: string; emailSourceUrl: string; emailStatus: string }> => {
           if (input.contactRequirement === "PHONE_ONLY") {
-            return { email: "", emailSourceUrl: "", emailStatus: "NOT NEEDED (PHONE ONLY)" };
+            return { email: "", emailSourceUrl: "", emailStatus: "Not Found" };
           }
           if (!c.domain || c.domain.length < 4) {
-            return { email: "", emailSourceUrl: "", emailStatus: "NOT FOUND" };
+            return { email: "", emailSourceUrl: "", emailStatus: "Not Found" };
           }
           try {
-            const found = await crawlWebsiteForContacts(c.domain, "", c.phone);
+            const found = await crawlWebsiteForContacts(c.domain, "", c.phone, { countryName: task.country });
             if (found.email) {
-              return {
-                email: found.email,
-                emailSourceUrl: found.emailSourceUrl || `https://${c.domain}`,
-                emailStatus: found.emailStatus,
-              };
+              return found;
             }
             if ((needsEmail || !c.phoneValid) && input.serperKey) {
-              const fb = await querySerperForDomainContact(c.domain, input.serperKey);
+              const fb = await querySerperForDomainContact(c.domain, input.serperKey, task.country);
               if (fb.email) {
                 return {
+                  ...found,
                   email: fb.email,
                   emailSourceUrl: fb.emailSourceUrl || `https://${c.domain}`,
-                  emailStatus: "FOUND IN PUBLIC INDEX • SYNTAX CHECKED",
+                  emailStatus: "Syntax Valid",
                 };
               }
             }
+            return found;
           } catch {}
-          return { email: "", emailSourceUrl: "", emailStatus: "NOT FOUND" };
+          return { email: "", emailSourceUrl: "", emailStatus: "Not Found" };
         })
       );
 
@@ -560,8 +570,9 @@ export async function processMapsBatchStep(
           continue;
         }
 
-        input.seenPlaceIds.add(c.placeId);
-        if (c.domain) input.seenDomains.add(c.domain);
+        const ownedDom = extractOwnedCompanyDomain(c.rawWebsite || c.domain);
+        if (c.placeId) input.seenPlaceIds.add(c.placeId);
+        if (ownedDom) input.seenDomains.add(ownedDom);
         if (contactValidation.normalizedEmail) input.seenEmails.add(contactValidation.normalizedEmail);
         if (contactValidation.normalizedPhone) input.seenPhones.add(contactValidation.normalizedPhone);
 
@@ -595,10 +606,16 @@ export async function processMapsBatchStep(
         const finalPhone = phoneCheck.normalized || contactValidation.normalizedPhone || c.phone || "";
         const verifiedAtIso = emailCheck?.checkedAt || phoneCheck.checkedAt || new Date().toISOString();
 
+        const signals: string[] = [];
+        if (disc.techStack?.length) signals.push(`Tech: ${disc.techStack.join(", ")}`);
+        if (disc.hiringDetected) signals.push("Hiring / Careers link");
+        if (disc.websiteWeaknesses?.length) signals.push(`Audit: ${disc.websiteWeaknesses[0]}`);
+        if (!c.rawWebsite) signals.push("No official website listed on Maps");
+
         newLeads.push({
           business_name: c.title,
           website: c.rawWebsite || (c.domain ? `https://${c.domain}` : ""),
-          domain: c.domain,
+          domain: ownedDom || c.domain,
           email: finalEmail,
           email_source_url: disc.emailSourceUrl || (c.domain ? `https://${c.domain}` : ""),
           email_status: emailCheck ? emailCheck.displayLabel : "Not Found",
@@ -617,6 +634,19 @@ export async function processMapsBatchStep(
           place_id: c.placeId,
           source: "Google Maps (Serper Places)",
           source_url: mapsLink,
+          snippet: disc.metaDescription || undefined,
+          positive_signals: signals.join(" | ") || undefined,
+          instagram: disc.socials?.instagram,
+          facebook: disc.socials?.facebook,
+          linkedin: disc.socials?.linkedin,
+          youtube: disc.socials?.youtube,
+          twitter: disc.socials?.twitter,
+          tiktok: disc.socials?.tiktok,
+          enrichment_data: {
+            ...(disc.techStack?.length ? { tech_stack: disc.techStack } : {}),
+            ...(disc.careersUrl ? { careers_url: disc.careersUrl } : {}),
+            ...(disc.websiteWeaknesses?.length ? { website_weaknesses: disc.websiteWeaknesses } : {}),
+          },
           quality_score: qualityResult.score,
           quality_category: qualityResult.category,
           quality_reasons: qualityResult.reasons,

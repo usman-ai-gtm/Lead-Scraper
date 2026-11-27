@@ -1,8 +1,9 @@
 /**
  * USMAN AI GTM — Smart Search Expansion Engine
- * Discovers tightly-coupled industry query variations to expand search breadth
- * without drifting into unrelated domains.
+ * Discovers tightly-coupled vertical query variations without drifting or adding irrelevant "importers"/"agencies".
  */
+
+import { classifyUseCaseIntent, LeadUseCaseId } from "@/lib/b2b-verticals";
 
 export interface SearchVariation {
   query: string;
@@ -10,70 +11,84 @@ export interface SearchVariation {
   rationale: string;
 }
 
-const COMMON_EXPANSIONS: Record<string, string[]> = {
-  marketing: [
-    "digital marketing agencies",
-    "online marketing agencies",
-    "seo and content agencies",
-    "performance marketing companies",
-    "social media marketing firms",
-  ],
-  realtor: [
-    "real estate agencies",
-    "commercial real estate brokers",
-    "property management companies",
-    "residential realtors",
-  ],
-  dentist: [
-    "dental clinics",
-    "cosmetic dentistry practices",
-    "orthodontic specialists",
-    "family dental centers",
-  ],
-  software: [
-    "software development companies",
-    "custom web app agencies",
-    "saas development firms",
-    "it consulting companies",
-  ],
-  accounting: [
-    "chartered accounting firms",
-    "cpa firms",
-    "corporate tax consultancies",
-    "bookkeeping services",
-  ],
-  plumbing: [
-    "commercial plumbing contractors",
-    "emergency plumbing services",
-    "hvac and plumbing companies",
-  ],
-  law: [
-    "corporate law firms",
-    "commercial litigation attorneys",
-    "business legal consultancies",
-  ],
-};
+const VERTICAL_EXPANSIONS: Array<{ pattern: RegExp; category: string; queries: string[] }> = [
+  {
+    pattern: /\b(dental|dentist|orthodont)\b/i,
+    category: "Healthcare / Dental",
+    queries: ["dental clinics", "cosmetic dentistry practices", "family dental centers", "orthodontic clinics"],
+  },
+  {
+    pattern: /\b(recruit|staffing|headhunt|talent acquisition)\b/i,
+    category: "Staffing & Recruiting",
+    queries: ["recruitment agencies", "executive search firms", "staffing agencies", "talent acquisition agencies"],
+  },
+  {
+    pattern: /\b(commercial real estate|cre|real estate broker|property management|realtor)\b/i,
+    category: "Commercial Real Estate",
+    queries: ["commercial real estate brokers", "commercial property management", "CRE advisory firms", "real estate investment brokers"],
+  },
+  {
+    pattern: /\b(manufactur|factory|industrial)\b/i,
+    category: "Manufacturing & Industrial",
+    queries: ["manufacturing companies", "industrial manufacturers", "contract manufacturing", "production facilities"],
+  },
+  {
+    pattern: /\b(wholesale|distributor|supplier|importer|exporter)\b/i,
+    category: "Wholesale & Distribution",
+    queries: ["wholesale distributors", "B2B wholesale suppliers", "commercial distributors", "trade wholesalers"],
+  },
+  {
+    pattern: /\b(shopify|e-?commerce|woocommerce|dtc|online store)\b/i,
+    category: "E-commerce & D2C",
+    queries: ["shopify stores", "ecommerce brands", "direct to consumer online stores", "woocommerce stores"],
+  },
+  {
+    pattern: /\b(marketing|seo|advertising|branding|digital agency|smma)\b/i,
+    category: "Marketing & Digital Agencies",
+    queries: ["digital marketing agencies", "performance marketing agencies", "SEO agencies", "creative advertising agencies"],
+  },
+  {
+    pattern: /\b(construct|contractor|builder|civil engineering)\b/i,
+    category: "Construction & Contracting",
+    queries: ["construction companies", "general contractors", "commercial building contractors", "civil engineering firms"],
+  },
+  {
+    pattern: /\b(account|cpa|bookkeep|chartered|tax|audit)\b/i,
+    category: "Accounting & Financial",
+    queries: ["accounting firms", "CPA firms", "chartered accountants", "corporate tax & bookkeeping firms"],
+  },
+  {
+    pattern: /\b(software|saas|it service|it consulting|msp|cloud)\b/i,
+    category: "Software & IT",
+    queries: ["software development companies", "B2B SaaS companies", "IT consulting firms", "managed IT service providers"],
+  },
+  {
+    pattern: /\b(law|legal|attorney|solicitor)\b/i,
+    category: "Legal Services",
+    queries: ["corporate law firms", "commercial attorneys", "business legal practices", "solicitors"],
+  },
+];
 
 export async function generateSmartSearchVariations(
   keyword: string,
-  targetCount: number = 5
+  targetCount: number = 4,
+  useCaseOverride?: LeadUseCaseId
 ): Promise<SearchVariation[]> {
   const cleanKeyword = keyword.trim();
   if (!cleanKeyword) return [];
 
+  const useCase = useCaseOverride || classifyUseCaseIntent(cleanKeyword);
   const apiKey = (process.env.GEMINI_API_KEY || "").trim();
 
-  // Try Gemini 3.5 Flash-Lite
-  if (apiKey && apiKey.length > 10) {
+  if (apiKey && apiKey.length > 10 && cleanKeyword.split(/\s+/).length >= 3) {
     try {
-      const prompt = `Generate ${targetCount} closely related, high-intent B2B search query variations for the commercial keyword: "${cleanKeyword}".
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), 3500);
+      const prompt = `Generate ${targetCount} tightly relevant commercial B2B search variations for: "${cleanKeyword}" (use case: ${useCase}).
 Rules:
-1. ONLY return strictly relevant synonyms or specific sub-disciplines of "${cleanKeyword}".
-2. NEVER drift into unrelated industries.
-3. Return ONLY a valid JSON array of objects with format:
-[
-  {"query": "exact variation", "category": "sub-discipline", "rationale": "why this matches"}
-]`;
+1. Keep exact business/hiring/tech-stack intent intact. Never append unrelated terms like "importers" to clinics/agencies/software.
+2. Return ONLY a JSON array of objects:
+[{"query": "...", "category": "...", "rationale": "..."}]`;
 
       const res = await fetch(
         "https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash-lite:generateContent",
@@ -86,12 +101,15 @@ Rules:
           body: JSON.stringify({
             contents: [{ role: "user", parts: [{ text: prompt }] }],
             generationConfig: {
-              temperature: 0.3,
+              temperature: 0.2,
+              maxOutputTokens: 350,
               responseMimeType: "application/json",
             },
           }),
+          signal: controller.signal,
         }
       );
+      clearTimeout(timeout);
 
       if (res.ok) {
         const data = await res.json();
@@ -99,43 +117,36 @@ Rules:
         if (text) {
           const parsed = JSON.parse(text);
           if (Array.isArray(parsed) && parsed.length > 0) {
-            return parsed.map((item) => ({
-              query: item.query || cleanKeyword,
-              category: item.category || cleanKeyword,
-              rationale: item.rationale || "Semantic synonym",
+            return parsed.slice(0, targetCount).map((item: any) => ({
+              query: String(item.query || cleanKeyword).trim(),
+              category: String(item.category || cleanKeyword),
+              rationale: String(item.rationale || "Semantic B2B synonym"),
             }));
           }
         }
       }
     } catch {
-      // Fallback below
+      // Deterministic vertical fallback below
     }
   }
 
-  // Rule-based fallback
-  const lower = cleanKeyword.toLowerCase();
-  for (const [key, list] of Object.entries(COMMON_EXPANSIONS)) {
-    if (lower.includes(key)) {
-      return list.map((item) => ({
-        query: item,
-        category: key,
-        rationale: `Targeted ${key} category synonym`,
+  for (const rule of VERTICAL_EXPANSIONS) {
+    if (rule.pattern.test(cleanKeyword)) {
+      return rule.queries.slice(0, targetCount).map((q) => ({
+        query: q,
+        category: rule.category,
+        rationale: `Targeted ${rule.category} B2B query`,
       }));
     }
   }
 
-  // Generic natural expansions
   return [
-    { query: `${cleanKeyword} companies`, category: cleanKeyword, rationale: "Company entity modifier" },
-    { query: `${cleanKeyword} agencies`, category: cleanKeyword, rationale: "Agency entity modifier" },
-    { query: `${cleanKeyword} services`, category: cleanKeyword, rationale: "Service entity modifier" },
-    { query: `commercial ${cleanKeyword}`, category: cleanKeyword, rationale: "Commercial sector focus" },
-  ];
+    { query: cleanKeyword, category: useCase, rationale: "Exact search term" },
+    { query: `${cleanKeyword} B2B`, category: useCase, rationale: "Commercial entity focus" },
+    { query: `${cleanKeyword} official site`, category: useCase, rationale: "Direct business website discovery" },
+  ].slice(0, targetCount);
 }
 
-/**
- * Convenience helper returning string queries directly.
- */
 export async function expandSearchQuery(
   keyword: string,
   targetCount: number = 4

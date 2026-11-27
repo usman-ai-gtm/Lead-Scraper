@@ -1,16 +1,49 @@
 /**
- * USMAN AI GTM — Ultra-Professional Search Engine Intelligence Engine
- * 
+ * USMAN AI GTM — B2B Search Intelligence, Website HTML Research & Deduplication Engine
+ *
  * Capabilities:
- * 1. B2B Lexical & ICP Keyword Expansion (Zero Unnecessary Cost, Free Performance)
- * 2. Strict Contact & Email Extraction with Format and Credibility Verification
- * 3. Deep Direct Website Contact Page Crawler (Fast, Safe HTTP with Timeout)
- * 4. Fallback Domain Contact Resolution via Indexed Public Pages
- * 5. Multi-Signal Deduplication & Cross-Platform Evidence Merging
- * 6. Compulsory Email Lead Qualification Guard (100% Genuine Public Email Mandatory)
+ * 1. Vertical-aware query generation (zero unwanted "importers" drift on clinics/agencies/hiring)
+ * 2. Strict Email & E.164/Regional Phone extraction & normalization
+ * 3. Single-pass Website HTML Intelligence Crawler:
+ *    - Extracts mailto/tel/text contacts + DNS MX verification
+ *    - Extracts <title>, <meta description>, social links, CMS/tech stack, /careers links, & website audit signals
+ * 4. Noise/Listicle Filtering & Honest Relevance Scoring
+ * 5. Cross-Platform, Country-Aware Multi-Signal Deduplication
  */
 
-export interface DiscoveredContact {
+import {
+  LeadUseCaseId,
+  GeoSpec,
+  classifyUseCaseIntent,
+  canonicalCountryKey,
+  extractOwnedCompanyDomain,
+  isPlatformOrDirectoryHost,
+  resolveGeoSpec,
+} from "@/lib/b2b-verticals";
+import { validateAndNormalizePhone } from "@/lib/lead-quality-engine";
+
+export interface ExtractedSocialLinks {
+  linkedin?: string;
+  facebook?: string;
+  instagram?: string;
+  twitter?: string;
+  youtube?: string;
+  tiktok?: string;
+}
+
+export interface WebsiteResearchSignals {
+  metaTitle?: string;
+  metaDescription?: string;
+  socials?: ExtractedSocialLinks;
+  techStack?: string[];
+  careersUrl?: string;
+  hiringDetected?: boolean;
+  hasContactForm?: boolean;
+  isHttps?: boolean;
+  websiteWeaknesses?: string[];
+}
+
+export interface DiscoveredContact extends WebsiteResearchSignals {
   email: string;
   emailSourceUrl: string;
   emailStatus: string;
@@ -34,6 +67,7 @@ export interface QualifiedLeadItem {
   city: string;
   address: string;
   industry: string;
+  category?: string;
   source_platform: string;
   original_source_url: string;
   search_keyword: string;
@@ -44,10 +78,20 @@ export interface QualifiedLeadItem {
   extraction_date: string;
   extraction_time: string;
   created_at: string;
+  last_verified_at?: string;
+  collection_timestamp?: string;
   quality_score?: number;
   quality_category?: string;
   quality_reasons?: string[];
+  relevance_score?: number;
+  relevance_reasons?: string[];
   contact_requirement?: string;
+  snippet?: string;
+  positive_signals?: string;
+  negative_signals?: string;
+  missing_info?: string;
+  buying_intent_category?: string;
+  enrichment_data?: Record<string, any>;
   instagram?: string;
   facebook?: string;
   linkedin?: string;
@@ -57,11 +101,20 @@ export interface QualifiedLeadItem {
   is_enriched?: boolean;
 }
 
-// Global cache for website domain crawls during search to avoid redundant HTTP requests
+// Bounded crawl cache (max 600 domains to prevent unbounded memory growth)
 const domainCrawlCache = new Map<string, DiscoveredContact>();
 
+function cacheDomainResult(domain: string, result: DiscoveredContact) {
+  if (domainCrawlCache.size >= 600) {
+    const oldest = domainCrawlCache.keys().next().value;
+    if (oldest) domainCrawlCache.delete(oldest);
+  }
+  domainCrawlCache.set(domain, result);
+}
+
 /**
- * Clean domain from any URL or string.
+ * Clean hostname from any URL or string (returns host even for social URLs when raw host is needed;
+ * use extractOwnedCompanyDomain() whenever checking canonical company domain).
  */
 export function cleanDomain(url: string): string {
   if (!url) return "";
@@ -78,59 +131,55 @@ export function cleanDomain(url: string): string {
 }
 
 /**
- * Intelligently expand customer keywords into high-yield B2B commercial variations.
- * Ensures the original keyword is preserved and complemented by wholesale, distributor,
- * manufacturer, supplier, and commercial retail variants.
+ * Generate vertical-aware commercial keyword variations without appending "importers" onto clinics, agencies, or hiring searches.
  */
 export function generateB2bKeywordVariations(
   rawKeyword: string,
   country?: string,
   city?: string,
-  industry?: string
+  industry?: string,
+  useCaseOverride?: LeadUseCaseId
 ): string[] {
   const kw = rawKeyword.trim();
   if (!kw) return [];
 
-  const locParts = [city, country].filter((p) => Boolean(p && p !== "ALL_CITIES" && p !== "ALL COUNTRIES" && p !== "All Countries"));
-  const locStr = locParts.length > 0 ? locParts.join(" ") : "";
+  const geo = resolveGeoSpec(country, city);
+  const locStr = [geo.cityName, geo.countryName !== "Global" ? geo.countryName : ""].filter(Boolean).join(" ");
+  const useCase = useCaseOverride || classifyUseCaseIntent(kw);
+  const withLoc = (term: string) => (locStr ? `${term} ${locStr}`.trim() : term.trim());
 
-  // B2B ICP Expansion Templates
-  const variations: string[] = [];
+  const variations: string[] = [withLoc(kw)];
 
-  // 1. Original keyword with location
-  variations.push(locStr ? `${kw} ${locStr}` : kw);
-
-  // 2. Wholesale & Bulk Supplier
-  variations.push(locStr ? `${kw} wholesale ${locStr}` : `${kw} wholesale`);
-  variations.push(locStr ? `${kw} suppliers ${locStr}` : `${kw} suppliers`);
-
-  // 3. Manufacturers & Factory Direct
-  variations.push(locStr ? `${kw} manufacturers ${locStr}` : `${kw} manufacturers`);
-
-  // 4. Distributors & Importers
-  variations.push(locStr ? `${kw} distributors ${locStr}` : `${kw} distributors`);
-  variations.push(locStr ? `${kw} importers ${locStr}` : `${kw} importers`);
-
-  // 5. Commercial Retail & Stores
-  variations.push(locStr ? `${kw} commercial stores ${locStr}` : `${kw} retail stores`);
-
-  // 6. If industry is distinct, add industry-specific variant
-  if (industry && industry !== "Any" && industry.toLowerCase() !== kw.toLowerCase()) {
-    variations.push(locStr ? `${kw} ${industry} ${locStr}` : `${kw} ${industry}`);
+  if (useCase === "wholesale_manufacturing") {
+    variations.push(withLoc(`${kw} suppliers`), withLoc(`${kw} manufacturers`), withLoc(`${kw} distributors`));
+  } else if (useCase === "hiring_signals") {
+    variations.push(withLoc(`${kw} careers`), withLoc(`hiring ${kw} jobs`), withLoc(`${kw} open position`));
+  } else if (useCase === "ecommerce_shopify") {
+    variations.push(withLoc(`${kw} store`), withLoc(`${kw} shopify`), withLoc(`${kw} shop online`));
+  } else if (useCase === "agency_web_audit") {
+    variations.push(withLoc(`${kw} official website`), withLoc(`${kw} agency`), withLoc(`${kw} digital services`));
+  } else if (useCase === "commercial_real_estate") {
+    variations.push(withLoc(`${kw} brokerage`), withLoc(`${kw} commercial property`), withLoc(`${kw} leasing`));
+  } else if (useCase === "decision_makers") {
+    variations.push(withLoc(`${kw} founder`), withLoc(`${kw} director`), withLoc(`${kw} managing partner`));
+  } else {
+    variations.push(withLoc(`${kw} official website`), withLoc(`${kw} company`));
+    if (industry && industry !== "Any" && industry.toLowerCase() !== kw.toLowerCase()) {
+      variations.push(withLoc(`${kw} ${industry}`));
+    }
   }
 
-  // Deduplicate variations
-  return Array.from(new Set(variations.map((v) => v.trim()).filter(Boolean)));
+  return Array.from(new Set(variations.filter(Boolean)));
 }
 
-// Directory aggregators and B2B directory scrapers whose corporate support emails or placeholder templates must NEVER be attributed to individual leads
-const DIRECTORY_AGGREGATORS = [
-  "yelp.com", "yellowpages.com", "clutch.co", "cience.com", "bbb.org",
-  "zoominfo.com", "dnb.com", "tripadvisor.com", "mapquest.com", "superpages.com",
-  "dexknows.com", "manta.com", "angis.com", "angi.com", "thumbtack.com",
-  "houzz.com", "trustpilot.com", "glassdoor.com", "indeed.com", "kompass.com",
-  "europages.com", "thomasnet.com", "leadiq.com", "lusha.com", "apollo.io",
-  "rocketreach.co", "adapt.io", "seamless.ai", "hunter.io", "contactout.com"
+const NOISE_AGGREGATORS = [
+  "yelp.com", "yellowpages.com", "bbb.org", "zoominfo.com", "dnb.com",
+  "tripadvisor.com", "mapquest.com", "superpages.com", "dexknows.com", "manta.com",
+  "angis.com", "angi.com", "thumbtack.com", "houzz.com", "trustpilot.com",
+  "glassdoor.com", "indeed.com", "ziprecruiter.com", "monster.com", "simplyhired.com",
+  "leadiq.com", "lusha.com", "apollo.io", "rocketreach.co", "adapt.io", "seamless.ai",
+  "hunter.io", "contactout.com", "reddit.com", "quora.com", "pinterest.com",
+  "wikipedia.org", "clutch.co", "goodfirms.co", "designrush.com", "sortlist.com",
 ];
 
 /**
@@ -144,57 +193,117 @@ export function isGenericTitleText(text: string): boolean {
     "terms and conditions", "sign in", "login", "log in", "register",
     "shopping cart", "my account", "404 not found", "error 404", "search results",
     "untitled", "loading...", "checkout", "faq", "faqs", "help center",
-    "customer support", "support", "index", "default"
+    "customer support", "support", "index", "default", "impressum", "kontakt"
   ];
   if (genericTerms.includes(lower) || lower.length < 2) return true;
-  // Reject titles that look like directory search headings (e.g. "THE BEST 10 Mobile Phone Accessories near...")
-  if (/^the best \d+/i.test(lower) || /^top \d+/i.test(lower) || /^best \d+/i.test(lower)) return true;
+  if (/^(?:the\s+)?(?:best|top)\s+\d+/i.test(lower)) return true;
+  return false;
+}
+
+/**
+ * Detect editorial roundup lists, blogs, forums, and multi-listing aggregator search pages
+ * that are NOT individual target businesses.
+ */
+export function isNoiseOrListicleResult(
+  url: string,
+  title: string,
+  useCase: LeadUseCaseId
+): boolean {
+  const lowerUrl = (url || "").toLowerCase();
+  const lowerTitle = (title || "").toLowerCase().trim();
+  const host = cleanDomain(url);
+
+  // Allow company ATS job pages strictly when searching active hiring signals
+  if (
+    useCase === "hiring_signals" &&
+    /\b(boards\.greenhouse\.io|jobs\.lever\.co|apply\.workable\.com|jobs\.ashbyhq\.com|jobs\.smartrecruiters\.com)\b/i.test(host)
+  ) {
+    return false;
+  }
+
+  // Filter pure forums, Q&A, listicle aggregators
+  if (NOISE_AGGREGATORS.some((d) => host === d || host.endsWith("." + d))) {
+    return true;
+  }
+
+  // Reject clear blog roundup titles ("10 Best Dental Clinics in New York", "Top 25 Recruitment Agencies")
+  if (
+    /^(?:the\s+)?(?:top|best)\s+\d+\b/i.test(lowerTitle) ||
+    /\b\d+\s+best\s+[a-z\s]+\b(?:in|near|for)\b/i.test(lowerTitle) ||
+    /\b(?:list of|directory of)\b/i.test(lowerTitle) ||
+    lowerUrl.includes("/blog/best-") ||
+    lowerUrl.includes("/top-10-") ||
+    lowerUrl.includes("/best-")
+  ) {
+    return true;
+  }
+
+  // Avoid Wikipedia/dictionary/stock-ticker pages
+  if (lowerUrl.includes("/wiki/") || lowerUrl.includes("/dictionary/")) {
+    return true;
+  }
+
   return false;
 }
 
 /**
  * Clean business title into authentic company name.
- * Strips common SEO slogans, platform tags, and URL artifacts.
+ * Strips SEO slogans, separator fluff, emojis, and job-post suffixes on ATS pages.
  */
 export function cleanBusinessName(rawTitle: string, linkUrl?: string, email?: string): string {
   if (!rawTitle && !email) return "";
   let name = (rawTitle || "").trim();
 
-  // If title is a question or promotional call-to-action (e.g. "Is your smartphone slowing down?")
-  const isPromoOrQuestion = name.endsWith("?") || /^(is|are|do|does|why|how to|what|looking for)\b/i.test(name);
+  // ATS job boards often title pages "Job Application for Senior Accountant at Acme Corp" or "Acme Corp - Jobs"
+  if (linkUrl) {
+    const atMatch = name.match(/\bat\s+([A-Z][A-Za-z0-9&.,\s-]{2,45})$/);
+    if (atMatch && /\b(boards\.greenhouse\.io|jobs\.lever\.co|workable\.com|ashbyhq\.com)\b/i.test(linkUrl)) {
+      name = atMatch[1].trim();
+    } else if (/\bjobs\.lever\.co\/([a-zA-Z0-9_-]+)/i.test(linkUrl) && name.toLowerCase().includes(" - ")) {
+      name = name.split(" - ")[0].trim();
+    }
+  }
+
+  const isPromoOrQuestion =
+    name.endsWith("?") || /^(is|are|do|does|why|how to|what|looking for)\b/i.test(name);
   if (isPromoOrQuestion && email) {
     const local = email.split("@")[0].replace(/[._-]+/g, " ").trim();
     if (local.length >= 3 && !["info", "contact", "support", "sales", "hello", "admin"].includes(local.toLowerCase())) {
-      return local.split(" ").map((w) => w.charAt(0).toUpperCase() + w.slice(1)).join(" ");
+      return local
+        .split(" ")
+        .map((w) => w.charAt(0).toUpperCase() + w.slice(1))
+        .join(" ");
     }
   }
 
-  // If title is from Instagram/Facebook and is a post caption or contains handle
   if (linkUrl && (linkUrl.includes("instagram.com") || linkUrl.includes("facebook.com") || linkUrl.includes("tiktok.com"))) {
-    // Check if link contains profile username: e.g. instagram.com/alprintny/ or facebook.com/MobileAccessoriesUk/
     const profileMatch = linkUrl.match(/(?:instagram|facebook|tiktok)\.com\/([a-zA-Z0-9._-]+)(?:\/|$)/i);
-    if (profileMatch && !["p", "reel", "reels", "stories", "tv", "groups", "posts", "watch"].includes(profileMatch[1].toLowerCase())) {
+    if (
+      profileMatch &&
+      !["p", "reel", "reels", "stories", "tv", "groups", "posts", "watch", "share"].includes(profileMatch[1].toLowerCase())
+    ) {
       const handle = profileMatch[1].replace(/[._-]+/g, " ").trim();
       if (handle.length >= 2) {
-        return handle.split(" ").map((w) => w.charAt(0).toUpperCase() + w.slice(1)).join(" ");
+        return handle
+          .split(" ")
+          .map((w) => w.charAt(0).toUpperCase() + w.slice(1))
+          .join(" ");
       }
     }
 
-    // If handle is inside text (e.g. @alprintny or (@MobileAccessoriesUk))
-    const atMatch = name.match(/@([a-zA-Z0-9._-]+)/);
-    if (atMatch && atMatch[1].length >= 3) {
-      const handle = atMatch[1].replace(/[._-]+/g, " ").trim();
-      return handle.split(" ").map((w) => w.charAt(0).toUpperCase() + w.slice(1)).join(" ");
+    const atHandle = name.match(/@([a-zA-Z0-9._-]+)/);
+    if (atHandle && atHandle[1].length >= 3) {
+      const handle = atHandle[1].replace(/[._-]+/g, " ").trim();
+      return handle
+        .split(" ")
+        .map((w) => w.charAt(0).toUpperCase() + w.slice(1))
+        .join(" ");
     }
   }
 
-  // Strip emojis from business name using universal UTF-16 surrogate pair regex
   name = name.replace(/([\uD800-\uDBFF][\uDC00-\uDFFF])/g, "").trim();
-
-  // Strip leading/trailing quotes
   name = name.replace(/^["'“”‘’]+|["'“”‘’]+$/g, "").trim();
 
-  // Strip common SEO separators: " - ", " | ", " : ", " • ", " – ", " — "
   const separators = [" - ", " | ", " : ", " • ", " – ", " — ", " :: "];
   for (const sep of separators) {
     if (name.includes(sep)) {
@@ -209,13 +318,13 @@ export function cleanBusinessName(rawTitle: string, linkUrl?: string, email?: st
     }
   }
 
-  // Strip common noisy suffixes but keep legitimate business words like Wholesale/Retail
-  name = name.replace(/\s*(?:\||\-)?\s*(?:Home|Homepage|Official Website|Official Site|Buy Online|Shop Online)\s*$/i, "").trim();
+  name = name
+    .replace(/\s*(?:\||\-)?\s*(?:Home|Homepage|Official Website|Official Site|Buy Online|Shop Online|LinkedIn|Careers)\s*$/i, "")
+    .trim();
 
-  // If name is still overly long (e.g. full sentence caption), truncate to first clause
-  if (name.length > 50) {
+  if (name.length > 60) {
     const clause = name.split(/[.,;!?]/)[0].trim();
-    if (clause.length >= 3 && clause.length <= 50) {
+    if (clause.length >= 3 && clause.length <= 60) {
       name = clause;
     }
   }
@@ -224,146 +333,255 @@ export function cleanBusinessName(rawTitle: string, linkUrl?: string, email?: st
 }
 
 /**
- * Extract public emails and phone numbers from raw HTML or text.
- * Strictly verifies email formatting, excludes file extensions and dummy test domains.
+ * Extract public emails and validated phone numbers from raw HTML or snippet text.
+ * Rejects image/asset fake emails, placeholder local parts, aggregator domains, and junk numeric sequences.
  */
-export function extractContactsFromText(text: string): { emails: string[]; phones: string[] } {
+export function extractContactsFromText(
+  text: string,
+  countryName?: string
+): { emails: string[]; phones: string[] } {
   if (!text) return { emails: [], phones: [] };
 
   const rawEmails = text.match(/[a-zA-Z0-9_.+-]+@[a-zA-Z0-9-]+\.[a-zA-Z0-9-.]+/g) || [];
   const cleanEmails = rawEmails
     .map((e) => e.replace(/\.+$/, "").trim().toLowerCase())
     .filter((e) => {
-      // Exclude invalid file extensions mistakenly caught by regex
       const invalidExtensions = [
         ".png", ".jpg", ".jpeg", ".webp", ".svg", ".gif", ".ico", ".bmp",
-        ".css", ".js", ".json", ".woff", ".woff2", ".ttf", ".eot"
+        ".css", ".js", ".json", ".woff", ".woff2", ".ttf", ".eot", ".pdf",
       ];
       if (invalidExtensions.some((ext) => e.endsWith(ext) || e.includes(ext + "@"))) {
         return false;
       }
 
-      // Exclude dummy, tracker, analytics, schema, social, and directory aggregator domains
       const invalidDomains = [
         "example.com", "domain.com", "sentry.io", "wixpress.com", "schema.org",
         "w3.org", "github.com", "cloudflare.com", "googleapis.com", "wordpress.org",
         "email.com", "test.com", "sample.com", "yourdomain.com", "company.com",
         "site.com", "mycompany.com", "localhost", "127.0.0.1", "google.com",
+        ...NOISE_AGGREGATORS,
         "facebook.com", "instagram.com", "twitter.com", "x.com", "linkedin.com",
         "youtube.com", "tiktok.com",
-        ...DIRECTORY_AGGREGATORS
       ];
       const parts = e.split("@");
       if (parts.length !== 2) return false;
       const [localPart, domainPart] = parts;
 
-      if (invalidDomains.some((d) => domainPart.toLowerCase() === d || domainPart.toLowerCase().endsWith("." + d))) {
+      if (invalidDomains.some((d) => domainPart === d || domainPart.endsWith("." + d))) {
         return false;
       }
 
-      // Reject common dummy and pattern template local parts (e.g. flast@, first.last@)
       const dummyLocals = [
         "yourname", "username", "name", "email", "user", "test", "demo", "sample",
         "flast", "first.last", "first_last", "firstname.lastname", "fname.lname",
-        "fname", "lname", "first", "last", "user.name", "someone", "nobody"
+        "fname", "lname", "first", "last", "user.name", "someone", "nobody", "noreply", "no-reply",
       ];
-      if (dummyLocals.includes(localPart.toLowerCase())) return false;
+      if (dummyLocals.includes(localPart)) return false;
+      if (localPart.length > 64 || localPart.length < 1) return false;
 
-      // Ensure valid TLD (at least 2 letters)
       const tld = domainPart.split(".").pop();
-      if (!tld || tld.length < 2 || /\d/.test(tld)) return false;
+      if (!tld || tld.length < 2 || tld.length > 16 || /\d/.test(tld)) return false;
 
       return true;
     });
 
-  // Extract phone numbers (7 to 15 digits international format)
-  const phoneMatches = text.match(/(?:\+?\d{1,3}[-.\s]?)?\(?\d{2,4}\)?[-.\s]?\d{3,4}[-.\s]?\d{3,4}/g) || [];
-  const cleanPhones = phoneMatches
-    .map((p) => p.trim())
-    .filter((p) => {
-      const digits = p.replace(/\D/g, "");
-      return digits.length >= 7 && digits.length <= 15;
-    });
+  // Prioritize role-generic B2B emails ONLY AFTER direct/descriptive ones? No — info@/contact@/sales@ are the gold standard when direct personal isn't there, while ignoring asset strings.
+  const phoneMatches = text.match(/(?:\+\d{1,3}[-.\s]?|\(\d{2,4}\)[-.\s]?)\d{2,4}[-.\s]?\d{3,4}(?:[-.\s]?\d{2,4})?|\b\d{3}[-.\s]\d{3}[-.\s]\d{4}\b/g) || [];
+  const validPhones: string[] = [];
+
+  for (const raw of phoneMatches) {
+    const p = raw.trim();
+    // Skip ISO date-like patterns (e.g. 2025-11-27 or 2024-01-2025) or year ranges
+    if (/^(19|20)\d{2}[-.\s](0?\d|1[0-2])[-.\s]/.test(p)) continue;
+    const checked = validateAndNormalizePhone(p, countryName);
+    if (checked.valid) {
+      validPhones.push(checked.normalized);
+    }
+  }
 
   return {
     emails: Array.from(new Set(cleanEmails)),
-    phones: Array.from(new Set(cleanPhones)),
+    phones: Array.from(new Set(validPhones)),
+  };
+}
+
+function decodeBasicEntities(s: string): string {
+  return s
+    .replace(/&amp;/g, "&")
+    .replace(/&quot;/g, '"')
+    .replace(/&#39;/g, "'")
+    .replace(/&lt;/g, "<")
+    .replace(/&gt;/g, ">")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function extractHtmlResearchFromSlice(html: string, finalUrl: string): WebsiteResearchSignals {
+  const titleMatch = html.match(/<title[^>]*>([\s\S]{2,180}?)<\/title>/i);
+  const metaTitle = titleMatch ? decodeBasicEntities(titleMatch[1].replace(/<[^>]+>/g, "")) : undefined;
+
+  const descMatch =
+    html.match(/<meta[^>]+name=["']description["'][^>]+content=["']([^"']{8,320})["']/i) ||
+    html.match(/<meta[^>]+content=["']([^"']{8,320})["'][^>]+name=["']description["']/i) ||
+    html.match(/<meta[^>]+property=["']og:description["'][^>]+content=["']([^"']{8,320})["']/i);
+  const metaDescription = descMatch ? decodeBasicEntities(descMatch[1]) : undefined;
+
+  const socials: ExtractedSocialLinks = {};
+  const hrefs = html.match(/href=["'](https?:\/\/[^"'\s>]+)["']/gi) || [];
+  let careersUrl: string | undefined;
+
+  for (const h of hrefs) {
+    const link = h.slice(6, -1).trim();
+    const low = link.toLowerCase();
+    if (!socials.linkedin && (low.includes("linkedin.com/company/") || low.includes("linkedin.com/in/"))) {
+      socials.linkedin = link.split("?")[0];
+    } else if (!socials.facebook && low.includes("facebook.com/") && !low.includes("/sharer") && !low.includes("/tr?")) {
+      socials.facebook = link.split("?")[0];
+    } else if (!socials.instagram && low.includes("instagram.com/") && !low.includes("/p/")) {
+      socials.instagram = link.split("?")[0];
+    } else if (!socials.youtube && (low.includes("youtube.com/channel/") || low.includes("youtube.com/@"))) {
+      socials.youtube = link;
+    } else if (!socials.twitter && (low.includes("twitter.com/") || low.includes("x.com/")) && !low.includes("/intent/")) {
+      socials.twitter = link.split("?")[0];
+    } else if (!socials.tiktok && low.includes("tiktok.com/@")) {
+      socials.tiktok = link.split("?")[0];
+    }
+    if (
+      !careersUrl &&
+      (/\/(?:careers|jobs|join-us|work-with-us|vacancies)\b/i.test(low) ||
+        /\b(boards\.greenhouse\.io|jobs\.lever\.co|apply\.workable\.com|bamboohr\.com)\b/i.test(low))
+    ) {
+      careersUrl = link;
+    }
+  }
+
+  // Also check relative career hrefs
+  if (!careersUrl) {
+    const relCareer = html.match(/href=["'](\/[^"'\s>]*(?:careers|jobs|join-us|vacancies)[^"'\s>]*)["']/i);
+    if (relCareer?.[1]) {
+      try {
+        careersUrl = new URL(relCareer[1], finalUrl).toString();
+      } catch {}
+    }
+  }
+
+  const techStack: string[] = [];
+  const lowHtml = html.toLowerCase();
+  if (lowHtml.includes("cdn.shopify.com") || lowHtml.includes("shopify.theme") || lowHtml.includes("myshopify.com")) {
+    techStack.push("Shopify");
+  }
+  if (lowHtml.includes("woocommerce") || lowHtml.includes("wc-block")) {
+    techStack.push("WooCommerce");
+  }
+  if (lowHtml.includes("wp-content") || lowHtml.includes("wp-includes")) {
+    techStack.push("WordPress");
+  }
+  if (lowHtml.includes("wixstatic.com") || lowHtml.includes("x-wix-")) {
+    techStack.push("Wix");
+  }
+  if (lowHtml.includes("squarespace.com") || lowHtml.includes("static1.squarespace")) {
+    techStack.push("Squarespace");
+  }
+  if (lowHtml.includes("webflow.com") || lowHtml.includes("website-files.com")) {
+    techStack.push("Webflow");
+  }
+  if (lowHtml.includes("js.hs-scripts.com") || lowHtml.includes("hubspot")) {
+    techStack.push("HubSpot");
+  }
+
+  const hasContactForm = /<form[\s>][\s\S]{0,2500}(?:type=["']email["']|name=["']email["']|contact)/i.test(html);
+  const isHttps = finalUrl.toLowerCase().startsWith("https://");
+  const hiringDetected = Boolean(
+    careersUrl || /\b(we'?re hiring|we are hiring|now hiring|open positions|current openings)\b/i.test(html)
+  );
+
+  const websiteWeaknesses: string[] = [];
+  if (!isHttps) websiteWeaknesses.push("Non-HTTPS website");
+  if (!metaDescription) websiteWeaknesses.push("Missing meta description");
+  if (!hasContactForm) websiteWeaknesses.push("No web contact form detected");
+  if (techStack.includes("Wix") || techStack.includes("Squarespace")) {
+    websiteWeaknesses.push(`DIY builder (${techStack.find((t) => t === "Wix" || t === "Squarespace")})`);
+  }
+
+  return {
+    ...(metaTitle ? { metaTitle } : {}),
+    ...(metaDescription ? { metaDescription } : {}),
+    ...(Object.keys(socials).length > 0 ? { socials } : {}),
+    ...(techStack.length > 0 ? { techStack } : {}),
+    ...(careersUrl ? { careersUrl } : {}),
+    hiringDetected,
+    hasContactForm,
+    isHttps,
+    websiteWeaknesses,
   };
 }
 
 /**
- * Direct Lightweight HTTP Contact Page Crawler
- * Safely inspects high-probability public contact pages on discovered business domains.
- * Enforces a strict 2500ms timeout per request and extracts verified public contacts.
+ * Direct Lightweight HTTP Contact & Research Crawler
+ * Fetches homepage & prioritized contact pages once, extracting contacts AND SEO/social/CMS/hiring intelligence.
  */
 export async function crawlWebsiteForContacts(
   domain: string,
   existingEmail?: string,
-  existingPhone?: string
+  existingPhone?: string,
+  options?: {
+    countryName?: string;
+    extraPaths?: string[];
+    checkCareers?: boolean;
+  }
 ): Promise<DiscoveredContact> {
   const normDom = cleanDomain(domain);
-  if (!normDom || normDom.length < 4) {
+  if (!normDom || normDom.length < 4 || isPlatformOrDirectoryHost(normDom)) {
     return {
       email: existingEmail || "",
       emailSourceUrl: "",
-      emailStatus: existingEmail ? "FOUND IN SOURCE EVIDENCE" : "NOT FOUND",
+      emailStatus: existingEmail ? "Syntax Valid" : "Not Found",
       phone: existingPhone || "",
       phoneSourceUrl: "",
-      phoneStatus: existingPhone ? "FOUND IN SOURCE EVIDENCE" : "NOT LISTED",
+      phoneStatus: existingPhone ? "Source Listed" : "Not Found",
     };
   }
 
-  // Check in-memory crawl cache to avoid redundant network requests
   if (domainCrawlCache.has(normDom)) {
     const cached = domainCrawlCache.get(normDom)!;
     return {
+      ...cached,
       email: cached.email || existingEmail || "",
       emailSourceUrl: cached.emailSourceUrl || (existingEmail ? `https://${normDom}` : ""),
-      emailStatus: cached.email ? cached.emailStatus : (existingEmail ? "FOUND IN SOURCE EVIDENCE" : "NOT FOUND"),
+      emailStatus: cached.email ? cached.emailStatus : existingEmail ? "Syntax Valid" : "Not Found",
       phone: cached.phone || existingPhone || "",
       phoneSourceUrl: cached.phoneSourceUrl || (existingPhone ? `https://${normDom}` : ""),
-      phoneStatus: cached.phone ? cached.phoneStatus : (existingPhone ? "FOUND IN SOURCE EVIDENCE" : "NOT LISTED"),
-    };
-  }
-
-  // Never crawl social media platforms or generic directory aggregators directly
-  const excludedHosts = [
-    "facebook.com", "instagram.com", "linkedin.com", "twitter.com", "x.com",
-    "youtube.com", "tiktok.com", "google.com", "bing.com", "yahoo.com",
-    "wikipedia.org",
-    ...DIRECTORY_AGGREGATORS
-  ];
-  if (excludedHosts.some((h) => normDom.includes(h))) {
-    return {
-      email: existingEmail || "",
-      emailSourceUrl: "",
-      emailStatus: existingEmail ? "FOUND ON PUBLIC PROFILE" : "NOT FOUND",
-      phone: existingPhone || "",
-      phoneSourceUrl: "",
-      phoneStatus: existingPhone ? "FOUND ON PUBLIC PROFILE" : "NOT LISTED",
+      phoneStatus: cached.phone ? cached.phoneStatus : existingPhone ? "Source Listed" : "Not Found",
     };
   }
 
   let discoveredEmail = existingEmail || "";
   let emailSourceUrl = existingEmail ? `https://${normDom}` : "";
-  let emailStatus = existingEmail ? "FOUND IN SEARCH SNIPPET • FORMAT CHECKED" : "NOT FOUND";
+  let emailStatus = existingEmail ? "Syntax Valid" : "Not Found";
 
   let discoveredPhone = existingPhone || "";
   let phoneSourceUrl = existingPhone ? `https://${normDom}` : "";
-  let phoneStatus = existingPhone ? "FOUND IN SEARCH SNIPPET • FORMAT CHECKED" : "NOT LISTED";
+  let phoneStatus = existingPhone ? "Source Listed" : "Not Found";
 
-  // Prioritized contact paths fetched in bounded parallel rounds (fast, safe HTTP with 1.8s timeout)
+  const geoExtraPaths = (options?.extraPaths && options.extraPaths.length > 0
+    ? options.extraPaths
+    : normDom.endsWith(".de")
+    ? ["/impressum", "/kontakt"]
+    : []
+  ).map((p) => `https://${normDom}${p}`);
+
   const priorityRounds: string[][] = [
     [
+      `https://${normDom}`,
       `https://${normDom}/contact`,
       `https://${normDom}/contact-us`,
-      `https://${normDom}`,
-    ],
+      ...geoExtraPaths,
+    ].slice(0, 4),
     [
-      `https://${normDom}/pages/contact-us`,
       `https://${normDom}/about-us`,
       `https://${normDom}/about`,
-    ],
+      ...(options?.checkCareers ? [`https://${normDom}/careers`, `https://${normDom}/jobs`] : [`https://${normDom}/pages/contact-us`]),
+    ].slice(0, 3),
   ];
 
   const inspectUrl = async (url: string) => {
@@ -373,9 +591,9 @@ export async function crawlWebsiteForContacts(
       const res = await fetch(url, {
         signal: controller.signal,
         headers: {
-          "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+          "User-Agent": "Mozilla/5.0 (compatible; UsmanAIGTM/1.0; +https://lead-scraper-mxs5.vercel.app)",
           "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
-          "Accept-Language": "en-US,en;q=0.9",
+          "Accept-Language": "en-US,en;q=0.9,de;q=0.8",
         },
         redirect: "follow",
       });
@@ -391,22 +609,42 @@ export async function crawlWebsiteForContacts(
     }
   };
 
+  let research: WebsiteResearchSignals = {};
+
   for (const round of priorityRounds) {
-    if (discoveredEmail && discoveredPhone) break;
+    if (discoveredEmail && discoveredPhone && research.metaTitle && (!options?.checkCareers || research.careersUrl)) {
+      break;
+    }
     const settled = await Promise.all(round.map((u) => inspectUrl(u)));
     for (const page of settled) {
       if (!page) continue;
       const { finalUrl, bodySlice } = page;
 
+      // Capture rich HTML research (prioritize homepage title/description + merge socials/tech/careers)
+      const sig = extractHtmlResearchFromSlice(bodySlice, finalUrl);
+      research = {
+        metaTitle: research.metaTitle || sig.metaTitle,
+        metaDescription: research.metaDescription || sig.metaDescription,
+        socials: { ...(sig.socials || {}), ...(research.socials || {}) },
+        techStack: Array.from(new Set([...(research.techStack || []), ...(sig.techStack || [])])),
+        careersUrl: research.careersUrl || sig.careersUrl,
+        hiringDetected: Boolean(research.hiringDetected || sig.hiringDetected),
+        hasContactForm: Boolean(research.hasContactForm || sig.hasContactForm),
+        isHttps: research.isHttps !== undefined ? research.isHttps : sig.isHttps,
+        websiteWeaknesses: Array.from(
+          new Set([...(research.websiteWeaknesses || []), ...(sig.websiteWeaknesses || [])])
+        ),
+      };
+
       if (!discoveredEmail) {
         const mailtoMatches = bodySlice.match(/href=["']mailto:([^"'>?]+)/gi) || [];
         for (const m of mailtoMatches) {
           const clean = m.replace(/href=["']mailto:/i, "").trim().toLowerCase();
-          const { emails } = extractContactsFromText(clean);
+          const { emails } = extractContactsFromText(clean, options?.countryName);
           if (emails.length > 0) {
             discoveredEmail = emails[0];
             emailSourceUrl = finalUrl;
-            emailStatus = "EXTRACTED FROM PUBLIC WEBSITE • SYNTAX CHECKED";
+            emailStatus = "Syntax Valid";
             break;
           }
         }
@@ -416,10 +654,11 @@ export async function crawlWebsiteForContacts(
         const telMatches = bodySlice.match(/href=["']tel:([^"'>]+)/gi) || [];
         for (const t of telMatches) {
           const clean = t.replace(/href=["']tel:/i, "").replace(/[^0-9+\s\-()]/g, "").trim();
-          if (clean.replace(/\D/g, "").length >= 7) {
-            discoveredPhone = clean;
+          const checked = validateAndNormalizePhone(clean, options?.countryName);
+          if (checked.valid) {
+            discoveredPhone = checked.normalized;
             phoneSourceUrl = finalUrl;
-            phoneStatus = "EXTRACTED FROM PUBLIC WEBSITE • FORMAT CHECKED";
+            phoneStatus = "Format Valid";
             break;
           }
         }
@@ -432,20 +671,18 @@ export async function crawlWebsiteForContacts(
           .replace(/<svg\b[^<]*(?:(?!<\/svg>)<[^<]*)*<\/svg>/gi, " ")
           .replace(/<[^>]+>/g, " ");
 
-        const { emails, phones } = extractContactsFromText(stripped);
+        const { emails, phones } = extractContactsFromText(stripped, options?.countryName);
         if (!discoveredEmail && emails.length > 0) {
           discoveredEmail = emails[0];
           emailSourceUrl = finalUrl;
-          emailStatus = "EXTRACTED FROM PUBLIC WEBSITE • SYNTAX CHECKED";
+          emailStatus = "Syntax Valid";
         }
         if (!discoveredPhone && phones.length > 0) {
           discoveredPhone = phones[0];
           phoneSourceUrl = finalUrl;
-          phoneStatus = "EXTRACTED FROM PUBLIC WEBSITE • FORMAT CHECKED";
+          phoneStatus = "Format Valid";
         }
       }
-
-      if (discoveredEmail && discoveredPhone) break;
     }
   }
 
@@ -463,12 +700,12 @@ export async function crawlWebsiteForContacts(
         finalEmailStatus = emailCheck.displayLabel;
       }
       if (finalPhone) {
-        const phoneCheck = evaluatePhoneQualityTruthfully(finalPhone, undefined, phoneSourceUrl);
+        const phoneCheck = evaluatePhoneQualityTruthfully(finalPhone, options?.countryName, phoneSourceUrl);
         finalPhone = phoneCheck.normalized || finalPhone;
         finalPhoneStatus = phoneCheck.displayLabel;
       }
     } catch {
-      // Keep original syntax-validated strings if DNS lookup environment is restricted
+      // Preserve verified syntax results if DNS environment throttles
     }
   }
 
@@ -479,36 +716,40 @@ export async function crawlWebsiteForContacts(
     phone: finalPhone,
     phoneSourceUrl,
     phoneStatus: finalPhoneStatus,
+    ...research,
   };
 
-  domainCrawlCache.set(normDom, result);
+  cacheDomainResult(normDom, result);
   return result;
 }
 
 /**
  * Fallback Domain Contact Resolution via Targeted Serper Site Query.
- * Used when direct HTTP fetch is blocked (e.g. Cloudflare 403) or yields no contact details.
  */
 export async function querySerperForDomainContact(
   domain: string,
-  apiKey: string
+  apiKey: string,
+  countryName?: string
 ): Promise<{ email: string; emailSourceUrl: string; phone: string; phoneSourceUrl: string }> {
   const normDom = cleanDomain(domain);
-  if (!normDom || normDom.length < 4) return { email: "", emailSourceUrl: "", phone: "", phoneSourceUrl: "" };
-  if (DIRECTORY_AGGREGATORS.some((d) => normDom.includes(d))) {
+  if (!normDom || normDom.length < 4 || isPlatformOrDirectoryHost(normDom)) {
     return { email: "", emailSourceUrl: "", phone: "", phoneSourceUrl: "" };
   }
 
-  const query = `site:${normDom} contact OR email OR "info@" OR "hello@" OR "support@"`;
+  const query = `site:${normDom} contact OR email OR impressum OR "info@" OR "hello@"`;
   try {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 3500);
     const res = await fetch("https://google.serper.dev/search", {
       method: "POST",
+      signal: controller.signal,
       headers: {
         "X-API-KEY": apiKey,
         "Content-Type": "application/json",
       },
       body: JSON.stringify({ q: query, num: 3 }),
     });
+    clearTimeout(timer);
 
     if (!res.ok) return { email: "", emailSourceUrl: "", phone: "", phoneSourceUrl: "" };
     const data = await res.json();
@@ -516,7 +757,7 @@ export async function querySerperForDomainContact(
 
     for (const item of organic) {
       const text = `${item.snippet || ""} ${item.title || ""}`;
-      const { emails, phones } = extractContactsFromText(text);
+      const { emails, phones } = extractContactsFromText(text, countryName);
       if (emails.length > 0 || phones.length > 0) {
         return {
           email: emails[0] || "",
@@ -533,56 +774,157 @@ export async function querySerperForDomainContact(
 }
 
 /**
- * Multi-Signal Deduplication and Cross-Platform Evidence Merging.
- * Checks:
- * 1. Normalized Domain (for official websites)
- * 2. Normalized Company Name (case-insensitive, trimmed)
- * 3. Exact Email Address
- * 
- * If a matching business exists, enriches missing phone and merges platform tags.
- * Returns true if lead is new and added, false if merged/deduplicated.
+ * Deterministic relevance scorer [0..100] checking query intent, industry keywords, geo evidence, and signals.
+ */
+export function computeLeadRelevanceScore(params: {
+  businessName: string;
+  title?: string;
+  snippet?: string;
+  url?: string;
+  ownedDomain?: string;
+  keyword: string;
+  useCase: LeadUseCaseId;
+  geo: GeoSpec;
+  research?: WebsiteResearchSignals;
+}): { score: number; reasons: string[] } {
+  let score = 35;
+  const reasons: string[] = [];
+  const haystack = `${params.businessName} ${params.title || ""} ${params.snippet || ""} ${params.research?.metaTitle || ""} ${params.research?.metaDescription || ""}`.toLowerCase();
+
+  // 1. Keyword token match
+  const stopWords = new Set(["the", "and", "for", "with", "in", "of", "companies", "firms", "businesses", "agencies", "stores", "services"]);
+  const tokens = params.keyword
+    .toLowerCase()
+    .split(/[^a-z0-9]+/)
+    .filter((t) => t.length >= 3 && !stopWords.has(t));
+
+  if (tokens.length > 0) {
+    const matched = tokens.filter((t) => haystack.includes(t) || (params.ownedDomain || "").includes(t));
+    const ratio = matched.length / tokens.length;
+    if (ratio >= 0.8) {
+      score += 25;
+      reasons.push(`Strong keyword match (${matched.join(", ")})`);
+    } else if (ratio >= 0.4) {
+      score += 14;
+      reasons.push(`Partial keyword match (${matched.join(", ")})`);
+    }
+  }
+
+  // 2. Geographic relevance match
+  if (params.geo.cityName && haystack.includes(params.geo.cityName.toLowerCase())) {
+    score += 15;
+    reasons.push(`Matched city: ${params.geo.cityName}`);
+  }
+  if (params.geo.countryName !== "Global") {
+    const tldMatched = params.geo.preferredTlds.some((tld) => (params.ownedDomain || "").endsWith(tld) && tld !== ".com");
+    const aliasMatched = params.geo.countryAliases.some((a) => haystack.includes(a));
+    if (tldMatched || aliasMatched) {
+      score += 12;
+      reasons.push(`Matched region: ${params.geo.countryName}`);
+    }
+  }
+
+  // 3. Use-case specific signal confirmation
+  if (params.useCase === "ecommerce_shopify") {
+    if (params.research?.techStack?.includes("Shopify") || haystack.includes("shopify")) {
+      score += 20;
+      reasons.push("Shopify platform detected");
+    }
+  } else if (params.useCase === "hiring_signals") {
+    if (params.research?.hiringDetected || /\b(hiring|careers|jobs|apply|vacancy|openings)\b/i.test(`${haystack} ${params.url || ""}`)) {
+      score += 20;
+      reasons.push("Active hiring/career evidence detected");
+    }
+  } else if (params.ownedDomain) {
+    score += 8;
+    reasons.push("Official business domain");
+  }
+
+  return {
+    score: Math.min(100, Math.max(0, score)),
+    reasons,
+  };
+}
+
+/**
+ * Multi-Signal, Country-Aware Deduplication & Evidence Merging.
+ * Identity signals:
+ * 1. Canonical Owned Domain (ignoring platform/directory hosts)
+ * 2. Normalized Email
+ * 3. Normalized Phone
+ * 4. Normalized Business Name + Country (`name::country`)
  */
 export function mergeLeadIntoList(
   leadsList: QualifiedLeadItem[],
   newLead: QualifiedLeadItem,
   seenDomains: Set<string>,
   seenNames: Set<string>,
-  seenEmails: Set<string>
+  seenEmails: Set<string>,
+  seenPhones?: Set<string>
 ): boolean {
-  const normDom = (newLead.domain || "").toLowerCase().trim();
-  const normName = (newLead.business_name || "").toLowerCase().trim();
+  const normDom = extractOwnedCompanyDomain(newLead.domain || newLead.website);
+  const normName = (newLead.business_name || "").toLowerCase().replace(/[^a-z0-9\s]/g, "").replace(/\s+/g, " ").trim();
+  const countryKey = canonicalCountryKey(newLead.country);
+  const scopedNameKey = normName ? `${normName}::${countryKey}` : "";
   const normEmail = (newLead.email || "").toLowerCase().trim();
+  const normPhone = (newLead.phone || "").replace(/[^0-9+]/g, "").trim();
 
-  // Check if already seen
-  const hasSeenDom = normDom && seenDomains.has(normDom);
-  const hasSeenName = normName && seenNames.has(normName);
-  const hasSeenEmail = normEmail && seenEmails.has(normEmail);
+  const hasSeenDom = Boolean(normDom && seenDomains.has(normDom));
+  const hasSeenName = Boolean(scopedNameKey && seenNames.has(scopedNameKey));
+  const hasSeenEmail = Boolean(normEmail && seenEmails.has(normEmail));
+  const hasSeenPhone = Boolean(normPhone.length >= 7 && seenPhones?.has(normPhone));
 
-  if (hasSeenDom || hasSeenName || hasSeenEmail) {
-    // Find existing master lead
+  if (hasSeenDom || hasSeenName || hasSeenEmail || hasSeenPhone) {
     const existing = leadsList.find((l) => {
-      const eDom = (l.domain || "").toLowerCase().trim();
-      const eName = (l.business_name || "").toLowerCase().trim();
+      const eDom = extractOwnedCompanyDomain(l.domain || l.website);
+      const eName = (l.business_name || "").toLowerCase().replace(/[^a-z0-9\s]/g, "").replace(/\s+/g, " ").trim();
+      const eCountry = canonicalCountryKey(l.country);
       const eEmail = (l.email || "").toLowerCase().trim();
+      const ePhone = (l.phone || "").replace(/[^0-9+]/g, "").trim();
       return (
         (normDom && eDom && normDom === eDom) ||
         (normEmail && eEmail && normEmail === eEmail) ||
-        (normName && eName && normName === eName)
+        (normPhone.length >= 7 && ePhone && normPhone === ePhone) ||
+        (normName && eName && normName === eName && countryKey === eCountry)
       );
     });
 
     if (existing) {
-      // 1. Enrich phone if existing lead had none and new entry provides it
+      if (!existing.email && newLead.email) {
+        existing.email = newLead.email;
+        existing.email_source_url = newLead.email_source_url;
+        existing.email_status = newLead.email_status;
+      } else if (
+        existing.email &&
+        newLead.email &&
+        existing.email_status &&
+        !existing.email_status.includes("Domain Valid") &&
+        newLead.email_status?.includes("Domain Valid")
+      ) {
+        existing.email = newLead.email;
+        existing.email_source_url = newLead.email_source_url;
+        existing.email_status = newLead.email_status;
+      }
+
       if (!existing.phone && newLead.phone) {
         existing.phone = newLead.phone;
         existing.phone_source_url = newLead.phone_source_url;
         existing.phone_status = newLead.phone_status;
       }
-      // 2. Cross-platform evidence enrichment (preserve all sources)
+      if (!existing.website && newLead.website) existing.website = newLead.website;
+      if (!existing.domain && normDom) existing.domain = normDom;
+      if (!existing.linkedin && newLead.linkedin) existing.linkedin = newLead.linkedin;
+      if (!existing.instagram && newLead.instagram) existing.instagram = newLead.instagram;
+      if (!existing.facebook && newLead.facebook) existing.facebook = newLead.facebook;
+      if (!existing.twitter && newLead.twitter) existing.twitter = newLead.twitter;
+      if (!existing.youtube && newLead.youtube) existing.youtube = newLead.youtube;
+      if (!existing.tiktok && newLead.tiktok) existing.tiktok = newLead.tiktok;
+      if (!existing.positive_signals && newLead.positive_signals) {
+        existing.positive_signals = newLead.positive_signals;
+      }
       if (newLead.source_platform && !existing.source_platform.includes(newLead.source_platform)) {
         existing.source_platform = `${existing.source_platform} • ${newLead.source_platform}`;
       }
-      // 3. Update address if existing had placeholder
       if ((!existing.address || existing.address.length < 5) && newLead.address) {
         existing.address = newLead.address;
       }
@@ -590,10 +932,10 @@ export function mergeLeadIntoList(
     return false;
   }
 
-  // Register identity signals
   if (normDom) seenDomains.add(normDom);
-  if (normName) seenNames.add(normName);
+  if (scopedNameKey) seenNames.add(scopedNameKey);
   if (normEmail) seenEmails.add(normEmail);
+  if (normPhone.length >= 7 && seenPhones) seenPhones.add(normPhone);
 
   leadsList.push(newLead);
   return true;

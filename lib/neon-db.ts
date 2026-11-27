@@ -14,6 +14,7 @@ import {
   FeatureMap,
 } from "@/lib/entitlements";
 import { resolvePlanLeadAllowance } from "@/lib/custom-plans";
+import { extractOwnedCompanyDomain } from "@/lib/b2b-verticals";
 
 function getConnectionString(): string | null {
   let dbUrl = process.env.DATABASE_URL || process.env.POSTGRES_URL;
@@ -285,12 +286,13 @@ export async function saveNeonSearchRecordAndLeads(
       const collectedAt = String(lead.collection_timestamp || lead.created_at || nowIso).trim();
 
       const normEmail = email.includes("@") ? email.toLowerCase().trim() : "";
-      const normDom = dom.replace(/^https?:\/\//i, "").replace(/^www\./i, "").split("/")[0].toLowerCase().trim();
+      const normDom = extractOwnedCompanyDomain(dom || website);
       const normPhone = phone ? phone.replace(/[^0-9+]/g, "") : "";
       const placeId = String(lead.place_id || "").trim();
+      const sourceUrlClean = String(lead.original_source_url || lead.source_url || website || "").trim();
 
       let leadId: number | null = null;
-      if (normEmail || normDom || placeId || normPhone) {
+      if (normEmail || normDom || placeId || normPhone || sourceUrlClean) {
         const existingCheck = await sql.query(
           `SELECT id FROM leads 
            WHERE workspace_id = $1 
@@ -299,24 +301,59 @@ export async function saveNeonSearchRecordAndLeads(
                OR (normalized_domain = $3 AND $3 != '')
                OR (place_id = $4 AND $4 != '')
                OR (normalized_phone = $5 AND $5 != '')
+               OR (source_url = $6 AND $6 != '')
              )
            LIMIT 1`,
-          [workspaceId, normEmail, normDom, placeId, normPhone]
+          [workspaceId, normEmail, normDom, placeId, normPhone, sourceUrlClean]
         );
         if (existingCheck.length > 0) {
           leadId = existingCheck[0].id;
         }
       }
 
+      const enrichmentJson =
+        lead.enrichment_data && typeof lead.enrichment_data === "object"
+          ? JSON.stringify(lead.enrichment_data)
+          : null;
+      const qualityReasonsJson = Array.isArray(lead.quality_reasons)
+        ? JSON.stringify(lead.quality_reasons)
+        : null;
+
       if (leadId) {
-        if (phone) {
-          try {
-            await sql.query(
-              "UPDATE leads SET phone = $1, phone_status = $2, updated_at = $3 WHERE id = $4 AND (phone IS NULL OR phone = '' OR phone = 'Not Listed')",
-              [phone, phoneStatus, nowIso, leadId]
-            );
-          } catch {}
-        }
+        try {
+          await sql.query(
+            `UPDATE leads
+             SET
+               phone = CASE WHEN phone IS NULL OR phone = '' OR phone = 'Not Listed' THEN NULLIF($1, '') ELSE phone END,
+               phone_status = CASE WHEN phone IS NULL OR phone = '' OR phone = 'Not Listed' THEN $2 ELSE phone_status END,
+               email = COALESCE(NULLIF(email, ''), NULLIF($3, '')),
+               email_status = CASE WHEN email IS NULL OR email = '' THEN $4 ELSE email_status END,
+               website = COALESCE(NULLIF(website, ''), NULLIF($5, '')),
+               linkedin = COALESCE(NULLIF(linkedin, ''), NULLIF($6, '')),
+               facebook = COALESCE(NULLIF(facebook, ''), NULLIF($7, '')),
+               instagram = COALESCE(NULLIF(instagram, ''), NULLIF($8, '')),
+               positive_signals = COALESCE(NULLIF($9, ''), positive_signals),
+               snippet = COALESCE(NULLIF($10, ''), snippet),
+               enrichment_data = COALESCE($11::jsonb, enrichment_data),
+               updated_at = $12
+             WHERE id = $13`,
+            [
+              phone,
+              phoneStatus,
+              email,
+              emailStatus,
+              website,
+              String(lead.linkedin || "").trim(),
+              String(lead.facebook || "").trim(),
+              String(lead.instagram || "").trim(),
+              String(lead.positive_signals || "").trim(),
+              String(lead.snippet || "").trim(),
+              enrichmentJson,
+              nowIso,
+              leadId,
+            ]
+          );
+        } catch {}
       } else {
         const ins = await sql.query(
           `INSERT INTO leads (
@@ -326,8 +363,15 @@ export async function saveNeonSearchRecordAndLeads(
             date_discovered, created_at, updated_at, last_verified_at, collection_timestamp,
             domain, city, country, address, email_status, phone_status,
             normalized_domain, normalized_email, normalized_phone, place_id,
-            rating, review_count, industry, category
-          ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18::timestamptz, $19, $20, $21, $22, $23, $24, $25, $26, $27, $28, $29, $30, $31, $32)
+            rating, review_count, industry, category,
+            snippet, positive_signals, negative_signals, missing_info,
+            buying_intent_category, quality_score, quality_category, quality_reasons,
+            enrichment_data, contact_requirement, linkedin, facebook, instagram, twitter, youtube, tiktok
+          ) VALUES (
+            $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18::timestamptz,
+            $19, $20, $21, $22, $23, $24, $25, $26, $27, $28, $29, $30, $31, $32,
+            $33, $34, $35, $36, $37, $38, $39, $40::jsonb, $41::jsonb, $42, $43, $44, $45, $46, $47, $48
+          )
           ON CONFLICT DO NOTHING
           RETURNING id`,
           [
@@ -337,19 +381,19 @@ export async function saveNeonSearchRecordAndLeads(
             phone,
             website,
             lead.source || lead.source_platform || "Google Organic Web Search",
-            lead.original_source_url || lead.source_url || website,
+            sourceUrlClean,
             searchMeta.keyword,
             city || country,
-            lead.quality_score || lead.lead_score || 50,
-            lead.fit_score || 50,
-            "HOT",
+            Math.round(Number(lead.quality_score || lead.lead_score || 50)),
+            Math.round(Number(lead.fit_score || lead.relevance_score || 50)),
+            (lead.quality_score || 50) >= 80 ? "HOT" : "WARM",
             "Lead Discovered",
             pkt.date,
             nowIso,
             nowIso,
             verifiedAt,
             collectedAt,
-            dom,
+            normDom || dom,
             city,
             country,
             address,
@@ -360,9 +404,25 @@ export async function saveNeonSearchRecordAndLeads(
             normPhone,
             placeId,
             lead.rating != null ? Number(lead.rating) : null,
-            lead.rating_count != null ? Number(lead.rating_count) : null,
+            lead.rating_count != null ? Math.round(Number(lead.rating_count)) : null,
             lead.industry || searchMeta.keyword || "General",
             lead.category || lead.industry || "General",
+            String(lead.snippet || "").trim() || null,
+            String(lead.positive_signals || "").trim() || null,
+            String(lead.negative_signals || "").trim() || null,
+            String(lead.missing_info || "").trim() || null,
+            String(lead.buying_intent_category || "").trim() || null,
+            lead.quality_score != null ? Math.round(Number(lead.quality_score)) : null,
+            lead.quality_category || null,
+            qualityReasonsJson,
+            enrichmentJson,
+            lead.contact_requirement || null,
+            String(lead.linkedin || "").trim() || null,
+            String(lead.facebook || "").trim() || null,
+            String(lead.instagram || "").trim() || null,
+            String(lead.twitter || "").trim() || null,
+            String(lead.youtube || "").trim() || null,
+            String(lead.tiktok || "").trim() || null,
           ]
         );
         leadId = ins[0]?.id || null;

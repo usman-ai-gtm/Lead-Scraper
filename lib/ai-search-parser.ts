@@ -1,17 +1,27 @@
 /**
  * USMAN AI GTM — AI Search Intent & Natural Language Lead Query Parser
- * Interprets natural-language descriptions, long sentences, and ideal client profiles
- * into structured B2B lead generation strategies using Gemini AI (with resilient fallback).
+ * Interprets natural-language descriptions, B2B buying intents, hiring queries, tech-stack queries,
+ * and geographic qualifiers across all 10 major B2B customer verticals.
  */
+
+import {
+  LeadUseCaseId,
+  B2B_USE_CASE_PROFILES,
+  classifyUseCaseIntent,
+  resolveGeoSpec,
+} from "@/lib/b2b-verticals";
 
 export interface SearchIntentResult {
   raw_query: string;
   interpreted_keyword: string;
+  use_case: LeadUseCaseId;
   target_business_type: string;
   industry: string;
   target_audience: string;
   detected_country: string;
   detected_city: string;
+  hiring_role?: string;
+  tech_stack_hint?: string;
   search_variations: string[];
   recommended_sources: string[];
   reasoning: string;
@@ -24,37 +34,61 @@ function getGeminiApiKey(): string | null {
   return key.trim();
 }
 
-/**
- * Intelligent Heuristic Fallback Parser
- * Guarantees instant, zero-failure interpretation if AI model is unreachable.
- */
+const INLINE_LOCATION_PATTERNS: Array<{ pattern: RegExp; city: string; country: string }> = [
+  { pattern: /\b(new york|nyc)\b/i, city: "New York", country: "United States" },
+  { pattern: /\b(los angeles|california)\b/i, city: "Los Angeles", country: "United States" },
+  { pattern: /\b(chicago|illinois)\b/i, city: "Chicago", country: "United States" },
+  { pattern: /\b(texas|houston|dallas|austin)\b/i, city: "Texas", country: "United States" },
+  { pattern: /\b(miami|florida)\b/i, city: "Miami", country: "United States" },
+  { pattern: /\b(united states|u\.s\.a\.|usa|u\.s\.)\b/i, city: "", country: "United States" },
+  { pattern: /\b(london)\b/i, city: "London", country: "United Kingdom" },
+  { pattern: /\b(manchester|birmingham|united kingdom|uk|britain|england)\b/i, city: "", country: "United Kingdom" },
+  { pattern: /\b(toronto|vancouver|montreal|canada)\b/i, city: "", country: "Canada" },
+  { pattern: /\b(sydney|melbourne|brisbane|australia)\b/i, city: "", country: "Australia" },
+  { pattern: /\b(dubai|abu dhabi|sharjah|uae|united arab emirates)\b/i, city: "Dubai", country: "United Arab Emirates" },
+  { pattern: /\b(berlin|munich|hamburg|frankfurt|germany|deutschland)\b/i, city: "", country: "Germany" },
+  { pattern: /\b(karachi|lahore|islamabad|pakistan)\b/i, city: "", country: "Pakistan" },
+  { pattern: /\b(mumbai|delhi|bangalore|bengaluru|hyderabad|chennai|pune|india)\b/i, city: "", country: "India" },
+  { pattern: /\b(riyadh|jeddah|saudi arabia|ksa)\b/i, city: "", country: "Saudi Arabia" },
+  { pattern: /\b(singapore)\b/i, city: "Singapore", country: "Singapore" },
+  { pattern: /\b(paris|france)\b/i, city: "Paris", country: "France" },
+];
+
+function stripGeoBoilerplate(raw: string): string {
+  return raw
+    .replace(/^(i need|i want|find me|find|look for|looking for|search for|give me|get me|show me)\s+/i, "")
+    .replace(/\b(who need|that need|that sell|who sell|looking to)\b/gi, "")
+    .replace(
+      /\b(?:in|near|around|across|within|located in|based in)\s+(?:the\s+)?(?:united states|u\.s\.a\.|usa|us|united kingdom|uk|england|britain|london|dubai|uae|united arab emirates|canada|toronto|vancouver|australia|sydney|melbourne|germany|berlin|munich|pakistan|karachi|lahore|islamabad|india|mumbai|delhi|bangalore|texas|houston|dallas|austin|new york|nyc|los angeles|chicago|florida|miami|saudi arabia|riyadh|france|paris|singapore)\b/gi,
+      ""
+    )
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function extractHiringRole(raw: string): string {
+  const m = raw.match(/\b(?:hiring|recruiting|looking for|seeking|open roles? for)\s+(?:a\s+|an\s+|for\s+)?([a-zA-Z0-9\s/-]{3,40}?)(?:\s+(?:in|at|across|near|for|with)\b|$)/i);
+  if (!m?.[1]) return "";
+  return m[1]
+    .replace(/\b(right now|currently|today|urgently)\b/gi, "")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
 function heuristicSearchIntent(
   query: string,
   explicitCountry?: string,
   explicitCity?: string,
-  businessProfile?: any
+  businessProfile?: any,
+  explicitFocus?: string
 ): SearchIntentResult {
   const qClean = query.toLowerCase();
+  const explicitGeo = resolveGeoSpec(explicitCountry, explicitCity);
 
-  // 1. Detect locations from query text
-  let detectedCountry = explicitCountry && explicitCountry !== "ALL COUNTRIES" && explicitCountry !== "All Countries" ? explicitCountry : "";
-  let detectedCity = explicitCity && explicitCity !== "ALL_CITIES" && explicitCity !== "All Cities" ? explicitCity : "";
+  let detectedCountry = explicitGeo.countryName !== "Global" ? explicitGeo.countryName : "";
+  let detectedCity = explicitGeo.cityName;
 
-  const locationMap: Array<{ pattern: RegExp; city: string; country: string }> = [
-    { pattern: /\b(dubai|uae|united arab emirates)\b/i, city: "Dubai", country: "United Arab Emirates" },
-    { pattern: /\b(london|uk|united kingdom|england|britain)\b/i, city: "London", country: "United Kingdom" },
-    { pattern: /\b(new york|nyc|united states|usa|us)\b/i, city: "New York", country: "United States" },
-    { pattern: /\b(los angeles|california)\b/i, city: "Los Angeles", country: "United States" },
-    { pattern: /\b(chicago|illinois)\b/i, city: "Chicago", country: "United States" },
-    { pattern: /\b(toronto|canada)\b/i, city: "Toronto", country: "Canada" },
-    { pattern: /\b(sydney|melbourne|australia)\b/i, city: "Sydney", country: "Australia" },
-    { pattern: /\b(lahore|karachi|islamabad|pakistan)\b/i, city: "Lahore", country: "Pakistan" },
-    { pattern: /\b(riyadh|saudi arabia|ksa)\b/i, city: "Riyadh", country: "Saudi Arabia" },
-    { pattern: /\b(paris|france)\b/i, city: "Paris", country: "France" },
-    { pattern: /\b(berlin|germany)\b/i, city: "Berlin", country: "Germany" },
-  ];
-
-  for (const loc of locationMap) {
+  for (const loc of INLINE_LOCATION_PATTERNS) {
     if (loc.pattern.test(qClean)) {
       if (!detectedCity && loc.city) detectedCity = loc.city;
       if (!detectedCountry && loc.country) detectedCountry = loc.country;
@@ -62,52 +96,69 @@ function heuristicSearchIntent(
     }
   }
 
-  // 2. Identify target business type & industry
-  let targetBusinessType = "Commercial Enterprises";
+  const useCase = classifyUseCaseIntent(query, explicitFocus);
+  const profileMeta = B2B_USE_CASE_PROFILES[useCase];
+
+  let cleanKeyword = stripGeoBoilerplate(query) || query.trim();
+  let targetBusinessType = profileMeta.label;
   let industry = "B2B & Commercial";
-  let cleanKeyword = query;
+  let hiringRole = "";
+  let techStackHint = "";
 
-  // Remove conversational boilerplate phrases
-  cleanKeyword = cleanKeyword
-    .replace(/^(i need|i want|find me|find|look for|looking for|search for|give me|get me|show me)\s+/i, "")
-    .replace(/\b(who need|that need|that sell|who sell|offering|looking to|in need of)\b/gi, "")
-    .replace(/\b(in|near|around|located in)\s+(the\s+)?(united states|usa|us|uk|united kingdom|london|dubai|uae|canada|australia|pakistan|new york|chicago|los angeles)\b/gi, "")
-    .trim();
-
-  if (qClean.includes("furniture")) {
+  if (useCase === "hiring_signals") {
+    hiringRole = extractHiringRole(query) || cleanKeyword.replace(/\b(companies|firms|businesses|hiring)\b/gi, "").trim() || "specialists";
+    targetBusinessType = `Companies Actively Hiring (${hiringRole})`;
+    industry = "Active Hiring & Talent Demand";
+    cleanKeyword = hiringRole;
+  } else if (useCase === "ecommerce_shopify") {
+    techStackHint = qClean.includes("woo") ? "WooCommerce" : "Shopify";
+    targetBusinessType = `${techStackHint} E-commerce Brands & Online Stores`;
+    industry = "E-commerce & Online Retail";
+  } else if (useCase === "commercial_real_estate") {
+    targetBusinessType = "Commercial Real Estate Brokers & Property Firms";
+    industry = "Commercial Real Estate";
+  } else if (useCase === "decision_makers") {
+    targetBusinessType = "B2B Decision Makers & Company Leadership";
+    industry = "Executive & B2B Decision Makers";
+  } else if (useCase === "wholesale_manufacturing") {
+    targetBusinessType = "Manufacturers, Wholesalers & Industrial Distributors";
+    industry = "Wholesale & Manufacturing";
+  } else if (useCase === "finance_accounting") {
+    if (
+      businessProfile?.industry?.toLowerCase().includes("accounting") &&
+      qClean.includes("need")
+    ) {
+      targetBusinessType = "SMBs Needing Accounting & Tax Services";
+      industry = "Commercial SMBs";
+    } else {
+      targetBusinessType = "Accounting, CPA & Financial Advisory Firms";
+      industry = "Accounting & Finance";
+    }
+  } else if (useCase === "agency_web_audit") {
+    targetBusinessType = "Marketing, SEO & Digital Agencies";
+    industry = "Marketing & Advertising";
+  } else if (useCase === "software_it") {
+    targetBusinessType = "Software, SaaS & IT Consulting Companies";
+    industry = "Software & IT Services";
+  } else if (useCase === "local_services") {
+    industry = qClean.includes("dental") || qClean.includes("dentist")
+      ? "Healthcare & Dentistry"
+      : qClean.includes("construct") || qClean.includes("contract")
+      ? "Construction & Engineering"
+      : qClean.includes("recruit") || qClean.includes("staffing")
+      ? "Staffing & Recruiting"
+      : "Local Services & Clinics";
+    targetBusinessType = cleanKeyword || industry;
+  } else if (qClean.includes("recruit") || qClean.includes("staffing")) {
+    targetBusinessType = "Recruitment & Staffing Agencies";
+    industry = "Staffing & Recruiting";
+  } else if (qClean.includes("furniture")) {
     targetBusinessType = "Office & Commercial Furniture Dealers";
     industry = "Furniture & Interior Architecture";
     cleanKeyword = "office furniture suppliers";
-  } else if (qClean.includes("accounting") || qClean.includes("bookkeeping") || qClean.includes("financial reporting")) {
-    if (businessProfile?.products_services?.toLowerCase().includes("accounting") || businessProfile?.industry?.toLowerCase().includes("accounting")) {
-      targetBusinessType = "Small & Mid-Sized Businesses Needing Accounting";
-      industry = "Commercial SMBs & High-Growth Startups";
-      cleanKeyword = "small business owners";
-    } else {
-      targetBusinessType = "Accounting & CPA Firms";
-      industry = "Accounting & Financial Services";
-      cleanKeyword = "accounting firms";
-    }
-  } else if (qClean.includes("construction") || qClean.includes("contractor") || qClean.includes("builder")) {
-    targetBusinessType = "Commercial & Residential General Contractors";
-    industry = "Construction & Contracting";
-    cleanKeyword = "construction companies";
-  } else if (qClean.includes("dentist") || qClean.includes("dental") || qClean.includes("clinic")) {
-    targetBusinessType = "Dental Practices & Dental Clinics";
-    industry = "Healthcare & Dentistry";
-    cleanKeyword = "dental clinics";
-  } else if (qClean.includes("marketing") || qClean.includes("advertising") || qClean.includes("agency")) {
-    targetBusinessType = "Digital Marketing & Advertising Agencies";
-    industry = "Marketing & Advertising";
-    cleanKeyword = "marketing agencies";
-  } else if (qClean.includes("real estate") || qClean.includes("property") || qClean.includes("realtor")) {
-    targetBusinessType = "Real Estate Brokerages & Agencies";
-    industry = "Real Estate & Property Management";
-    cleanKeyword = "real estate agencies";
   }
 
-  // Factor in Business Profile if active
-  if (businessProfile) {
+  if (businessProfile && useCase === "general_b2b") {
     if (businessProfile.target_customer_type) {
       targetBusinessType = `${businessProfile.target_customer_type} relevant to ${businessProfile.business_name || "client offerings"}`;
     }
@@ -122,52 +173,63 @@ function heuristicSearchIntent(
     }
   }
 
-  const locQualifier = [detectedCity, detectedCountry].filter(Boolean).join(" ");
-  const baseTerm = cleanKeyword || query;
+  const baseTerm = cleanKeyword || query.trim();
+  const variations: string[] = [];
 
-  const variations = [
-    `${baseTerm} ${locQualifier}`.trim(),
-    `${targetBusinessType} ${locQualifier}`.trim(),
-    `${baseTerm} official website email ${locQualifier}`.trim(),
-    `${baseTerm} company profile ${locQualifier}`.trim(),
-    `top ${baseTerm} ${locQualifier}`.trim(),
-  ];
+  if (useCase === "hiring_signals") {
+    variations.push(
+      `companies hiring ${baseTerm}`,
+      `hiring ${baseTerm} careers`,
+      `${baseTerm} job opening careers email`
+    );
+  } else if (useCase === "ecommerce_shopify") {
+    variations.push(
+      baseTerm,
+      `${baseTerm} "powered by shopify"`,
+      `${baseTerm} online store contact`
+    );
+  } else {
+    variations.push(
+      baseTerm,
+      `${baseTerm} ${profileMeta.queryHint}`.trim(),
+      `${targetBusinessType}`.trim()
+    );
+  }
 
   return {
     raw_query: query,
-    interpreted_keyword: cleanKeyword || query,
+    interpreted_keyword: baseTerm,
+    use_case: useCase,
     target_business_type: targetBusinessType,
     industry,
-    target_audience: businessProfile?.target_customer_type || `Businesses seeking ${cleanKeyword}`,
+    target_audience: businessProfile?.target_customer_type || `Commercial prospects for ${baseTerm}`,
     detected_country: detectedCountry || explicitCountry || "United States",
     detected_city: detectedCity || explicitCity || "",
-    search_variations: variations,
-    recommended_sources: [
-      "Official Business Websites",
-      "Google Organic Web Search",
-      "Public Commercial Directories",
-      "LinkedIn Public Company Directory"
-    ],
-    reasoning: `Converted natural query into structured B2B search targeting ${targetBusinessType} in ${detectedCity || detectedCountry || "global market"}.`,
+    ...(hiringRole ? { hiring_role: hiringRole } : {}),
+    ...(techStackHint ? { tech_stack_hint: techStackHint } : {}),
+    search_variations: Array.from(new Set(variations)).slice(0, 5),
+    recommended_sources: profileMeta.defaultChannelIds,
+    reasoning: `Targeted ${profileMeta.label} strategy matching "${baseTerm}" in ${[detectedCity, detectedCountry].filter(Boolean).join(", ") || "selected region"}.`,
     used_business_profile: Boolean(businessProfile),
   };
 }
 
 /**
  * Primary AI-Powered Search Intent Interpreter
- * Uses Gemini AI to understand natural language statements, sentences, ICPs, and target audience needs.
  */
 export async function interpretSearchIntent(
   query: string,
   explicitCountry?: string,
   explicitCity?: string,
-  businessProfile?: any
+  businessProfile?: any,
+  explicitFocus?: string
 ): Promise<SearchIntentResult> {
-  const fallback = heuristicSearchIntent(query, explicitCountry, explicitCity, businessProfile);
+  const fallback = heuristicSearchIntent(query, explicitCountry, explicitCity, businessProfile, explicitFocus);
   const apiKey = getGeminiApiKey();
 
-  // If query is very short (1-2 simple words) and no profile used, heuristic is instant and optimal
-  if ((!query || query.trim().split(/\s+/).length <= 2) && !businessProfile) {
+  // Short clear queries work fastest and most deterministically via vertical classifier
+  const wordCount = (query || "").trim().split(/\s+/).filter(Boolean).length;
+  if ((!query || wordCount <= 3) && !businessProfile) {
     return fallback;
   }
 
@@ -186,88 +248,98 @@ USER'S SAVED BUSINESS PROFILE:
 - Ideal Customer Profile: ${businessProfile.target_customer_type || "N/A"}
 - Target Industries: ${businessProfile.ideal_industries || "N/A"}
 - Preferred Locations: ${businessProfile.preferred_locations || businessProfile.country || "N/A"}
-- Instructions: Prioritize potential clients who NEED the user's offerings, rather than the user's direct competitors.`;
+- Instructions: Prioritize potential buyers who NEED the user's offerings rather than direct competitors unless user explicitly requested competitors.`;
     }
 
-    const systemPrompt = `You are the lead intelligence parser for USMAN AI GTM.
-Analyze the user's lead search query (which may be a short keyword, a category, a long natural-language statement, or a detailed customer description).
+    const validUseCases = Object.keys(B2B_USE_CASE_PROFILES).join(", ");
+    const systemPrompt = `You are the B2B search intent parser for USMAN AI GTM.
+Analyze the user's lead generation query and classify it cleanly. Do NOT add unrelated words like "importers" to clinics, agencies, software firms, or hiring queries.
 ${profileContext}
 
 User Query: "${query}"
 Explicit Country Filter: "${explicitCountry || "None"}"
 Explicit City Filter: "${explicitCity || "None"}"
+Explicit Focus Override: "${explicitFocus || "auto"}"
+Allowed use_case values: ${validUseCases}
 
-Respond strictly with valid JSON with these exact fields:
+Respond strictly with valid JSON:
 {
-  "interpreted_keyword": "Short, clean 2-4 word commercial search query for search engines",
-  "target_business_type": "Specific type of businesses to extract (e.g. Dental Clinics, Office Furniture Suppliers)",
+  "interpreted_keyword": "Clean core subject without filler words or country name (2-5 words, e.g. 'dental clinics', 'accountant', 'shopify stores', 'commercial real estate brokers')",
+  "use_case": "One exact value from allowed use_case list",
+  "target_business_type": "Specific type of businesses to find",
   "industry": "Primary industry classification",
-  "target_audience": "Specific ideal customer/prospect persona",
-  "detected_country": "Country detected from query or explicit filter (e.g. United States, United Kingdom, United Arab Emirates, Pakistan)",
-  "detected_city": "City detected from query or explicit filter (e.g. London, Dubai, New York, Chicago)",
-  "search_variations": ["4 to 6 specific commercial keyword variations for web searching"],
-  "recommended_sources": ["3 to 4 recommended platforms like Official Websites, Google Organic, LinkedIn, Directories"],
-  "reasoning": "One concise sentence explaining how the search strategy targets the user's requested prospects."
-}
-Only output the JSON object. Do not include markdown code blocks or extra text.`;
+  "target_audience": "Specific ideal prospect persona",
+  "detected_country": "Country from query or explicit filter",
+  "detected_city": "City/State from query or explicit filter, empty string if none",
+  "hiring_role": "If use_case is hiring_signals, exact role being hired, else empty string",
+  "tech_stack_hint": "If looking for Shopify/WooCommerce/WordPress etc, platform name, else empty string",
+  "search_variations": ["3 to 5 tightly relevant B2B search phrases"],
+  "reasoning": "One concise sentence explaining the targeting logic."
+}`;
 
-    const models = ["gemini-3.5-flash-lite", "gemini-3.5-flash"];
-    for (const model of models) {
-      try {
-        const controller = new AbortController();
-        const timeout = setTimeout(() => controller.abort(), 4000);
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 3800);
 
-        const res = await fetch(
-          `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`,
-          {
-            method: "POST",
-            headers: {
-              "x-goog-api-key": apiKey,
-              "Content-Type": "application/json",
-            },
-            body: JSON.stringify({
-              contents: [{ parts: [{ text: systemPrompt }] }],
-              generationConfig: {
-                temperature: 0.2,
-                maxOutputTokens: 500,
-                responseMimeType: "application/json",
-              },
-            }),
-            signal: controller.signal,
-          }
-        );
-        clearTimeout(timeout);
+    const res = await fetch(
+      "https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash-lite:generateContent",
+      {
+        method: "POST",
+        headers: {
+          "x-goog-api-key": apiKey,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          contents: [{ parts: [{ text: systemPrompt }] }],
+          generationConfig: {
+            temperature: 0.15,
+            maxOutputTokens: 450,
+            responseMimeType: "application/json",
+          },
+        }),
+        signal: controller.signal,
+      }
+    );
+    clearTimeout(timeout);
 
-        if (res.ok) {
-          const data = await res.json();
-          const rawText = data.candidates?.[0]?.content?.parts?.[0]?.text?.trim() || "";
-          if (rawText) {
-            const parsed = JSON.parse(rawText);
-            return {
-              raw_query: query,
-              interpreted_keyword: parsed.interpreted_keyword || fallback.interpreted_keyword,
-              target_business_type: parsed.target_business_type || fallback.target_business_type,
-              industry: parsed.industry || fallback.industry,
-              target_audience: parsed.target_audience || fallback.target_audience,
-              detected_country: parsed.detected_country || fallback.detected_country,
-              detected_city: parsed.detected_city || fallback.detected_city,
-              search_variations: Array.isArray(parsed.search_variations) && parsed.search_variations.length > 0
-                ? parsed.search_variations
-                : fallback.search_variations,
-              recommended_sources: Array.isArray(parsed.recommended_sources) && parsed.recommended_sources.length > 0
-                ? parsed.recommended_sources
-                : fallback.recommended_sources,
-              reasoning: parsed.reasoning || fallback.reasoning,
-              used_business_profile: Boolean(businessProfile),
-            };
-          }
-        }
-      } catch {
-        // Try next model or fallback
+    if (res.ok) {
+      const data = await res.json();
+      const rawText = data.candidates?.[0]?.content?.parts?.[0]?.text?.trim() || "";
+      if (rawText) {
+        const parsed = JSON.parse(rawText);
+        const resolvedUseCase =
+          explicitFocus && explicitFocus !== "auto"
+            ? fallback.use_case
+            : ((parsed.use_case as LeadUseCaseId) in B2B_USE_CASE_PROFILES
+                ? (parsed.use_case as LeadUseCaseId)
+                : fallback.use_case);
+
+        return {
+          raw_query: query,
+          interpreted_keyword: parsed.interpreted_keyword || fallback.interpreted_keyword,
+          use_case: resolvedUseCase,
+          target_business_type: parsed.target_business_type || fallback.target_business_type,
+          industry: parsed.industry || fallback.industry,
+          target_audience: parsed.target_audience || fallback.target_audience,
+          detected_country: parsed.detected_country || fallback.detected_country,
+          detected_city: parsed.detected_city ?? fallback.detected_city,
+          ...(parsed.hiring_role || fallback.hiring_role
+            ? { hiring_role: parsed.hiring_role || fallback.hiring_role }
+            : {}),
+          ...(parsed.tech_stack_hint || fallback.tech_stack_hint
+            ? { tech_stack_hint: parsed.tech_stack_hint || fallback.tech_stack_hint }
+            : {}),
+          search_variations:
+            Array.isArray(parsed.search_variations) && parsed.search_variations.length > 0
+              ? parsed.search_variations
+              : fallback.search_variations,
+          recommended_sources: B2B_USE_CASE_PROFILES[resolvedUseCase].defaultChannelIds,
+          reasoning: parsed.reasoning || fallback.reasoning,
+          used_business_profile: Boolean(businessProfile),
+        };
       }
     }
   } catch {
-    // Graceful fallback to heuristic
+    // Graceful instant fallback
   }
 
   return fallback;
