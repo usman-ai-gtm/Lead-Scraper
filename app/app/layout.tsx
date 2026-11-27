@@ -190,7 +190,8 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
     { title: "Usage & Subscription", subtitle: "Active plan details, quotas, expiry countdown & upgrades", url: "/app/subscription", badge: "BILLING" },
     ...(isAdmin ? [
       { title: "Client Accounts", subtitle: "Manage client workspaces, activation, and usage limits", url: "/app/admin/clients", badge: "ADMIN" },
-      { title: "Payments & Verification", subtitle: "Review and approve manual WhatsApp payment requests", url: "/app/admin/payments", badge: "ADMIN" },
+      { title: "Payments & Bank Verification", subtitle: "Configure Easypaisa, JazzCash, Meezan, Binance, Payoneer & approve proofs", url: "/app/admin/payments", badge: "ADMIN" },
+      { title: "Google OAuth & Bonus Time", subtitle: "Shared OAuth config, custom JSON review, and Gmail setup time bonuses", url: "/app/admin/integrations/google", badge: "ADMIN" },
       { title: "API Provider Configuration", subtitle: "Check Serper and Gemini API engine status", url: "/app/admin/providers", badge: "ADMIN" },
       { title: "System Usage & Telemetry", subtitle: "Database metrics and live serverless activity", url: "/app/admin", badge: "ADMIN" },
     ] : [])

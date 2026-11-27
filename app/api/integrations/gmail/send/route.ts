@@ -13,6 +13,7 @@ import {
   logAccountAudit,
 } from "@/lib/neon-db";
 import { consumeRateLimit, rateLimitExceededResponse } from "@/lib/rate-limit";
+import { resolveWorkspaceGmailOAuthCredentials } from "@/lib/platform-settings-db";
 
 export async function POST(request: Request) {
   const currentUser = getCurrentUserFromRequest(request);
@@ -186,8 +187,11 @@ export async function POST(request: Request) {
   }
 
   let accessToken = tokens.access_token;
-  const clientId = (process.env.GOOGLE_CLIENT_ID || process.env.NEXT_PUBLIC_GOOGLE_CLIENT_ID || "").trim();
-  const clientSecret = (process.env.GOOGLE_CLIENT_SECRET || "").trim();
+  const tokenOAuthSource: "shared" | "customer" =
+    tokens.oauth_client_source === "customer" ? "customer" : "shared";
+  const resolvedCreds = await resolveWorkspaceGmailOAuthCredentials(workspaceId, tokenOAuthSource);
+  const clientId = resolvedCreds.clientId;
+  const clientSecret = resolvedCreds.clientSecret;
 
   // Helper to refresh token & detect revoked/invalid credentials
   async function refreshAccessToken(): Promise<{ token: string | null; revoked?: boolean; errorDetail?: string }> {

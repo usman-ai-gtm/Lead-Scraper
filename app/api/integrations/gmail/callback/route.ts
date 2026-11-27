@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { saveNeonGmailAccount, getNeonSql, isNeonConfigured, logAccountAudit } from "@/lib/neon-db";
 import { createJwtToken, verifyOAuthState, verifyClientActiveSubscription } from "@/lib/serverless-auth";
 import { classifyGoogleOAuthError } from "@/lib/google-oauth-diagnostics";
+import { resolveWorkspaceGmailOAuthCredentials } from "@/lib/platform-settings-db";
 
 export const dynamic = "force-dynamic";
 
@@ -37,6 +38,7 @@ export async function GET(request: Request) {
   let workspaceId = 1;
   let userId = 1;
   let stateVerified = false;
+  let stateOAuthSource: "shared" | "customer" = "shared";
   if (state) {
     const verified = verifyOAuthState(state, 60 * 60 * 1000);
     if (verified) {
@@ -44,6 +46,7 @@ export async function GET(request: Request) {
       if (verified.action) stateAction = String(verified.action);
       if (verified.workspace_id) workspaceId = Number(verified.workspace_id);
       if (verified.user_id) userId = Number(verified.user_id);
+      if (verified.oauth_source === "customer") stateOAuthSource = "customer";
     } else {
       // Allow legacy unsigned payload ONLY for read-only login flow (never elevate gmail_connect)
       try {
@@ -95,8 +98,12 @@ export async function GET(request: Request) {
     );
   }
 
-  const clientId = (process.env.GOOGLE_CLIENT_ID || process.env.NEXT_PUBLIC_GOOGLE_CLIENT_ID || "").trim();
-  const clientSecret = (process.env.GOOGLE_CLIENT_SECRET || "").trim();
+  const resolvedCreds =
+    stateAction === "google_login"
+      ? await resolveWorkspaceGmailOAuthCredentials(0, "shared")
+      : await resolveWorkspaceGmailOAuthCredentials(workspaceId, stateOAuthSource);
+  const clientId = resolvedCreds.clientId;
+  const clientSecret = resolvedCreds.clientSecret;
   const redirectUri = getExactRedirectUri(request);
 
   try {
@@ -349,7 +356,7 @@ export async function GET(request: Request) {
     const savedAccount = await saveNeonGmailAccount(authoritativeWsId, {
       senderName: profileName,
       senderEmail: profileEmail,
-      tokenData: tokens,
+      tokenData: { ...tokens, oauth_client_source: stateOAuthSource },
       dailyLimit: 500, // Standard free Gmail daily quota
     });
 

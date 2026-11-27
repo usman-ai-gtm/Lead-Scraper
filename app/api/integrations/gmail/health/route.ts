@@ -5,6 +5,11 @@ import {
   GOOGLE_CLOUD_CONSOLE_LINKS,
   classifyGoogleOAuthError,
 } from "@/lib/google-oauth-diagnostics";
+import {
+  getOwnerPlatformSettings,
+  getProductionRedirectUri,
+  resolveWorkspaceGmailOAuthCredentials,
+} from "@/lib/platform-settings-db";
 
 export const dynamic = "force-dynamic";
 
@@ -14,18 +19,16 @@ export async function GET(req: Request) {
     return NextResponse.json({ error: "Authentication required." }, { status: 401 });
   }
 
-  const clientIdConfigured = Boolean(process.env.GOOGLE_CLIENT_ID && process.env.GOOGLE_CLIENT_ID.trim());
-  const clientSecretConfigured = Boolean(
-    process.env.GOOGLE_CLIENT_SECRET && process.env.GOOGLE_CLIENT_SECRET.trim()
-  );
-  const appBaseUrl =
-    process.env.NEXT_PUBLIC_APP_URL?.trim().replace(/\/+$/, "") ||
-    (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : "https://lead-scraper-mxs5.vercel.app");
-
-  const expectedCallbackUri = `${appBaseUrl}/api/integrations/gmail/callback`;
-  const oauthConfigured = clientIdConfigured && clientSecretConfigured;
   const workspaceId = Number(user.workspace_id) || 1;
   const isOwner = isAuthorizedOwner(user);
+  const [platformSettings, resolvedCreds] = await Promise.all([
+    getOwnerPlatformSettings(),
+    resolveWorkspaceGmailOAuthCredentials(workspaceId),
+  ]);
+  const clientIdConfigured = Boolean(resolvedCreds.clientId);
+  const clientSecretConfigured = Boolean(resolvedCreds.clientSecret);
+  const expectedCallbackUri = getProductionRedirectUri();
+  const oauthConfigured = clientIdConfigured && clientSecretConfigured;
 
   let workspaceMailboxes: any[] = [];
   if (isNeonConfigured()) {
@@ -69,6 +72,10 @@ export async function GET(req: Request) {
     callbackUri: expectedCallbackUri,
     gmailScope: "https://www.googleapis.com/auth/gmail.send",
     isOwner,
+    oauthSource: resolvedCreds.source,
+    oauthProjectId: resolvedCreds.projectId || platformSettings.oauthProjectId,
+    oauthAudienceStatus: platformSettings.oauthAudienceStatus,
+    oauthMode: platformSettings.oauthMode,
     consoleLinks: GOOGLE_CLOUD_CONSOLE_LINKS,
     activeMailboxCount: workspaceMailboxes.length,
     diagnostic,

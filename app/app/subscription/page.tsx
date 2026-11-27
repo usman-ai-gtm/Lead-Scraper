@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useEffect, Suspense } from "react";
+import React, { useState, useEffect, useRef, Suspense } from "react";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { useAuth } from "@/lib/auth-context";
@@ -25,22 +25,31 @@ import {
   Clock,
   Eye,
   X,
-  Send,
   Landmark,
   Info,
+  ArrowDown,
+  Wallet,
 } from "lucide-react";
 import { CustomPlanBuilder, PlanSelectionValue } from "@/components/payments/CustomPlanBuilder";
 import { BuilderDurationUnit, FixedOrCustomPlan } from "@/lib/custom-plans";
 
 interface BankTransferDetails {
+  method_type?: "mobile_wallet" | "bank_transfer" | "crypto" | "payoneer" | "custom" | null;
+  display_title?: string | null;
   bank_name?: string | null;
   bank_address?: string | null;
   beneficiary_name?: string | null;
+  receiving_number?: string | null;
   account_number?: string | null;
+  iban?: string | null;
+  branch_info?: string | null;
   routing_aba?: string | null;
   swift_bic?: string | null;
   account_type?: string | null;
   supported_currency?: string | null;
+  network?: string | null;
+  warning_text?: string | null;
+  payment_email?: string | null;
 }
 
 interface PaymentMethodItem {
@@ -112,6 +121,9 @@ function SubscriptionPageInner() {
   const { user, refreshUser } = useAuth();
   const searchParams = useSearchParams();
 
+  const paymentStepRef = useRef<HTMLDivElement>(null);
+  const detailsPanelRef = useRef<HTMLDivElement>(null);
+
   const qpPlanRaw = String(searchParams.get("plan") || "BASIC").toUpperCase();
   const initialPlan: FixedOrCustomPlan =
     qpPlanRaw === "LIFETIME" || qpPlanRaw === "CUSTOM" ? qpPlanRaw : "BASIC";
@@ -139,7 +151,8 @@ function SubscriptionPageInner() {
   // Payment config & submissions
   const [supportEmail, setSupportEmail] = useState<string | null>(null);
   const [supportEmailConfigured, setSupportEmailConfigured] = useState(false);
-  const [whatsappNumber, setWhatsappNumber] = useState("+923174383702");
+  const [whatsappNumber, setWhatsappNumber] = useState<string | null>(null);
+  const [whatsappConfigured, setWhatsappConfigured] = useState(false);
   const [methods, setMethods] = useState<PaymentMethodItem[]>([]);
   const [submissions, setSubmissions] = useState<PaymentSubmissionItem[]>([]);
   const [copiedField, setCopiedField] = useState<string | null>(null);
@@ -161,8 +174,9 @@ function SubscriptionPageInner() {
     fxSource: "Base Pricing Currency",
   });
 
-  // Payment proof upload state
+  // Payment method choice ("OTHER" or method id) & proof upload state
   const [selectedMethodId, setSelectedMethodId] = useState<string>("");
+  const [highlightedStep, setHighlightedStep] = useState(false);
   const [paymentReference, setPaymentReference] = useState<string>("");
   const [customerNote, setCustomerNote] = useState<string>("");
   const [proofFile, setProofFile] = useState<File | null>(null);
@@ -210,12 +224,11 @@ function SubscriptionPageInner() {
       if (payCfgRes) {
         setSupportEmail(payCfgRes.support_email || null);
         setSupportEmailConfigured(Boolean(payCfgRes.support_email_configured && payCfgRes.support_email));
-        if (payCfgRes.whatsapp_number) setWhatsappNumber(payCfgRes.whatsapp_number);
+        const waRaw = payCfgRes.whatsapp_number ? String(payCfgRes.whatsapp_number).trim() : "";
+        setWhatsappNumber(waRaw || null);
+        setWhatsappConfigured(Boolean(payCfgRes.whatsapp_configured && waRaw));
         const list = Array.isArray(payCfgRes.methods) ? payCfgRes.methods : [];
         setMethods(list);
-        if (list.length > 0 && !selectedMethodId) {
-          setSelectedMethodId(String(list[0].id));
-        }
       }
       if (subsRes && Array.isArray(subsRes.submissions)) {
         setSubmissions(subsRes.submissions);
@@ -241,12 +254,6 @@ function SubscriptionPageInner() {
 
   const liveProfile = user ? { ...profile, ...user } : profile;
   const currentStatus = liveProfile?.status || "LOCKED";
-  const isLocked =
-    currentStatus === "LOCKED" ||
-    currentStatus === "PENDING" ||
-    currentStatus === "SUSPENDED" ||
-    currentStatus === "REVOKED" ||
-    currentStatus === "PREVIEW_ONLY";
   const isExpired = currentStatus === "EXPIRED";
   const isActive = currentStatus === "ACTIVE";
   const planTypeUpper = String(liveProfile?.plan_type || liveProfile?.plan || "").toUpperCase();
@@ -268,11 +275,12 @@ function SubscriptionPageInner() {
         ? "Basic Plan ($25 / 30 Days)"
         : "Free Preview / Inactive")
   );
-  const waDigits = whatsappNumber.replace(/[^0-9]/g, "") || "923174383702";
-
-  const WHATSAPP_LINK = `https://wa.me/${waDigits}?text=${encodeURIComponent(
-    `Hello Usman, I need help with my Lead Scraper subscription.\nUsername: ${displayUsername}\nCurrent Plan: ${displayCurrentPlan}`
-  )}`;
+  const waDigits = whatsappNumber ? whatsappNumber.replace(/[^0-9]/g, "") : "";
+  const WHATSAPP_LINK = waDigits
+    ? `https://wa.me/${waDigits}?text=${encodeURIComponent(
+        `Hello Usman, I need help with payment / subscription.\nUsername: ${displayUsername}\nSelected Package: ${orderSelection.planLabel}\nCurrent Plan: ${displayCurrentPlan}`
+      )}`
+    : null;
 
   const supportMailtoHref =
     supportEmailConfigured && supportEmail
@@ -289,6 +297,32 @@ function SubscriptionPageInner() {
     setTimeout(() => setCopiedField(null), 1800);
   };
 
+  // Part 6: Automatic smooth scroll + accessible focus when user clicks Choose Basic / Choose Lifetime / Use This Custom
+  const handlePlanCommitted = (sel: PlanSelectionValue) => {
+    setOrderSelection(sel);
+    setHighlightedStep(true);
+    setTimeout(() => setHighlightedStep(false), 1800);
+    setTimeout(() => {
+      if (paymentStepRef.current) {
+        paymentStepRef.current.scrollIntoView({ behavior: "smooth", block: "start" });
+        paymentStepRef.current.focus({ preventScroll: true });
+      }
+    }, 60);
+  };
+
+  const handleSelectMethodCard = (val: string) => {
+    setSelectedMethodId(val);
+    setUploadError(null);
+    setTimeout(() => {
+      if (detailsPanelRef.current) {
+        const rect = detailsPanelRef.current.getBoundingClientRect();
+        if (rect.top > window.innerHeight * 0.72 || rect.top < 0) {
+          detailsPanelRef.current.scrollIntoView({ behavior: "smooth", block: "nearest" });
+        }
+      }
+    }, 50);
+  };
+
   const handleUploadProof = async (e: React.FormEvent) => {
     e.preventDefault();
     if (submittingProof) return;
@@ -298,13 +332,13 @@ function SubscriptionPageInner() {
       setUploadError("Please select a payment screenshot or PDF receipt (JPG, JPEG, PNG, WebP, or PDF).");
       return;
     }
+    if (selectedMethodId === "OTHER" || !selectedMethodId) {
+      setUploadError("Please select one of the available payment methods above first.");
+      return;
+    }
     const activeMethod = methods.find((m) => String(m.id) === selectedMethodId);
     if (!activeMethod) {
-      setUploadError(
-        methods.length === 0
-          ? "No payment method is currently configured by the Owner. Please contact WhatsApp support."
-          : "Please select an active payment method above."
-      );
+      setUploadError("Please select an active payment method above.");
       return;
     }
 
@@ -377,8 +411,235 @@ function SubscriptionPageInner() {
   };
 
   const liveCountdownText = formatCountdown(liveProfile?.subscription_expires_at, isLifetime, nowTick);
-  const selectedMethodObj = methods.find((m) => String(m.id) === selectedMethodId) || methods[0] || null;
+  const selectedMethodObj =
+    selectedMethodId && selectedMethodId !== "OTHER"
+      ? methods.find((m) => String(m.id) === selectedMethodId) || null
+      : null;
   const activeFeaturesList = Object.entries(liveProfile?.features || {}).filter(([, val]) => Boolean(val));
+
+  const formatPayableText = () =>
+    orderSelection.currency === "USD" || !orderSelection.fxAvailable
+      ? `$${orderSelection.priceUsd.toFixed(2)} USD`
+      : `${orderSelection.convertedAmount.toLocaleString()} ${orderSelection.currency} ($${orderSelection.priceUsd} USD)`;
+
+  const renderSelectedMethodDetails = (m: PaymentMethodItem) => {
+    const bd = m.details_json || {};
+    const nameLower = m.name.toLowerCase();
+    const isBinance = bd.method_type === "crypto" || nameLower.includes("binance");
+    const isPayoneer = bd.method_type === "payoneer" || nameLower.includes("payoneer");
+    const isMeezan = nameLower.includes("meezan") || bd.method_type === "bank_transfer";
+
+    const rowsToShow: Array<{ label: string; value: string; copyLabel: string; key: string; mono?: boolean }> = [];
+
+    if (isBinance) {
+      if (bd.network) {
+        rowsToShow.push({ label: "Network", value: bd.network, copyLabel: "Copy Network", key: `net-${m.id}` });
+      }
+      if (m.wallet_address) {
+        rowsToShow.push({
+          label: "Wallet address",
+          value: m.wallet_address,
+          copyLabel: "Copy Wallet Address",
+          key: `wal-${m.id}`,
+          mono: true,
+        });
+      }
+    } else if (isPayoneer) {
+      const beneficiary = m.account_holder_name || bd.beneficiary_name;
+      const payEmail = bd.payment_email || m.account_identifier;
+      if (beneficiary) {
+        rowsToShow.push({ label: "Beneficiary", value: beneficiary, copyLabel: "Copy Beneficiary", key: `ben-${m.id}` });
+      }
+      if (payEmail) {
+        rowsToShow.push({ label: "Payment email", value: payEmail, copyLabel: "Copy Email", key: `email-${m.id}`, mono: true });
+      }
+    } else if (isMeezan) {
+      const holder = m.account_holder_name || bd.beneficiary_name;
+      if (holder) {
+        rowsToShow.push({ label: "Account holder", value: holder, copyLabel: "Copy Account Name", key: `holder-${m.id}` });
+      }
+      if (bd.receiving_number) {
+        rowsToShow.push({
+          label: "Receiving number",
+          value: bd.receiving_number,
+          copyLabel: "Copy Receiving Number",
+          key: `recv-${m.id}`,
+          mono: true,
+        });
+      }
+      if (bd.account_number) {
+        rowsToShow.push({
+          label: "Bank account number",
+          value: bd.account_number,
+          copyLabel: "Copy Account Number",
+          key: `accnum-${m.id}`,
+          mono: true,
+        });
+      }
+      if (bd.iban) {
+        rowsToShow.push({ label: "IBAN", value: bd.iban, copyLabel: "Copy IBAN", key: `iban-${m.id}`, mono: true });
+      }
+      if (bd.branch_info) {
+        rowsToShow.push({ label: "Branch information", value: bd.branch_info, copyLabel: "Copy Branch", key: `branch-${m.id}` });
+      }
+      if (bd.swift_bic) {
+        rowsToShow.push({ label: "SWIFT / BIC", value: bd.swift_bic, copyLabel: "Copy SWIFT", key: `swift-${m.id}`, mono: true });
+      }
+      if (bd.supported_currency) {
+        rowsToShow.push({
+          label: "Supported receiving currency",
+          value: bd.supported_currency,
+          copyLabel: "Copy Currency",
+          key: `scur-${m.id}`,
+        });
+      }
+    } else {
+      // Easypaisa, JazzCash, NayaPay, or other Owner-added mobile/custom methods
+      if (m.account_holder_name) {
+        rowsToShow.push({
+          label: "Account holder",
+          value: m.account_holder_name,
+          copyLabel: "Copy Account Name",
+          key: `holder-${m.id}`,
+        });
+      }
+      if (m.account_identifier) {
+        rowsToShow.push({
+          label: "Number",
+          value: m.account_identifier,
+          copyLabel: "Copy Number",
+          key: `num-${m.id}`,
+          mono: true,
+        });
+      }
+      if (m.wallet_address) {
+        rowsToShow.push({
+          label: "Wallet address",
+          value: m.wallet_address,
+          copyLabel: "Copy Wallet Address",
+          key: `wal-${m.id}`,
+          mono: true,
+        });
+      }
+    }
+
+    const headingTitle = isBinance ? bd.display_title || "Binance — USDT TRC20" : m.name;
+
+    return (
+      <div className="space-y-4">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-white/[0.08] pb-3">
+          <div>
+            <div className="flex items-center gap-2 flex-wrap">
+              <h4 className="text-base font-black text-white">{headingTitle}</h4>
+              <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-white/[0.06] text-slate-300 border border-white/10">
+                {m.region}
+              </span>
+              <span className="text-[10px] font-mono font-bold px-2 py-0.5 rounded bg-emerald-500/15 text-emerald-300 border border-emerald-500/30">
+                {bd.supported_currency || m.currency}
+              </span>
+            </div>
+            <p className="text-xs text-slate-400 mt-1">
+              Transfer the exact amount shown below and then upload your transfer screenshot in the form underneath.
+            </p>
+          </div>
+
+          <div className="flex items-center gap-2 bg-emerald-500/15 border border-emerald-500/35 px-3.5 py-2 rounded-xl shrink-0">
+            <div>
+              <div className="text-[10px] text-emerald-200 font-semibold uppercase tracking-wider">Exact Payable Amount</div>
+              <div className="text-sm font-black text-white">{formatPayableText()}</div>
+            </div>
+            <button
+              type="button"
+              onClick={() =>
+                copyValue(
+                  orderSelection.currency === "USD" || !orderSelection.fxAvailable
+                    ? String(orderSelection.priceUsd.toFixed(2))
+                    : String(orderSelection.convertedAmount),
+                  "due-amt"
+                )
+              }
+              className="px-2.5 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white text-[11px] font-bold inline-flex items-center gap-1 cursor-pointer"
+            >
+              {copiedField === "due-amt" ? <Check className="h-3.5 w-3.5" /> : <Copy className="h-3.5 w-3.5" />}
+              <span>{copiedField === "due-amt" ? "Copied" : "Copy Amount"}</span>
+            </button>
+          </div>
+        </div>
+
+        {/* TRC20 Network Critical Warning */}
+        {isBinance && (
+          <div className="p-4 rounded-xl bg-rose-500/15 border border-rose-500/40 text-xs text-rose-100 flex items-start gap-3">
+            <AlertTriangle className="h-5 w-5 text-rose-400 shrink-0 mt-0.5" />
+            <div className="space-y-1">
+              <div className="font-black text-white uppercase tracking-wide">Important Network Warning</div>
+              <p className="font-semibold text-rose-200 leading-relaxed">
+                {bd.warning_text ||
+                  "Send funds only using the TRC20 network. Sending through another network may result in permanent loss of funds."}
+              </p>
+              <p className="text-[11px] text-slate-300">
+                Note: Uploading a payment screenshot submits a verification request; the Owner confirms actual blockchain receipt before activation.
+              </p>
+            </div>
+          </div>
+        )}
+
+        {/* Copyable Receiving Fields (strictly ONLY for this selected method) */}
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+          {rowsToShow.map((row) => (
+            <div
+              key={row.key}
+              className="flex items-center justify-between gap-3 p-3.5 rounded-xl bg-black/45 border border-white/10"
+            >
+              <div className="min-w-0">
+                <div className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider">{row.label}</div>
+                <div className={`text-sm font-bold text-white break-all mt-0.5 ${row.mono ? "font-mono text-blue-200" : ""}`}>
+                  {row.value}
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => copyValue(row.value, row.key)}
+                className="px-3 py-1.5 rounded-lg bg-white/[0.08] hover:bg-blue-600 text-slate-100 text-[11px] font-bold inline-flex items-center gap-1.5 shrink-0 cursor-pointer transition-colors"
+              >
+                {copiedField === row.key ? <Check className="h-3.5 w-3.5 text-emerald-300" /> : <Copy className="h-3.5 w-3.5" />}
+                <span>{copiedField === row.key ? "Copied" : row.copyLabel}</span>
+              </button>
+            </div>
+          ))}
+        </div>
+
+        {m.payment_link && (
+          <a
+            href={m.payment_link}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="inline-flex items-center gap-1.5 text-xs text-blue-400 hover:text-blue-300 font-semibold"
+          >
+            <ExternalLink className="h-3.5 w-3.5" />
+            <span>Open Official Payment Link</span>
+          </a>
+        )}
+
+        {m.qr_image_data && (
+          <div>
+            <div className="text-[10px] text-slate-400 mb-1">Scan Payment QR Code</div>
+            <img
+              src={m.qr_image_data}
+              alt={`${m.name} QR Code`}
+              className="h-32 w-32 object-contain rounded-xl bg-white p-1.5 border border-white/15"
+            />
+          </div>
+        )}
+
+        {m.instructions && (
+          <div className="p-3.5 rounded-xl bg-blue-500/10 border border-blue-500/20 text-xs text-slate-200 leading-relaxed">
+            <strong className="text-blue-300 block mb-0.5">How to Complete Transfer:</strong>
+            {m.instructions}
+          </div>
+        )}
+      </div>
+    );
+  };
 
   return (
     <div className="space-y-7 max-w-6xl mx-auto pb-16">
@@ -395,24 +656,33 @@ function SubscriptionPageInner() {
           </div>
           <h1 className="text-2xl font-extrabold text-white">Your Plan, Usage &amp; Billing Center</h1>
           <p className="text-xs text-slate-400">
-            Real database-verified plan details, remaining lead allowances, custom package builder, and payment proof tracking.
+            Real database-verified plan status, remaining lead &amp; email quotas, custom plan calculator, and payment verification.
           </p>
         </div>
 
-        <button
-          onClick={() => {
-            void refreshUser();
-            void loadSubscriptionData();
-          }}
-          disabled={loading}
-          className="self-start sm:self-auto inline-flex items-center gap-1.5 px-3 py-2 rounded-xl bg-white/[0.04] hover:bg-white/[0.08] border border-white/10 text-xs font-semibold text-slate-300 cursor-pointer"
-        >
-          <RefreshCw className={`h-3.5 w-3.5 ${loading ? "animate-spin text-blue-400" : ""}`} />
-          <span>Sync DB Status</span>
-        </button>
+        <div className="flex items-center gap-2 flex-wrap">
+          <Link
+            href="/app/accounts#gmail-bonus"
+            className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl bg-purple-600/20 hover:bg-purple-600/35 border border-purple-500/35 text-xs font-bold text-purple-200"
+          >
+            <Clock className="h-3.5 w-3.5" />
+            <span>Gmail Setup Bonus</span>
+          </Link>
+          <button
+            onClick={() => {
+              void refreshUser();
+              void loadSubscriptionData();
+            }}
+            disabled={loading}
+            className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl bg-white/[0.04] hover:bg-white/[0.08] border border-white/10 text-xs font-semibold text-slate-300 cursor-pointer"
+          >
+            <RefreshCw className={`h-3.5 w-3.5 ${loading ? "animate-spin text-blue-400" : ""}`} />
+            <span>Sync DB Status</span>
+          </button>
+        </div>
       </div>
 
-      {/* REQUIREMENT TWO: MISTAKEN-PROOF CURRENT ACTIVE PLAN HERO CARD */}
+      {/* PART 11: AUTHORITATIVE CURRENT ACTIVE PLAN HERO CARD */}
       <div
         className={`rounded-2xl border-2 p-6 shadow-xl ${
           isActive
@@ -438,7 +708,7 @@ function SubscriptionPageInner() {
             <div>
               <div className="flex flex-wrap items-center gap-2">
                 <span className="text-[10px] font-black uppercase tracking-widest px-2.5 py-0.5 rounded-full bg-white/10 text-white border border-white/20">
-                  {isActive ? "CURRENT ACTIVE PLAN" : `ACCOUNT STATUS: ${currentStatus}`}
+                  {isActive ? "YOUR ACTIVE SUBSCRIPTION" : `ACCOUNT STATUS: ${currentStatus}`}
                 </span>
                 <span
                   className={`text-[10px] font-black px-2 py-0.5 rounded-full ${
@@ -455,10 +725,10 @@ function SubscriptionPageInner() {
               <h2 className="text-xl font-black text-white mt-1.5">{displayCurrentPlan}</h2>
               <p className="text-xs text-slate-300 mt-0.5">
                 {isActive
-                  ? "All permitted features inside your plan below are active cleanly from database verification."
+                  ? "Your subscription is active cleanly from database verification. You do not need to buy another plan unless you want to upgrade or extend."
                   : isExpired
-                  ? "Your timed subscription has expired. Choose a fixed or custom package below to renew without losing saved leads."
-                  : "Free Preview / Locked state. Pick Basic ($25), Lifetime ($100), or a Custom package below and upload payment proof to activate this account."}
+                  ? "Your timed subscription has expired. Choose a fixed or custom package below to renew without losing your workspace or saved leads."
+                  : "Free Preview / Locked state. Pick Basic ($25), Lifetime ($100), or a Custom package below and submit payment proof to activate this account."}
               </p>
             </div>
           </div>
@@ -485,7 +755,7 @@ function SubscriptionPageInner() {
           </div>
 
           <div className="p-3 rounded-xl bg-black/35 border border-white/10 space-y-0.5">
-            <div className="text-[10px] text-slate-400">Expiry / Validity</div>
+            <div className="text-[10px] text-slate-400">Expiry Date</div>
             <div className="font-mono font-bold text-white text-[11px]">
               {isLifetime
                 ? "Lifetime (No Expiry)"
@@ -503,7 +773,7 @@ function SubscriptionPageInner() {
           </div>
 
           <div className="p-3 rounded-xl bg-black/35 border border-white/10 space-y-0.5">
-            <div className="text-[10px] text-slate-400">Lead Allowance Left</div>
+            <div className="text-[10px] text-slate-400">Remaining Lead Allowance</div>
             <div className="font-mono font-bold text-purple-300 text-[11px]">
               {stats.is_unlimited_quota
                 ? "Unlimited (Owner)"
@@ -512,7 +782,7 @@ function SubscriptionPageInner() {
           </div>
 
           <div className="p-3 rounded-xl bg-black/35 border border-white/10 space-y-0.5">
-            <div className="text-[10px] text-slate-400">Google Maps Leads</div>
+            <div className="text-[10px] text-slate-400">Google Maps Access</div>
             <div
               className={`font-bold text-[11px] ${
                 isActive && (liveProfile?.google_maps_enabled || isLifetime) ? "text-amber-300" : "text-rose-300"
@@ -523,7 +793,7 @@ function SubscriptionPageInner() {
           </div>
 
           <div className="p-3 rounded-xl bg-black/35 border border-white/10 space-y-0.5">
-            <div className="text-[10px] text-slate-400">Email Allowance</div>
+            <div className="text-[10px] text-slate-400">Email Sending Allowance</div>
             <div className="font-mono font-bold text-emerald-300 text-[11px]">
               {isActive ? `${liveProfile?.daily_email_limit ?? (isLifetime ? 500 : 10)} / day (UTC)` : "0 / day (Locked)"}
             </div>
@@ -577,15 +847,15 @@ function SubscriptionPageInner() {
         </div>
       </div>
 
-      {/* SECTION A: FIXED PLANS + CUSTOM PLAN BUILDER + CURRENCY CONVERSION */}
-      <div className="space-y-3">
+      {/* SECTION A: UPGRADE / BUY PACKAGE (PART 6 AUTO-SCROLL SOURCE) */}
+      <div className="space-y-3 pt-2 border-t border-white/[0.08]">
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
           <div>
             <h2 className="text-lg font-extrabold text-white">
-              {isActive ? "Upgrade, Extend, or Build a Custom Package" : "Choose a Plan & Calculate Your Price"}
+              {isActive ? "Optional Upgrade, Renewal, or Custom Package Extension" : "Step 1 — Choose a Plan or Build a Custom Package"}
             </h2>
             <p className="text-xs text-slate-400">
-              Selecting any plan below automatically updates the Payment Instructions and Submit Payment Proof form right underneath.
+              Click <strong>Choose Basic</strong>, <strong>Choose Lifetime</strong>, or <strong>Use This Custom</strong> to save your package and jump straight to payment selection below.
             </p>
           </div>
         </div>
@@ -597,387 +867,297 @@ function SubscriptionPageInner() {
           initialCurrency={initialCurrency}
           activePlanType={isActive ? planTypeUpper : null}
           onChange={(sel) => setOrderSelection(sel)}
+          onPlanCommitted={handlePlanCommitted}
         />
       </div>
 
-      {/* SECTION B: OWNER-CONFIGURED PAYMENT METHODS WITH COPY BUTTONS */}
-      <div className="rounded-2xl border border-white/[0.08] bg-[#0c1017] p-6 space-y-5">
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-white/[0.06] pb-3">
+      {/* SECTION B: NEXT STEP — SELECT YOUR PAYMENT METHOD (PART 2, PART 3 & PART 6 TARGET) */}
+      <div
+        id="next-step-payment-method"
+        ref={paymentStepRef}
+        tabIndex={-1}
+        className={`rounded-2xl border p-6 space-y-5 outline-none transition-all duration-500 ${
+          highlightedStep
+            ? "border-blue-400 bg-[#0d1626] ring-2 ring-blue-500/40 shadow-2xl"
+            : "border-white/[0.08] bg-[#0c1017]"
+        }`}
+      >
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-white/[0.08] pb-4">
           <div>
-            <h3 className="text-base font-bold text-white flex items-center gap-2">
-              <Landmark className="h-4 w-4 text-blue-400" />
-              <span>Payment Methods &amp; Exact Transfer Instructions</span>
-            </h3>
+            <div className="text-[11px] font-black uppercase tracking-widest text-blue-400 flex items-center gap-1.5">
+              <ArrowDown className="h-3.5 w-3.5" />
+              <span>NEXT STEP — SELECT YOUR PAYMENT METHOD</span>
+            </div>
+            <h3 className="text-lg font-black text-white mt-1">SELECT YOUR PAYMENT METHOD</h3>
             <p className="text-xs text-slate-400 mt-0.5">
-              Click any payment method to view exact transfer details configured by the Owner, copy fields cleanly, and transfer{" "}
-              <strong className="text-emerald-300">
-                {orderSelection.currency === "USD" || !orderSelection.fxAvailable
-                  ? `$${orderSelection.priceUsd.toFixed(2)} USD`
-                  : `${orderSelection.convertedAmount.toLocaleString()} ${orderSelection.currency} ($${orderSelection.priceUsd} USD)`}
-              </strong>.
+              Selected Package: <strong className="text-white">{orderSelection.planLabel}</strong> • Payable:{" "}
+              <strong className="text-emerald-300">{formatPayableText()}</strong>
             </p>
           </div>
 
+          <span className="text-[11px] font-mono px-3 py-1 rounded-full bg-white/[0.04] border border-white/10 text-slate-300 self-start">
+            {orderSelection.includeGoogleMaps ? "Google Maps Included" : "Google Maps Not Included"}
+          </span>
+        </div>
+
+        {/* Clean Selectable Payment Method Cards Only (never showing all bank/wallet numbers simultaneously) */}
+        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3">
+          {methods.map((m) => {
+            const isSelected = String(m.id) === selectedMethodId;
+            return (
+              <button
+                key={m.id}
+                type="button"
+                onClick={() => handleSelectMethodCard(String(m.id))}
+                className={`text-left p-4 rounded-2xl border transition-all cursor-pointer flex flex-col justify-between gap-2 ${
+                  isSelected
+                    ? "border-blue-400 bg-blue-600/20 shadow-md ring-1 ring-blue-400/50"
+                    : "border-white/10 bg-white/[0.025] hover:border-white/30 hover:bg-white/[0.05]"
+                }`}
+              >
+                <div className="flex items-center justify-between gap-2 w-full">
+                  <Wallet className={`h-4 w-4 ${isSelected ? "text-blue-300" : "text-slate-400"}`} />
+                  {isSelected && (
+                    <span className="text-[9px] font-black uppercase px-2 py-0.5 rounded-full bg-blue-600 text-white">
+                      Selected
+                    </span>
+                  )}
+                </div>
+                <div>
+                  <div className="text-sm font-black text-white">{m.name}</div>
+                  <div className="text-[10px] font-mono text-slate-400 mt-0.5">
+                    {m.currency} • {m.region}
+                  </div>
+                </div>
+              </button>
+            );
+          })}
+
+          {/* Other Payment Method Card */}
           <button
             type="button"
-            onClick={() =>
-              copyValue(
-                orderSelection.currency === "USD" || !orderSelection.fxAvailable
-                  ? String(orderSelection.priceUsd.toFixed(2))
-                  : String(orderSelection.convertedAmount),
-                "due-amt"
-              )
-            }
-            className="px-3 py-1.5 rounded-xl bg-emerald-500/15 hover:bg-emerald-500/25 border border-emerald-500/30 text-xs font-bold text-emerald-300 inline-flex items-center gap-1.5 cursor-pointer self-start"
+            onClick={() => handleSelectMethodCard("OTHER")}
+            className={`text-left p-4 rounded-2xl border transition-all cursor-pointer flex flex-col justify-between gap-2 ${
+              selectedMethodId === "OTHER"
+                ? "border-emerald-400 bg-emerald-600/20 shadow-md ring-1 ring-emerald-400/50"
+                : "border-white/10 bg-white/[0.025] hover:border-white/30 hover:bg-white/[0.05]"
+            }`}
           >
-            {copiedField === "due-amt" ? <Check className="h-3.5 w-3.5" /> : <Copy className="h-3.5 w-3.5" />}
-            <span>
-              Copy Amount: {orderSelection.convertedAmount.toLocaleString()} {orderSelection.currency}
-            </span>
+            <div className="flex items-center justify-between gap-2 w-full">
+              <MessageCircle className={`h-4 w-4 ${selectedMethodId === "OTHER" ? "text-emerald-300" : "text-slate-400"}`} />
+              {selectedMethodId === "OTHER" && (
+                <span className="text-[9px] font-black uppercase px-2 py-0.5 rounded-full bg-emerald-600 text-white">
+                  Selected
+                </span>
+              )}
+            </div>
+            <div>
+              <div className="text-sm font-black text-white">Other Payment Method</div>
+              <div className="text-[10px] text-slate-400 mt-0.5">Ask Owner for alternatives</div>
+            </div>
           </button>
         </div>
 
-        {methods.length === 0 ? (
-          <div className="p-4 rounded-xl bg-amber-500/10 border border-amber-500/25 text-xs text-amber-200 flex items-start gap-2.5">
-            <Info className="h-4 w-4 shrink-0 mt-0.5 text-amber-400" />
-            <span>
-              No receiving payment method is currently active in the Owner Dashboard. Contact WhatsApp ({whatsappNumber}) or wait for the Owner to enable receiving methods in Payments Settings.
-            </span>
-          </div>
-        ) : (
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            {methods.map((m) => {
-              const isSelected = String(m.id) === selectedMethodId;
-              const bd = m.details_json;
-              const structuredFields = bd
-                ? [
-                    { label: "Bank Name", val: bd.bank_name, key: `bname-${m.id}` },
-                    { label: "Bank Address", val: bd.bank_address, key: `baddr-${m.id}` },
-                    { label: "Beneficiary Name", val: bd.beneficiary_name, key: `ben-${m.id}` },
-                    { label: "Account Number / IBAN", val: bd.account_number, key: `anum-${m.id}` },
-                    { label: "Routing / ABA Number", val: bd.routing_aba, key: `aba-${m.id}` },
-                    { label: "SWIFT / BIC", val: bd.swift_bic, key: `swift-${m.id}` },
-                    { label: "Account Type", val: bd.account_type, key: `atype-${m.id}` },
-                    { label: "Supported Currency", val: bd.supported_currency, key: `scur-${m.id}` },
-                  ].filter((f) => f.val && String(f.val).trim())
-                : [];
-
-              return (
-                <div
-                  key={m.id}
-                  onClick={() => setSelectedMethodId(String(m.id))}
-                  className={`p-4 rounded-2xl border space-y-3 cursor-pointer transition-all ${
-                    isSelected
-                      ? "border-blue-500 bg-blue-500/10 shadow-md"
-                      : "border-white/[0.08] bg-white/[0.02] hover:border-white/25"
-                  }`}
-                >
-                  <div className="flex items-center justify-between gap-2">
-                    <div className="flex items-center gap-2">
-                      <span className="font-bold text-white text-sm">{m.name}</span>
-                      {isSelected && (
-                        <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-blue-600 text-white">
-                          SELECTED
-                        </span>
-                      )}
-                    </div>
-                    <div className="flex items-center gap-1.5 text-[10px] font-mono">
-                      <span className="px-2 py-0.5 rounded bg-white/[0.05] text-slate-300 border border-white/10">
-                        {m.region}
-                      </span>
-                      <span className="px-2 py-0.5 rounded bg-emerald-500/15 text-emerald-300 border border-emerald-500/30 font-bold">
-                        {m.currency}
-                      </span>
-                    </div>
-                  </div>
-
-                  {/* Structured Bank Transfer Fields with Copy buttons */}
-                  {structuredFields.length > 0 ? (
-                    <div className="space-y-1.5">
-                      {structuredFields.map((f) => (
-                        <div
-                          key={f.key}
-                          className="flex items-center justify-between gap-2 p-2 rounded-lg bg-black/40 border border-white/[0.06] text-[11px]"
-                        >
-                          <div className="min-w-0">
-                            <span className="text-slate-400 text-[10px] block">{f.label}</span>
-                            <span className="font-mono text-blue-200 break-all">{f.val}</span>
-                          </div>
-                          <button
-                            type="button"
-                            onClick={(ev) => {
-                              ev.stopPropagation();
-                              copyValue(String(f.val), f.key);
-                            }}
-                            className="p-1.5 rounded-md bg-white/5 hover:bg-white/10 text-slate-300 hover:text-white shrink-0 cursor-pointer"
-                            title={`Copy ${f.label}`}
-                          >
-                            {copiedField === f.key ? (
-                              <Check className="h-3.5 w-3.5 text-emerald-400" />
-                            ) : (
-                              <Copy className="h-3.5 w-3.5" />
-                            )}
-                          </button>
-                        </div>
-                      ))}
-                    </div>
-                  ) : (
-                    <>
-                      {m.account_holder_name && (
-                        <div className="flex items-center justify-between gap-2 p-2 rounded-lg bg-black/40 border border-white/[0.06] text-[11px]">
-                          <div>
-                            <span className="text-slate-400 text-[10px] block">Account Holder</span>
-                            <strong className="text-white">{m.account_holder_name}</strong>
-                          </div>
-                          <button
-                            type="button"
-                            onClick={(ev) => {
-                              ev.stopPropagation();
-                              copyValue(m.account_holder_name!, `holder-${m.id}`);
-                            }}
-                            className="p-1.5 rounded-md bg-white/5 hover:bg-white/10 text-slate-300 shrink-0 cursor-pointer"
-                          >
-                            {copiedField === `holder-${m.id}` ? (
-                              <Check className="h-3.5 w-3.5 text-emerald-400" />
-                            ) : (
-                              <Copy className="h-3.5 w-3.5" />
-                            )}
-                          </button>
-                        </div>
-                      )}
-
-                      {m.account_identifier && (
-                        <div className="flex items-center justify-between gap-2 p-2 rounded-lg bg-black/40 border border-white/[0.06] font-mono text-[11px]">
-                          <div className="min-w-0">
-                            <span className="text-slate-400 text-[10px] block font-sans">Account / ID / Phone</span>
-                            <span className="text-blue-200 break-all">{m.account_identifier}</span>
-                          </div>
-                          <button
-                            type="button"
-                            onClick={(ev) => {
-                              ev.stopPropagation();
-                              copyValue(m.account_identifier!, `acc-${m.id}`);
-                            }}
-                            className="p-1.5 rounded-md bg-white/5 hover:bg-white/10 text-slate-300 shrink-0 cursor-pointer"
-                          >
-                            {copiedField === `acc-${m.id}` ? (
-                              <Check className="h-3.5 w-3.5 text-emerald-400" />
-                            ) : (
-                              <Copy className="h-3.5 w-3.5" />
-                            )}
-                          </button>
-                        </div>
-                      )}
-
-                      {m.wallet_address && (
-                        <div className="flex items-center justify-between gap-2 p-2 rounded-lg bg-black/40 border border-white/[0.06] font-mono text-[11px]">
-                          <div className="min-w-0">
-                            <span className="text-slate-400 text-[10px] block font-sans">Wallet Address</span>
-                            <span className="text-amber-200 break-all">{m.wallet_address}</span>
-                          </div>
-                          <button
-                            type="button"
-                            onClick={(ev) => {
-                              ev.stopPropagation();
-                              copyValue(m.wallet_address!, `wal-${m.id}`);
-                            }}
-                            className="p-1.5 rounded-md bg-white/5 hover:bg-white/10 text-slate-300 shrink-0 cursor-pointer"
-                          >
-                            {copiedField === `wal-${m.id}` ? (
-                              <Check className="h-3.5 w-3.5 text-emerald-400" />
-                            ) : (
-                              <Copy className="h-3.5 w-3.5" />
-                            )}
-                          </button>
-                        </div>
-                      )}
-                    </>
-                  )}
-
-                  {m.payment_link && (
+        {/* Single-Method Receiving Details Panel (displayed immediately below selection) */}
+        <div
+          id="selected-payment-details"
+          ref={detailsPanelRef}
+          className="rounded-2xl border border-white/10 bg-[#090d16] p-5"
+        >
+          {!selectedMethodId ? (
+            <div className="text-center py-6 space-y-1.5">
+              <CreditCard className="h-6 w-6 text-blue-400 mx-auto" />
+              <div className="text-sm font-bold text-white">Select a Payment Method Card Above</div>
+              <p className="text-xs text-slate-400">
+                Choose Easypaisa, JazzCash, Meezan Bank, NayaPay, Binance, Payoneer, or Other Payment Method to display the exact receiving details and upload your screenshot proof.
+              </p>
+            </div>
+          ) : selectedMethodId === "OTHER" ? (
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 py-2">
+              <div className="space-y-1">
+                <h4 className="text-base font-black text-white">Other Payment Method</h4>
+                <p className="text-xs text-slate-300">
+                  Don&apos;t see your preferred payment method?{" "}
+                  {WHATSAPP_LINK ? (
                     <a
-                      href={m.payment_link}
+                      href={WHATSAPP_LINK}
                       target="_blank"
                       rel="noopener noreferrer"
-                      onClick={(ev) => ev.stopPropagation()}
-                      className="inline-flex items-center gap-1.5 text-xs text-blue-400 hover:text-blue-300 font-semibold"
+                      className="text-emerald-300 font-bold underline hover:text-emerald-200"
                     >
-                      <ExternalLink className="h-3.5 w-3.5" />
-                      <span>Open Payment Link</span>
+                      Contact the Owner
                     </a>
+                  ) : (
+                    <span className="text-amber-300 font-semibold">
+                      Contact the Owner (Owner WhatsApp support number is not configured in settings yet).
+                    </span>
                   )}
-
-                  {m.qr_image_data && (
-                    <img
-                      src={m.qr_image_data}
-                      alt={`${m.name} QR Code`}
-                      className="h-28 w-28 object-contain rounded-lg bg-white p-1 border border-white/10"
-                    />
-                  )}
-
-                  {m.instructions && <p className="text-[11px] text-slate-300 leading-relaxed">{m.instructions}</p>}
-                </div>
-              );
-            })}
-          </div>
-        )}
+                </p>
+              </div>
+              {WHATSAPP_LINK && (
+                <a
+                  href={WHATSAPP_LINK}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="px-4 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold inline-flex items-center gap-2 shrink-0"
+                >
+                  <MessageCircle className="h-4 w-4" />
+                  <span>Contact the Owner ({whatsappNumber})</span>
+                </a>
+              )}
+            </div>
+          ) : selectedMethodObj ? (
+            renderSelectedMethodDetails(selectedMethodObj)
+          ) : (
+            <div className="text-xs text-amber-200">
+              Selected payment method is currently unavailable. Choose another method above.
+            </div>
+          )}
+        </div>
       </div>
 
-      {/* SECTION C: SUBMIT PAYMENT PROOF FORM */}
-      <div id="payment-proof-upload" className="rounded-2xl border border-white/[0.08] bg-[#0c1017] p-6 space-y-5">
-        <div className="border-b border-white/[0.06] pb-3">
-          <h3 className="text-base font-bold text-white flex items-center gap-2">
-            <Upload className="h-4 w-4 text-emerald-400" />
-            <span>Submit Payment Proof Form</span>
-          </h3>
-          <p className="text-xs text-slate-400 mt-0.5">
-            Uploading proof creates a PENDING payment request in the Owner Dashboard. Your account activates only after actual Owner verification of funds.
-          </p>
-        </div>
-
-        {/* Auto-Populated Verified Summary */}
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3 text-xs font-mono">
-          <div className="p-3 rounded-xl bg-white/[0.03] border border-white/10">
-            <span className="text-[10px] text-slate-400 font-sans block">1. Account Username *</span>
-            <strong className="text-white">{displayUsername}</strong>
-          </div>
-          <div className="p-3 rounded-xl bg-white/[0.03] border border-white/10">
-            <span className="text-[10px] text-slate-400 font-sans block">2. Selected Plan</span>
-            <strong className="text-blue-300">{orderSelection.plan}</strong>
-          </div>
-          <div className="p-3 rounded-xl bg-white/[0.03] border border-white/10">
-            <span className="text-[10px] text-slate-400 font-sans block">3. Duration &amp; Leads</span>
-            <strong className="text-purple-300">
-              {orderSelection.durationUnit === "lifetime"
-                ? "Lifetime"
-                : `${orderSelection.durationValue} ${orderSelection.durationUnit}`}{" "}
-              ({orderSelection.leadAllowance.toLocaleString()})
-            </strong>
-          </div>
-          <div className="p-3 rounded-xl bg-white/[0.03] border border-white/10">
-            <span className="text-[10px] text-slate-400 font-sans block">4. Currency &amp; Rate</span>
-            <strong className="text-white">
-              {orderSelection.currency} (1 USD = {orderSelection.exchangeRate})
-            </strong>
-          </div>
-          <div className="p-3 rounded-xl bg-emerald-500/15 border border-emerald-500/35">
-            <span className="text-[10px] text-emerald-200 font-sans block">5. Amount Due</span>
-            <strong className="text-emerald-300">
-              {orderSelection.convertedAmount.toLocaleString()} {orderSelection.currency}
-              {orderSelection.currency !== "USD" ? ` ($${orderSelection.priceUsd} USD)` : ""}
-            </strong>
-          </div>
-        </div>
-
-        {uploadError && (
-          <div className="p-3.5 rounded-xl bg-rose-500/10 border border-rose-500/25 text-rose-300 text-xs flex items-center justify-between gap-2">
-            <div className="flex items-center gap-2">
-              <AlertTriangle className="h-4 w-4 shrink-0" />
-              <span>{uploadError}</span>
-            </div>
-            <button onClick={() => setUploadError(null)} className="text-xs underline cursor-pointer">
-              Dismiss
-            </button>
-          </div>
-        )}
-
-        {lastSubmitted && (
-          <div className="p-4 rounded-xl bg-emerald-500/10 border border-emerald-500/30 space-y-2 text-xs">
-            <div className="flex items-center gap-2 font-bold text-emerald-300">
-              <CheckCircle2 className="h-4 w-4 shrink-0" />
-              <span>
-                Payment proof submitted ({lastSubmitted.request_code || `#${lastSubmitted.id}`}) — Status: PENDING Verification
-              </span>
-            </div>
-            <p className="text-[11px] text-slate-300">
-              Amount recorded: ${lastSubmitted.agreed_price_usd} USD ({lastSubmitted.converted_amount ?? lastSubmitted.agreed_price_usd}{" "}
-              {lastSubmitted.currency}) via {lastSubmitted.payment_method_name}. You will receive an in-app notification once the Owner approves or requests details.
+      {/* SECTION C: SUBMIT PAYMENT PROOF FOR ORDER VERIFICATION (PART 4) */}
+      {selectedMethodObj && (
+        <div id="payment-proof-upload" className="rounded-2xl border border-emerald-500/25 bg-[#0c1017] p-6 space-y-5">
+          <div className="border-b border-white/[0.06] pb-3">
+            <h3 className="text-base font-extrabold text-white flex items-center gap-2">
+              <Upload className="h-4 w-4 text-emerald-400" />
+              <span>SUBMIT PAYMENT PROOF FOR ORDER VERIFICATION</span>
+            </h3>
+            <p className="text-xs text-slate-400 mt-0.5">
+              Submitting proof saves a PENDING verification request in the database. Subscriptions activate only after the Owner confirms receipt of funds.
             </p>
           </div>
-        )}
 
-        <form onSubmit={handleUploadProof} className="space-y-4 text-xs">
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-            <div>
-              <label className="block font-semibold text-slate-300 mb-1">6. Payment Method *</label>
-              <select
-                required
-                value={selectedMethodId}
-                onChange={(e) => setSelectedMethodId(e.target.value)}
-                className="w-full rounded-xl border border-white/10 bg-[#121824] px-3 py-2.5 text-white"
-              >
-                {methods.length === 0 ? (
-                  <option value="">No configured method available yet</option>
-                ) : (
-                  methods.map((m) => (
-                    <option key={m.id} value={String(m.id)}>
-                      {m.name} ({m.region} • {m.currency})
-                    </option>
-                  ))
-                )}
-              </select>
+          {/* Auto-Populated Verified Summary */}
+          <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-8 gap-2.5 text-xs font-mono">
+            <div className="p-2.5 rounded-xl bg-white/[0.03] border border-white/10">
+              <span className="text-[10px] text-slate-400 font-sans block">Account Email</span>
+              <strong className="text-white truncate block" title={displayEmail}>{displayEmail}</strong>
             </div>
-
-            <div>
-              <label className="block font-semibold text-slate-300 mb-1">
-                7. Payment Screenshot *{" "}
-                <span className="text-slate-500 font-normal">(JPG, JPEG, PNG, WebP, PDF • max 5MB)</span>
-              </label>
-              <input
-                type="file"
-                accept=".jpg,.jpeg,.png,.webp,.pdf,image/jpeg,image/png,image/webp,application/pdf"
-                required
-                onChange={(e) => setProofFile(e.target.files?.[0] || null)}
-                className="w-full rounded-xl border border-white/10 bg-[#121824] px-3 py-2 text-xs text-slate-300 file:mr-3 file:py-1 file:px-2.5 file:rounded-lg file:border-0 file:text-xs file:font-bold file:bg-blue-600 file:text-white cursor-pointer"
-              />
+            <div className="p-2.5 rounded-xl bg-white/[0.03] border border-white/10">
+              <span className="text-[10px] text-slate-400 font-sans block">Username</span>
+              <strong className="text-white">@{displayUsername}</strong>
             </div>
-          </div>
-
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-            <div>
-              <label className="block font-semibold text-slate-300 mb-1">
-                8. Transfer Receipt / Transaction Reference (Optional)
-              </label>
-              <input
-                type="text"
-                value={paymentReference}
-                onChange={(e) => setPaymentReference(e.target.value)}
-                placeholder="e.g. TRX-8924103 or sender bank account"
-                className="w-full rounded-xl border border-white/10 bg-[#121824] px-3 py-2 text-white font-mono"
-              />
+            <div className="p-2.5 rounded-xl bg-white/[0.03] border border-white/10">
+              <span className="text-[10px] text-slate-400 font-sans block">Selected Plan</span>
+              <strong className="text-blue-300">{orderSelection.plan}</strong>
             </div>
-
-            <div>
-              <label className="block font-semibold text-slate-300 mb-1">9. Note for Owner (Optional)</label>
-              <input
-                type="text"
-                value={customerNote}
-                onChange={(e) => setCustomerNote(e.target.value)}
-                placeholder="Any extra context about your transfer..."
-                className="w-full rounded-xl border border-white/10 bg-[#121824] px-3 py-2 text-white"
-              />
+            <div className="p-2.5 rounded-xl bg-white/[0.03] border border-white/10">
+              <span className="text-[10px] text-slate-400 font-sans block">Duration</span>
+              <strong className="text-purple-300">
+                {orderSelection.durationUnit === "lifetime"
+                  ? "Lifetime"
+                  : `${orderSelection.durationValue} ${orderSelection.durationUnit}`}
+              </strong>
+            </div>
+            <div className="p-2.5 rounded-xl bg-white/[0.03] border border-white/10">
+              <span className="text-[10px] text-slate-400 font-sans block">Lead Allowance</span>
+              <strong className="text-white">{orderSelection.leadAllowance.toLocaleString()}</strong>
+            </div>
+            <div className="p-2.5 rounded-xl bg-white/[0.03] border border-white/10">
+              <span className="text-[10px] text-slate-400 font-sans block">Google Maps</span>
+              <strong className={orderSelection.includeGoogleMaps ? "text-amber-300" : "text-rose-300"}>
+                {orderSelection.includeGoogleMaps ? "Included" : "Excluded"}
+              </strong>
+            </div>
+            <div className="p-2.5 rounded-xl bg-white/[0.03] border border-white/10">
+              <span className="text-[10px] text-slate-400 font-sans block">Payment Method</span>
+              <strong className="text-blue-200">{selectedMethodObj.name}</strong>
+            </div>
+            <div className="p-2.5 rounded-xl bg-emerald-500/15 border border-emerald-500/35">
+              <span className="text-[10px] text-emerald-200 font-sans block">Total Payable ({orderSelection.currency})</span>
+              <strong className="text-emerald-300">{formatPayableText()}</strong>
             </div>
           </div>
 
-          <button
-            type="submit"
-            disabled={submittingProof || methods.length === 0}
-            className="w-full py-3 rounded-xl bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white font-bold text-xs flex items-center justify-center gap-2 cursor-pointer disabled:opacity-50"
-          >
-            {submittingProof ? (
-              <>
-                <RefreshCw className="h-4 w-4 animate-spin" />
-                <span>Uploading Payment Proof...</span>
-              </>
-            ) : (
-              <>
-                <Upload className="h-4 w-4" />
-                <span>Submit Payment Proof for Owner Verification</span>
-              </>
-            )}
-          </button>
-        </form>
-      </div>
+          {uploadError && (
+            <div className="p-3.5 rounded-xl bg-rose-500/10 border border-rose-500/25 text-rose-300 text-xs flex items-center justify-between gap-2">
+              <div className="flex items-center gap-2">
+                <AlertTriangle className="h-4 w-4 shrink-0" />
+                <span>{uploadError}</span>
+              </div>
+              <button onClick={() => setUploadError(null)} className="text-xs underline cursor-pointer">
+                Dismiss
+              </button>
+            </div>
+          )}
+
+          {lastSubmitted && (
+            <div className="p-4 rounded-xl bg-emerald-500/10 border border-emerald-500/30 space-y-1.5 text-xs">
+              <div className="flex items-center gap-2 font-bold text-emerald-300">
+                <CheckCircle2 className="h-4 w-4 shrink-0" />
+                <span>
+                  Payment proof saved ({lastSubmitted.request_code || `#${lastSubmitted.id}`}) — Status: PENDING Owner Verification
+                </span>
+              </div>
+              <p className="text-[11px] text-slate-300">
+                Recorded: ${lastSubmitted.agreed_price_usd} USD ({lastSubmitted.converted_amount ?? lastSubmitted.agreed_price_usd}{" "}
+                {lastSubmitted.currency}) via {lastSubmitted.payment_method_name}. An in-app notification was sent to the Owner.
+              </p>
+            </div>
+          )}
+
+          <form onSubmit={handleUploadProof} className="space-y-4 text-xs">
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+              <div>
+                <label className="block font-semibold text-slate-300 mb-1">
+                  1. Payment Screenshot * <span className="text-slate-500 font-normal">(JPG, PNG, WebP, PDF • max 5MB)</span>
+                </label>
+                <input
+                  type="file"
+                  accept=".jpg,.jpeg,.png,.webp,.pdf,image/jpeg,image/png,image/webp,application/pdf"
+                  required
+                  onChange={(e) => setProofFile(e.target.files?.[0] || null)}
+                  className="w-full rounded-xl border border-white/10 bg-[#121824] px-3 py-2 text-xs text-slate-300 file:mr-3 file:py-1 file:px-2.5 file:rounded-lg file:border-0 file:text-xs file:font-bold file:bg-blue-600 file:text-white cursor-pointer"
+                />
+              </div>
+
+              <div>
+                <label className="block font-semibold text-slate-300 mb-1">
+                  2. Transfer Receipt / TXID Reference (Optional)
+                </label>
+                <input
+                  type="text"
+                  value={paymentReference}
+                  onChange={(e) => setPaymentReference(e.target.value)}
+                  placeholder="e.g. TRX-8924103 or TRC20 TXID"
+                  className="w-full rounded-xl border border-white/10 bg-[#121824] px-3 py-2.5 text-white font-mono"
+                />
+              </div>
+
+              <div>
+                <label className="block font-semibold text-slate-300 mb-1">3. Note for Owner (Optional)</label>
+                <input
+                  type="text"
+                  value={customerNote}
+                  onChange={(e) => setCustomerNote(e.target.value)}
+                  placeholder="Sender name or transfer time..."
+                  className="w-full rounded-xl border border-white/10 bg-[#121824] px-3 py-2.5 text-white"
+                />
+              </div>
+            </div>
+
+            <button
+              type="submit"
+              disabled={submittingProof}
+              className="w-full py-3 rounded-xl bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white font-bold text-xs flex items-center justify-center gap-2 cursor-pointer disabled:opacity-50"
+            >
+              {submittingProof ? (
+                <>
+                  <RefreshCw className="h-4 w-4 animate-spin" />
+                  <span>Uploading Payment Proof...</span>
+                </>
+              ) : (
+                <>
+                  <Upload className="h-4 w-4" />
+                  <span>Submit Payment Proof for Verification ({selectedMethodObj.name})</span>
+                </>
+              )}
+            </button>
+          </form>
+        </div>
+      )}
 
       {/* SECTION D: SUBMISSION HISTORY */}
       <div className="rounded-2xl border border-white/[0.08] bg-[#0c1017] p-6 space-y-4">
@@ -1049,18 +1229,20 @@ function SubscriptionPageInner() {
       {/* Direct Support Links */}
       <div className="rounded-2xl border border-white/[0.08] bg-[#0c1017] p-5 flex flex-wrap items-center justify-between gap-3 text-xs">
         <div className="text-slate-300">
-          Need assistance with your payment or existing subscription? Reach support anytime:
+          Need assistance with your payment, Gmail setup time compensation, or subscription?
         </div>
         <div className="flex flex-wrap items-center gap-2.5">
-          <a
-            href={WHATSAPP_LINK}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-bold inline-flex items-center gap-1.5"
-          >
-            <MessageCircle className="h-4 w-4" />
-            <span>WhatsApp Support ({whatsappNumber})</span>
-          </a>
+          {WHATSAPP_LINK && (
+            <a
+              href={WHATSAPP_LINK}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-bold inline-flex items-center gap-1.5"
+            >
+              <MessageCircle className="h-4 w-4" />
+              <span>WhatsApp Support ({whatsappNumber})</span>
+            </a>
+          )}
           {supportMailtoHref && (
             <a
               href={supportMailtoHref}

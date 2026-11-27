@@ -7,7 +7,7 @@ import { useAuth } from "@/lib/auth-context";
 import {
   Mail, ShieldCheck, CheckCircle2, AlertCircle, Trash2,
   RefreshCw, Send, Sliders, ExternalLink, Inbox, Check, X,
-  AlertTriangle, Lock, Sparkles, Key, Info, Globe, Shield, Power
+  AlertTriangle, Lock, Sparkles, Key, Info, Globe, Shield, Power, Clock, Upload
 } from "lucide-react";
 import { GmailDiagnosticBanner, GmailSetupGuide } from "@/components/gmail/GmailSetupGuide";
 
@@ -53,7 +53,25 @@ function EmailAccountsContent() {
   const [toastMsg, setToastMsg] = useState<string | null>(null);
   const [toastType, setToastType] = useState<"success" | "error" | "info">("info");
   const [oauthDiagnostic, setOauthDiagnostic] = useState<{ errorCode?: string | null; rawError?: string | null } | null>(null);
-  const [oauthHealth, setOauthHealth] = useState<{ oauthConfigured?: boolean; callbackUri?: string; gmailScope?: string } | null>(null);
+  const [oauthHealth, setOauthHealth] = useState<{
+    oauthConfigured?: boolean;
+    callbackUri?: string;
+    gmailScope?: string;
+    oauthAudienceStatus?: string;
+    oauthSource?: string;
+    oauthMode?: string;
+  } | null>(null);
+
+  // Optional Customer-Specific OAuth JSON State (secret is NEVER stored in browser state or localStorage)
+  const [customOAuthConfig, setCustomOAuthConfig] = useState<any | null>(null);
+  const [uploadingJson, setUploadingJson] = useState(false);
+
+  // Gmail Setup Time Bonus Compensation State (Part 10)
+  const [bonusQty, setBonusQty] = useState<number>(30);
+  const [bonusUnit, setBonusUnit] = useState<"minutes" | "hours">("minutes");
+  const [bonusReason, setBonusReason] = useState<string>("");
+  const [submittingBonus, setSubmittingBonus] = useState(false);
+  const [bonusRequests, setBonusRequests] = useState<any[]>([]);
 
   // Test send modal
   const [testModalOpen, setTestModalOpen] = useState(false);
@@ -81,9 +99,11 @@ function EmailAccountsContent() {
   const fetchStatus = async () => {
     setLoading(true);
     try {
-      const [res, healthRes] = await Promise.all([
+      const [res, healthRes, customRes, bonusRes] = await Promise.all([
         fetch("/api/integrations/gmail/status", { headers: getAuthHeaders() }),
         fetch("/api/integrations/gmail/health", { headers: getAuthHeaders() }).catch(() => null),
+        fetch("/api/integrations/gmail/custom-oauth", { headers: getAuthHeaders() }).catch(() => null),
+        fetch("/api/integrations/gmail/bonus-request", { headers: getAuthHeaders() }).catch(() => null),
       ]);
       const data: GmailStatusResponse = await res.json();
       setStatusData(data);
@@ -97,6 +117,14 @@ function EmailAccountsContent() {
             setOauthDiagnostic({ errorCode: h.diagnostic.code, rawError: h.diagnostic.explanation });
           }
         }
+      }
+      if (customRes && customRes.ok) {
+        const c = await customRes.json().catch(() => null);
+        setCustomOAuthConfig(c?.config || null);
+      }
+      if (bonusRes && bonusRes.ok) {
+        const b = await bonusRes.json().catch(() => null);
+        if (Array.isArray(b?.requests)) setBonusRequests(b.requests);
       }
       if (data.account?.sender_email && !testRecipient) {
         setTestRecipient(data.account.sender_email);
@@ -140,7 +168,7 @@ function EmailAccountsContent() {
     }
   }, [searchParams]);
 
-  const handleConnectGmail = async () => {
+  const handleConnectGmail = async (sourceOverride?: "shared" | "customer") => {
     const isPreview = (user as any)?.account_type === "FREE_PREVIEW" || user?.status === "PREVIEW_ONLY";
     if (isPreview) {
       setToastType("error");
@@ -154,7 +182,8 @@ function EmailAccountsContent() {
     }
     setConnecting(true);
     try {
-      const res = await fetch("/api/integrations/gmail/url", {
+      const qs = sourceOverride ? `?oauth_source=${sourceOverride}` : "";
+      const res = await fetch(`/api/integrations/gmail/url${qs}`, {
         headers: getAuthHeaders(),
       });
       const data = await res.json();
@@ -169,6 +198,84 @@ function EmailAccountsContent() {
       setToastMsg("Failed to initiate Google OAuth.");
     } finally {
       setConnecting(false);
+    }
+  };
+
+  const handleUploadCustomOAuthJson = async (file?: File) => {
+    if (!file) return;
+    if (file.size > 65536) {
+      setToastType("error");
+      setToastMsg("Google OAuth JSON file must be under 64KB.");
+      return;
+    }
+    setUploadingJson(true);
+    try {
+      const formData = new FormData();
+      formData.append("file", file);
+      const token = typeof window !== "undefined" ? localStorage.getItem("usman_gtm_token") : null;
+      const res = await fetch("/api/integrations/gmail/custom-oauth", {
+        method: "POST",
+        headers: token ? { Authorization: `Bearer ${token}` } : {},
+        body: formData,
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data?.detail || "Failed to validate OAuth JSON.");
+      setToastType("success");
+      setToastMsg(data?.message || "Custom OAuth JSON saved securely & encrypted.");
+      await fetchStatus();
+    } catch (err: any) {
+      setToastType("error");
+      setToastMsg(err?.message || "Invalid Google OAuth JSON configuration.");
+    } finally {
+      setUploadingJson(false);
+    }
+  };
+
+  const handleRemoveCustomOAuth = async () => {
+    if (!confirm("Remove custom Google OAuth JSON and revert to Shared Owner-Managed OAuth?")) return;
+    setUploadingJson(true);
+    try {
+      const res = await fetch("/api/integrations/gmail/custom-oauth", {
+        method: "DELETE",
+        headers: getAuthHeaders(),
+      });
+      const data = await res.json().catch(() => ({}));
+      setToastType("info");
+      setToastMsg(data?.message || "Reverted to Shared Owner-Managed OAuth.");
+      await fetchStatus();
+    } catch {
+      setToastType("error");
+      setToastMsg("Failed to remove custom OAuth configuration.");
+    } finally {
+      setUploadingJson(false);
+    }
+  };
+
+  const handleRequestSetupBonus = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (submittingBonus) return;
+    setSubmittingBonus(true);
+    try {
+      const res = await fetch("/api/integrations/gmail/bonus-request", {
+        method: "POST",
+        headers: getAuthHeaders(),
+        body: JSON.stringify({
+          quantity: bonusQty,
+          unit: bonusUnit,
+          reason: bonusReason.trim(),
+        }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data?.detail || "Could not submit Gmail setup bonus request.");
+      setToastType("success");
+      setToastMsg(data?.message || "Gmail setup time compensation request sent to the Owner.");
+      setBonusReason("");
+      await fetchStatus();
+    } catch (err: any) {
+      setToastType("error");
+      setToastMsg(err?.message || "Failed to submit bonus request.");
+    } finally {
+      setSubmittingBonus(false);
     }
   };
 
@@ -267,6 +374,27 @@ function EmailAccountsContent() {
   const isConfigError = statusData?.status_code === "CONFIGURATION_ERROR";
   const isReconnect = statusData?.status_code === "RECONNECT_REQUIRED";
 
+  // Explicit Part 8 connection status badge text
+  const exactStatusBadge = (() => {
+    if (oauthDiagnostic?.errorCode === "credentials_missing") {
+      return { text: "Configuration Required", cls: "bg-rose-500/15 text-rose-300 border-rose-500/30" };
+    }
+    if (
+      oauthDiagnostic?.errorCode === "app_in_testing" ||
+      oauthDiagnostic?.errorCode === "not_approved_test_user" ||
+      oauthDiagnostic?.errorCode === "verification_required"
+    ) {
+      return { text: "Testing Mode Restriction", cls: "bg-amber-500/15 text-amber-300 border-amber-500/30" };
+    }
+    if (oauthDiagnostic?.errorCode === "token_expired") {
+      return { text: "Token Expired • Reconnection Required", cls: "bg-amber-500/15 text-amber-300 border-amber-500/30" };
+    }
+    if (isConnected) return { text: "Connected", cls: "bg-emerald-500/10 text-emerald-400 border-emerald-500/20" };
+    if (isReconnect) return { text: "Reconnection Required", cls: "bg-amber-500/10 text-amber-400 border-amber-500/20" };
+    if (isConfigError) return { text: "Configuration Error", cls: "bg-rose-500/10 text-rose-400 border-rose-500/20" };
+    return { text: "Not Connected", cls: "bg-slate-500/10 text-slate-300 border-slate-500/25" };
+  })();
+
   return (
     <div className="space-y-8 max-w-6xl mx-auto pb-16">
       {/* Structured Google OAuth / Gmail API Diagnostic Banner */}
@@ -274,7 +402,7 @@ function EmailAccountsContent() {
         <GmailDiagnosticBanner
           errorCode={oauthDiagnostic.errorCode}
           rawError={oauthDiagnostic.rawError}
-          onReconnect={handleConnectGmail}
+          onReconnect={() => handleConnectGmail()}
           onDismiss={() => setOauthDiagnostic(null)}
         />
       )}
@@ -348,24 +476,10 @@ function EmailAccountsContent() {
                   <span className="text-[10px] font-bold px-2 py-0.5 rounded bg-white/[0.04] text-slate-400 border border-white/10">
                     Checking...
                   </span>
-                ) : isConnected ? (
-                  <span className="inline-flex items-center gap-1 text-[10px] font-bold px-2.5 py-0.5 rounded bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
-                    <CheckCircle2 className="h-3 w-3" />
-                    <span>CONNECTED</span>
-                  </span>
-                ) : isReconnect ? (
-                  <span className="inline-flex items-center gap-1 text-[10px] font-bold px-2.5 py-0.5 rounded bg-amber-500/10 text-amber-400 border border-amber-500/20">
-                    <AlertTriangle className="h-3 w-3" />
-                    <span>RECONNECT REQUIRED</span>
-                  </span>
-                ) : isConfigError ? (
-                  <span className="inline-flex items-center gap-1 text-[10px] font-bold px-2.5 py-0.5 rounded bg-rose-500/10 text-rose-400 border border-rose-500/20">
-                    <AlertCircle className="h-3 w-3" />
-                    <span>CONFIGURATION ERROR</span>
-                  </span>
                 ) : (
-                  <span className="inline-flex items-center gap-1 text-[10px] font-bold px-2.5 py-0.5 rounded bg-slate-500/10 text-slate-400 border border-slate-500/20">
-                    <span>NOT CONNECTED</span>
+                  <span className={`inline-flex items-center gap-1 text-[10px] font-bold px-2.5 py-0.5 rounded border ${exactStatusBadge.cls}`}>
+                    {isConnected && <CheckCircle2 className="h-3 w-3" />}
+                    <span>{exactStatusBadge.text}</span>
                   </span>
                 )}
               </div>
@@ -386,7 +500,7 @@ function EmailAccountsContent() {
                   <span>Send Test Email</span>
                 </button>
                 <button
-                  onClick={handleConnectGmail}
+                  onClick={() => handleConnectGmail()}
                   disabled={connecting}
                   className="px-3 py-2 text-xs font-semibold text-slate-200 bg-white/[0.04] hover:bg-white/[0.08] border border-white/10 rounded-xl transition-all flex items-center gap-1.5"
                 >
@@ -404,7 +518,7 @@ function EmailAccountsContent() {
               </>
             ) : (
               <button
-                onClick={handleConnectGmail}
+                onClick={() => handleConnectGmail()}
                 disabled={connecting}
                 className="px-5 py-2.5 text-xs font-bold text-white bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-500 hover:to-indigo-500 rounded-xl transition-all shadow-glow-sm flex items-center gap-2 cursor-pointer disabled:opacity-50"
               >
@@ -478,7 +592,7 @@ function EmailAccountsContent() {
                       <div>{acc.last_error || "Google permissions were revoked or expired."}</div>
                       <button
                         type="button"
-                        onClick={handleConnectGmail}
+                        onClick={() => handleConnectGmail()}
                         className="px-2 py-1 rounded bg-amber-500 text-black font-bold text-[10px] cursor-pointer"
                       >
                         Reconnect Gmail Now
@@ -567,12 +681,154 @@ function EmailAccountsContent() {
           </div>
         </div>
 
-        {/* 8-Step Gmail Connection & Google Cloud Troubleshooting Guide */}
+        {/* 8-Step Gmail Connection & Google Cloud Guide (All 8 Steps Open by Default) */}
         <GmailSetupGuide
           isAdmin={false}
           expectedCallbackUri={oauthHealth?.callbackUri || "https://lead-scraper-mxs5.vercel.app/api/integrations/gmail/callback"}
           oauthHealth={oauthHealth}
         />
+
+        {/* OPTIONAL SECURE CUSTOMER-SPECIFIC OAUTH JSON UPLOAD + GMAIL SETUP TIME BONUS */}
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-5 pt-2">
+          {/* Optional Custom OAuth Web App JSON Upload */}
+          <div className="rounded-2xl border border-blue-500/20 bg-[#090d16] p-5 space-y-3 text-xs">
+            <div className="flex items-center justify-between gap-2">
+              <div className="flex items-center gap-2 font-bold text-white">
+                <Key className="h-4 w-4 text-blue-400" />
+                <span>Optional: Workspace Custom OAuth JSON Upload</span>
+              </div>
+              <span className="px-2 py-0.5 rounded bg-white/5 border border-white/10 text-[10px] font-mono text-slate-300">
+                Optional Advanced
+              </span>
+            </div>
+
+            <p className="text-[11px] text-slate-300 leading-relaxed">
+              Normal customers use <strong>Shared Owner-Managed OAuth</strong> automatically (no JSON upload needed). Only if your team uses its own Google Cloud project (Steps 1–6 above), upload the downloaded <code className="text-blue-200">client_secret_*.json</code> here. <strong>Never send OAuth secrets or JSON files over WhatsApp.</strong>
+            </p>
+
+            {customOAuthConfig ? (
+              <div className="p-3.5 rounded-xl bg-emerald-500/10 border border-emerald-500/30 space-y-2">
+                <div className="flex items-center justify-between">
+                  <span className="font-bold text-emerald-300">Custom OAuth Saved (AES-256 Encrypted)</span>
+                  <span className="font-mono text-[10px] px-2 py-0.5 rounded bg-black/40 text-emerald-200">
+                    {customOAuthConfig.status}
+                  </span>
+                </div>
+                <div className="font-mono text-[10px] text-slate-300 space-y-0.5">
+                  <div>Project: {customOAuthConfig.google_project_id || "Custom Project"}</div>
+                  <div className="truncate">Client ID: {customOAuthConfig.client_id}</div>
+                  <div>Secret: {customOAuthConfig.client_secret_masked}</div>
+                </div>
+                <div className="flex flex-wrap items-center gap-2 pt-1">
+                  <button
+                    type="button"
+                    onClick={() => handleConnectGmail("customer")}
+                    className="px-3 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-[11px] cursor-pointer"
+                  >
+                    Connect With Custom OAuth
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleRemoveCustomOAuth}
+                    disabled={uploadingJson}
+                    className="px-3 py-1.5 rounded-lg bg-rose-500/15 hover:bg-rose-500/25 border border-rose-500/30 text-rose-300 font-semibold text-[11px] cursor-pointer"
+                  >
+                    Revert to Shared OAuth
+                  </button>
+                </div>
+              </div>
+            ) : (
+              <div className="space-y-2">
+                <label className="block font-semibold text-slate-300">
+                  Upload Google Web Application OAuth JSON (<code className="text-slate-400">client_secret_*.json</code>)
+                </label>
+                <input
+                  type="file"
+                  accept=".json,application/json"
+                  disabled={uploadingJson}
+                  onChange={(e) => void handleUploadCustomOAuthJson(e.target.files?.[0])}
+                  className="w-full rounded-xl border border-white/10 bg-[#121824] px-3 py-2 text-xs text-slate-300 file:mr-3 file:py-1 file:px-2.5 file:rounded-lg file:border-0 file:text-xs file:font-bold file:bg-blue-600 file:text-white cursor-pointer"
+                />
+              </div>
+            )}
+          </div>
+
+          {/* PART 10: GMAIL SETUP TIME COMPENSATION */}
+          <div id="gmail-bonus" className="rounded-2xl border border-purple-500/25 bg-[#090d16] p-5 space-y-3 text-xs">
+            <div className="flex items-center gap-2 font-bold text-white">
+              <Clock className="h-4 w-4 text-purple-400" />
+              <span>Request Gmail Setup Time Bonus</span>
+            </div>
+
+            <p className="text-[11px] text-purple-100 leading-relaxed bg-purple-500/10 border border-purple-500/25 p-3 rounded-xl">
+              Time spent completing the required Gmail setup can be compensated by the Owner. You do not need to worry about losing your subscription time while completing the setup.
+            </p>
+
+            <form onSubmit={handleRequestSetupBonus} className="space-y-2.5">
+              <div className="grid grid-cols-2 gap-2.5">
+                <div>
+                  <label className="block text-[10px] text-slate-400 mb-1">Time Spent *</label>
+                  <input
+                    type="number"
+                    min={1}
+                    max={bonusUnit === "hours" ? 24 : 1440}
+                    required
+                    value={bonusQty}
+                    onChange={(e) => setBonusQty(Math.max(1, parseInt(e.target.value || "1", 10)))}
+                    className="w-full rounded-xl border border-white/10 bg-[#121824] px-3 py-2 text-white font-mono"
+                  />
+                </div>
+                <div>
+                  <label className="block text-[10px] text-slate-400 mb-1">Unit *</label>
+                  <select
+                    value={bonusUnit}
+                    onChange={(e) => setBonusUnit(e.target.value as "minutes" | "hours")}
+                    className="w-full rounded-xl border border-white/10 bg-[#121824] px-3 py-2 text-white"
+                  >
+                    <option value="minutes">Minutes</option>
+                    <option value="hours">Hours</option>
+                  </select>
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-[10px] text-slate-400 mb-1">Brief Explanation of Setup Time *</label>
+                <input
+                  type="text"
+                  required
+                  minLength={6}
+                  value={bonusReason}
+                  onChange={(e) => setBonusReason(e.target.value)}
+                  placeholder="e.g. Spent 45 minutes configuring Gmail OAuth & domain DNS."
+                  className="w-full rounded-xl border border-white/10 bg-[#121824] px-3 py-2 text-white"
+                />
+              </div>
+
+              <button
+                type="submit"
+                disabled={submittingBonus}
+                className="w-full py-2.5 rounded-xl bg-purple-600 hover:bg-purple-500 text-white font-bold cursor-pointer disabled:opacity-50"
+              >
+                {submittingBonus ? "Submitting Request..." : "Request Gmail Setup Time Bonus"}
+              </button>
+            </form>
+
+            {bonusRequests.length > 0 && (
+              <div className="pt-2 border-t border-white/[0.08] space-y-1.5">
+                <div className="text-[10px] font-bold uppercase text-slate-400">Your Bonus Requests</div>
+                {bonusRequests.slice(0, 3).map((b) => (
+                  <div key={b.id} className="p-2 rounded-lg bg-white/[0.03] border border-white/10 flex items-center justify-between text-[11px]">
+                    <span>
+                      +{b.requested_minutes}m ({b.status})
+                      {b.approved_minutes ? ` → Granted +${b.approved_minutes}m` : ""}
+                    </span>
+                    <span className="font-mono text-slate-400">{new Date(b.created_at).toLocaleDateString()}</span>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
       </div>
 
       {/* SENDER DOMAIN DELIVERABILITY HEALTH CHECKER */}

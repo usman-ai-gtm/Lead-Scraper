@@ -367,6 +367,82 @@ export default function DashboardPage() {
         </div>
       </div>
 
+      {/* CUSTOMER QUICK GETTING-STARTED CHECKLIST (Live DB Progress) */}
+      <div className="rounded-2xl border border-white/[0.08] bg-[#0c1017] p-5 space-y-3">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-white/[0.06] pb-3">
+          <div>
+            <h2 className="text-sm font-bold text-white flex items-center gap-2">
+              <ShieldCheck className="h-4 w-4 text-emerald-400" />
+              <span>Workspace Quick-Start Checklist</span>
+            </h2>
+            <p className="text-xs text-slate-400">
+              Follow these four real milestones to go from account activation to verified leads and compliant outreach.
+            </p>
+          </div>
+          <Link
+            href="/privacy#dsr"
+            className="text-[11px] font-semibold text-blue-400 hover:underline"
+          >
+            Privacy, Data Deletion &amp; Compliance
+          </Link>
+        </div>
+
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 text-xs">
+          {[
+            {
+              step: "1. Subscription Plan",
+              done: !isLocked,
+              detail: !isLocked ? `${(user as any)?.plan_label || "Active Subscription"}` : "Select Basic, Lifetime, or Custom plan",
+              href: "/app/subscription",
+              cta: !isLocked ? "View Plan" : "Activate Plan",
+            },
+            {
+              step: "2. Generate Leads",
+              done: Number(metrics.total_leads_found || 0) > 0,
+              detail: Number(metrics.total_leads_found || 0) > 0 ? `${metrics.total_leads_found} leads discovered` : "Search across 193 countries & cities",
+              href: "/app/leads",
+              cta: "Find Leads",
+            },
+            {
+              step: "3. Connect Gmail",
+              done: Number(metrics.connected_gmail_accounts || 0) > 0,
+              detail: Number(metrics.connected_gmail_accounts || 0) > 0 ? `${metrics.connected_gmail_accounts} mailbox connected` : "8 open setup steps + bonus time option",
+              href: "/app/accounts",
+              cta: "Gmail Setup",
+            },
+            {
+              step: "4. Export or Send",
+              done: Number(metrics.emails_sent || 0) > 0,
+              detail: "XLSX / PDF / CSV / JSON exports or 1-to-1 emails",
+              href: "/app/exports",
+              cta: "Open Exports",
+            },
+          ].map((item) => (
+            <Link
+              key={item.step}
+              href={item.href}
+              className={`p-3.5 rounded-xl border transition-all flex flex-col justify-between gap-2 ${
+                item.done
+                  ? "bg-emerald-500/10 border-emerald-500/30 hover:border-emerald-400/60"
+                  : "bg-white/[0.02] border-white/[0.08] hover:border-blue-500/40"
+              }`}
+            >
+              <div className="space-y-1">
+                <div className="flex items-center justify-between gap-2">
+                  <span className="font-bold text-white">{item.step}</span>
+                  <CheckCircle2 className={`h-4 w-4 shrink-0 ${item.done ? "text-emerald-400" : "text-slate-600"}`} />
+                </div>
+                <p className="text-[11px] text-slate-400 leading-snug">{item.detail}</p>
+              </div>
+              <span className="text-[11px] font-bold text-blue-300 flex items-center gap-1">
+                <span>{item.cta}</span>
+                <ArrowRight className="h-3 w-3" />
+              </span>
+            </Link>
+          ))}
+        </div>
+      </div>
+
       {/* QUICK SEARCH LAUNCHER */}
       <div className="rounded-2xl border border-white/[0.08] bg-[#0c1017] p-6 shadow-glow-sm space-y-4">
         <div className="flex items-center justify-between pb-4 border-b border-white/[0.06]">

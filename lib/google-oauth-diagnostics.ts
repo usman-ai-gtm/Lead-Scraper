@@ -238,79 +238,98 @@ export function classifyGoogleOAuthError(
 export interface GmailSetupStep {
   stepNumber: number;
   title: string;
-  audience: "ADMIN_ONCE" | "CUSTOMER_ANYTIME";
+  audience: "SHARED_DEFAULT" | "CUSTOM_OPTIONAL" | "CUSTOMER_ANYTIME";
   summary: string;
+  details?: string[];
   linkUrl?: string;
   linkLabel?: string;
+  importantWarning?: string;
+  checklist?: string[];
 }
 
-export const GMAIL_8_STEP_SETUP_GUIDE: GmailSetupStep[] = [
-  {
-    stepNumber: 1,
-    title: "Step 1 — Create or select a Google Cloud project (Admin Setup)",
-    audience: "ADMIN_ONCE",
-    summary:
-      "Only the platform administrator completes Steps 1–6 once. Customers do NOT need to create their own Google Cloud project. Open Google Cloud Project Selector, create a dedicated project or select the existing project.",
-    linkUrl: GOOGLE_CLOUD_CONSOLE_LINKS.projectSelector,
-    linkLabel: "Open Project Selector",
-  },
-  {
-    stepNumber: 2,
-    title: "Step 2 — Enable Gmail API (Admin Setup)",
-    audience: "ADMIN_ONCE",
-    summary:
-      "Open the Gmail API page, confirm your selected Google Cloud project in the top bar, and click Enable so the app can send emails on behalf of authorized mailboxes.",
-    linkUrl: GOOGLE_CLOUD_CONSOLE_LINKS.gmailApi,
-    linkLabel: "Enable Gmail API",
-  },
-  {
-    stepNumber: 3,
-    title: "Step 3 — Configure OAuth consent / branding (Admin Setup)",
-    audience: "ADMIN_ONCE",
-    summary:
-      "Open OAuth Branding and set the App Name (USMAN AI GTM), User Support Email, and Authorized Domain (lead-scraper-mxs5.vercel.app) plus developer contact details.",
-    linkUrl: GOOGLE_CLOUD_CONSOLE_LINKS.oauthBranding,
-    linkLabel: "Open OAuth Branding",
-  },
-  {
-    stepNumber: 4,
-    title: "Step 4 — Configure audience: Testing vs Production (Admin Setup)",
-    audience: "ADMIN_ONCE",
-    summary:
-      "Open OAuth Audience. While the app is in Testing mode, ONLY Google accounts explicitly added to Test Users can connect Gmail. Add authorized test Gmail addresses here, or publish to Production and complete Google Verification for unrestricted external users.",
-    linkUrl: GOOGLE_CLOUD_CONSOLE_LINKS.oauthAudience,
-    linkLabel: "Open OAuth Audience",
-  },
-  {
-    stepNumber: 5,
-    title: "Step 5 — Create Web application OAuth credentials (Admin Setup)",
-    audience: "ADMIN_ONCE",
-    summary:
-      "Open OAuth Clients / API Credentials, create a Web application OAuth Client, and add the exact Authorized Redirect URI: https://lead-scraper-mxs5.vercel.app/api/integrations/gmail/callback",
-    linkUrl: GOOGLE_CLOUD_CONSOLE_LINKS.oauthClients,
-    linkLabel: "Open OAuth Clients",
-  },
-  {
-    stepNumber: 6,
-    title: "Step 6 — Save Client ID & Secret in server environment (Admin Setup)",
-    audience: "ADMIN_ONCE",
-    summary:
-      "Verify the Client ID and Client Secret inside Google API Credentials, then save GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET in secure Vercel Production environment variables (never in client code or GitHub).",
-    linkUrl: GOOGLE_CLOUD_CONSOLE_LINKS.apiCredentials,
-    linkLabel: "Open API Credentials",
-  },
-  {
-    stepNumber: 7,
-    title: "Step 7 — Return to this app and click Connect Gmail (Customer Action)",
-    audience: "CUSTOMER_ANYTIME",
-    summary:
-      "Ordinary customers start right here: refresh this page if needed, click Connect Gmail above, choose your Google account, and approve the minimal gmail.send permission. Your password is never requested.",
-  },
-  {
-    stepNumber: 8,
-    title: "Step 8 — Confirm Connected status and run a safe test (Customer Action)",
-    audience: "CUSTOMER_ANYTIME",
-    summary:
-      "Verify your actual Gmail address appears with a Connected badge above, then click Send Test Email to submit a single test message to yourself and confirm Gmail API submission works cleanly.",
-  },
-];
+export function buildGmail8Steps(redirectUri = "https://lead-scraper-mxs5.vercel.app/api/integrations/gmail/callback"): GmailSetupStep[] {
+  return [
+    {
+      stepNumber: 1,
+      title: "STEP 1 — Open Google Cloud",
+      audience: "CUSTOM_OPTIONAL",
+      summary:
+        "If using Shared Owner-Managed OAuth (our default), the Owner already maintains the Google Cloud project (`usman-ai-gtm-516005`) for you. If setting up an optional workspace-specific Google Cloud OAuth app, open Google Cloud Project Selector, pick an existing project or create a new project for your company.",
+      linkUrl: GOOGLE_CLOUD_CONSOLE_LINKS.projectSelector,
+      linkLabel: "Open Google Cloud Project Selector",
+    },
+    {
+      stepNumber: 2,
+      title: "STEP 2 — Enable Gmail API",
+      audience: "CUSTOM_OPTIONAL",
+      summary:
+        "Open the Gmail API Library page, verify your selected Google Cloud project in the top bar, click Enable, and confirm the page updates to 'API Enabled' so authorized OAuth tokens are permitted to send email.",
+      linkUrl: GOOGLE_CLOUD_CONSOLE_LINKS.gmailApi,
+      linkLabel: "Enable Gmail API in Google Cloud",
+    },
+    {
+      stepNumber: 3,
+      title: "STEP 3 — Configure OAuth Branding",
+      audience: "CUSTOM_OPTIONAL",
+      summary:
+        "Open Google Auth Platform → Branding and enter your Application Name (e.g., USMAN AI GTM or your agency name), User Support Email, Authorized Domains, and Developer Contact Information.",
+      linkUrl: GOOGLE_CLOUD_CONSOLE_LINKS.oauthBranding,
+      linkLabel: "Configure OAuth Branding",
+    },
+    {
+      stepNumber: 4,
+      title: "STEP 4 — Configure OAuth Audience and Test User",
+      audience: "CUSTOM_OPTIONAL",
+      summary:
+        "Open Google Auth Platform → Audience. Choose External (for standard @gmail.com and external domains) or Internal (only inside your Google Workspace org). If your project Publishing Status is Testing mode, ONLY email addresses added under Test Users can connect — note that only a project Administrator with IAM permissions on that specific Google Cloud project can edit Test Users (customers cannot add themselves to someone else's Google Cloud project).",
+      linkUrl: GOOGLE_CLOUD_CONSOLE_LINKS.oauthAudience,
+      linkLabel: "Open OAuth Audience & Test Users",
+    },
+    {
+      stepNumber: 5,
+      title: "STEP 5 — Create OAuth Client",
+      audience: "CUSTOM_OPTIONAL",
+      summary:
+        "Open OAuth Clients, choose Application type: 'Web application', add this app's exact Authorized JavaScript Origin (https://lead-scraper-mxs5.vercel.app), and add the exact Authorized Redirect URI read from this backend below:",
+      details: [`Exact Authorized Redirect URI: ${redirectUri}`],
+      linkUrl: GOOGLE_CLOUD_CONSOLE_LINKS.oauthClients,
+      linkLabel: "Open OAuth Clients",
+    },
+    {
+      stepNumber: 6,
+      title: "STEP 6 — Save Client ID and Client Secret",
+      audience: "CUSTOM_OPTIONAL",
+      summary:
+        "Open Google API Credentials / OAuth Client details to review your Client ID and Client Secret. Download the Web Application client_secret_*.json file when created. All Client Secrets saved inside this platform are encrypted at rest with AES-256-GCM on the server — never stored in browser localStorage, never exposed in frontend JavaScript, and never sent over WhatsApp. For Shared Owner-Managed OAuth customers, this JSON file is NOT required.",
+      importantWarning:
+        "IMPORTANT: DOWNLOAD THE JSON FILE BEFORE CLOSING THE GOOGLE CREDENTIALS SCREEN, IF THIS CUSTOMER-SPECIFIC CONFIGURATION REQUIRES IT.",
+      linkUrl: GOOGLE_CLOUD_CONSOLE_LINKS.apiCredentials,
+      linkLabel: "Open Google API Credentials",
+    },
+    {
+      stepNumber: 7,
+      title: "STEP 7 — VERIFY THE TEST USER",
+      audience: "CUSTOMER_ANYTIME",
+      summary:
+        "Return to Google Auth Platform → Audience and verify that the exact Gmail address you intend to connect is listed under Test Users (if Testing mode applies, and if you hold permissions on that Google Cloud project). Confirm all 5 checks manually before connecting:",
+      checklist: [
+        "Correct Google project selected",
+        "Gmail API enabled",
+        "Correct OAuth audience (External vs Internal)",
+        "Intended Gmail address present in test users, if Testing mode applies",
+        "Web Application OAuth client created with exact Redirect URI",
+      ],
+      linkUrl: GOOGLE_CLOUD_CONSOLE_LINKS.oauthAudience,
+      linkLabel: "Verify Audience & Test Users",
+    },
+    {
+      stepNumber: 8,
+      title: "STEP 8 — Securely Submit Configuration and Test Gmail",
+      audience: "CUSTOMER_ANYTIME",
+      summary:
+        "Using Shared Owner-Managed OAuth (Default): Simply return here, refresh the page, click 'Connect Official Gmail Account', select your Gmail account, grant the minimal gmail.send permission, verify the Connected status badge, and send a safe test email. Using Optional Customer-Specific OAuth: Upload your Web Application JSON file inside the secure Custom OAuth panel below (encrypted server-side and submitted for Owner review — never send OAuth secrets via WhatsApp or email), then click Connect Gmail.",
+    },
+  ];
+}
+
+export const GMAIL_8_STEP_SETUP_GUIDE: GmailSetupStep[] = buildGmail8Steps();

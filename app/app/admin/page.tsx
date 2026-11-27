@@ -70,6 +70,20 @@ export default function AdminPage() {
             <span>Client Accounts (50 Seats)</span>
           </Link>
           <Link
+            href="/app/admin/payments"
+            className="flex items-center gap-1.5 px-3 py-2 text-xs font-bold text-emerald-200 bg-emerald-600/20 hover:bg-emerald-600/35 border border-emerald-500/35 rounded-xl transition-all"
+          >
+            <CheckCircle2 className="h-3.5 w-3.5 text-emerald-400" />
+            <span>Payments &amp; Bank Settings</span>
+          </Link>
+          <Link
+            href="/app/admin/integrations/google"
+            className="flex items-center gap-1.5 px-3 py-2 text-xs font-bold text-blue-200 bg-blue-600/20 hover:bg-blue-600/35 border border-blue-500/35 rounded-xl transition-all"
+          >
+            <Key className="h-3.5 w-3.5 text-blue-400" />
+            <span>Google OAuth &amp; Bonuses</span>
+          </Link>
+          <Link
             href="/app/admin/providers"
             className="flex items-center gap-1.5 px-3 py-2 text-xs font-semibold text-slate-300 bg-white/[0.04] hover:bg-white/[0.08] border border-white/10 rounded-xl transition-all"
           >

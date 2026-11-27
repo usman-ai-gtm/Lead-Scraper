@@ -17,14 +17,22 @@ import { createSystemNotification } from "@/lib/notifications-db";
 export type PaymentSubmissionStatus = "PENDING" | "APPROVED" | "REJECTED" | "MORE_INFO_REQUIRED";
 
 export interface BankTransferDetails {
+  method_type?: "mobile_wallet" | "bank_transfer" | "crypto" | "payoneer" | "custom" | null;
+  display_title?: string | null;
   bank_name?: string | null;
   bank_address?: string | null;
   beneficiary_name?: string | null;
+  receiving_number?: string | null;
   account_number?: string | null;
+  iban?: string | null;
+  branch_info?: string | null;
   routing_aba?: string | null;
   swift_bic?: string | null;
   account_type?: string | null;
   supported_currency?: string | null;
+  network?: string | null;
+  warning_text?: string | null;
+  payment_email?: string | null;
 }
 
 export interface PaymentMethodRecord {
@@ -63,7 +71,9 @@ function hasBankDetailsConfigured(details: any): boolean {
   return Boolean(
     String(details.bank_name || "").trim() &&
       String(details.beneficiary_name || "").trim() &&
-      String(details.account_number || "").trim()
+      (String(details.account_number || "").trim() ||
+        String(details.iban || "").trim() ||
+        String(details.receiving_number || "").trim())
   );
 }
 
@@ -82,6 +92,8 @@ export function isPaymentMethodConfigured(m: any): boolean {
       String(m.wallet_address || "").trim() ||
       String(m.payment_link || "").trim() ||
       String(m.qr_image_data || "").trim() ||
+      String(parsedDetails?.payment_email || "").trim() ||
+      String(parsedDetails?.receiving_number || "").trim() ||
       hasBankDetailsConfigured(parsedDetails)
   );
 }
@@ -174,14 +186,22 @@ export async function upsertPaymentMethod(input: {
   let detailsClean: BankTransferDetails | null = null;
   if (input.details_json && typeof input.details_json === "object") {
     detailsClean = {
+      method_type: input.details_json.method_type || null,
+      display_title: input.details_json.display_title ? String(input.details_json.display_title).trim() : null,
       bank_name: input.details_json.bank_name ? String(input.details_json.bank_name).trim() : null,
       bank_address: input.details_json.bank_address ? String(input.details_json.bank_address).trim() : null,
       beneficiary_name: input.details_json.beneficiary_name ? String(input.details_json.beneficiary_name).trim() : null,
+      receiving_number: input.details_json.receiving_number ? String(input.details_json.receiving_number).trim() : null,
       account_number: input.details_json.account_number ? String(input.details_json.account_number).trim() : null,
+      iban: input.details_json.iban ? String(input.details_json.iban).trim() : null,
+      branch_info: input.details_json.branch_info ? String(input.details_json.branch_info).trim() : null,
       routing_aba: input.details_json.routing_aba ? String(input.details_json.routing_aba).trim() : null,
       swift_bic: input.details_json.swift_bic ? String(input.details_json.swift_bic).trim() : null,
       account_type: input.details_json.account_type ? String(input.details_json.account_type).trim() : null,
       supported_currency: input.details_json.supported_currency ? String(input.details_json.supported_currency).trim().toUpperCase() : null,
+      network: input.details_json.network ? String(input.details_json.network).trim().toUpperCase() : null,
+      warning_text: input.details_json.warning_text ? String(input.details_json.warning_text).trim() : null,
+      payment_email: input.details_json.payment_email ? String(input.details_json.payment_email).trim() : null,
     };
   }
 
@@ -194,6 +214,7 @@ export async function upsertPaymentMethod(input: {
     null;
   const accountId =
     (input.account_identifier ? String(input.account_identifier).trim() : null) ||
+    detailsClean?.payment_email ||
     detailsClean?.account_number ||
     null;
   const wallet = input.wallet_address ? String(input.wallet_address).trim() : null;
@@ -205,7 +226,14 @@ export async function upsertPaymentMethod(input: {
   const instructions = input.instructions ? String(input.instructions).trim() : null;
   const sortOrder = Math.max(0, Math.floor(Number(input.sort_order ?? 10)));
 
-  const hasDetail = Boolean(accountId || wallet || link || qr || hasBankDetailsConfigured(detailsClean));
+  const hasDetail = Boolean(
+    accountId ||
+      wallet ||
+      link ||
+      qr ||
+      detailsClean?.receiving_number ||
+      hasBankDetailsConfigured(detailsClean)
+  );
   const isActive = Boolean(input.is_active);
   if (isActive && !hasDetail) {
     throw new Error(

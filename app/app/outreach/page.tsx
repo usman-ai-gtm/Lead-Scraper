@@ -615,7 +615,7 @@ function ColdEmailContent() {
             Send Targeted Business Outreach
           </h1>
           <p className="text-xs text-slate-400">
-            Select qualified B2B leads, personalize your message, and dispatch via your connected Gmail account with verified Google delivery.
+            Select qualified B2B leads, personalize your message, and send directly via authenticated Google Gmail API submission.
           </p>
         </div>
 

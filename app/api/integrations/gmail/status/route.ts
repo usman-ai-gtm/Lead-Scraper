@@ -1,6 +1,11 @@
 import { NextResponse } from "next/server";
 import { getCurrentUserFromRequest, verifyClientActiveSubscription } from "@/lib/serverless-auth";
 import { getNeonGmailAccount, getNeonEmailsSentTodayUtc, getNeonSql, isNeonConfigured } from "@/lib/neon-db";
+import {
+  getOwnerPlatformSettings,
+  getProductionRedirectUri,
+  resolveWorkspaceGmailOAuthCredentials,
+} from "@/lib/platform-settings-db";
 
 export const dynamic = "force-dynamic";
 
@@ -22,9 +27,11 @@ export async function GET(request: Request) {
   const ent = subCheck.entitlements;
   const planDailyLimit = ent ? ent.dailyEmailLimit : 10;
 
-  const clientId = (process.env.GOOGLE_CLIENT_ID || process.env.NEXT_PUBLIC_GOOGLE_CLIENT_ID || "").trim();
-  const clientSecret = (process.env.GOOGLE_CLIENT_SECRET || "").trim();
-  const isGoogleConfigured = Boolean(clientId.length > 0 && clientSecret.length > 0);
+  const [platformSettings, resolvedCreds] = await Promise.all([
+    getOwnerPlatformSettings(),
+    resolveWorkspaceGmailOAuthCredentials(workspaceId),
+  ]);
+  const isGoogleConfigured = Boolean(resolvedCreds.clientId.length > 0 && resolvedCreds.clientSecret.length > 0);
 
   const account = await getNeonGmailAccount(workspaceId);
   const emailsSentTodayTotal = await getNeonEmailsSentTodayUtc(workspaceId);
@@ -93,7 +100,10 @@ export async function GET(request: Request) {
     quota_reset_timezone: "UTC (00:00 UTC daily)",
     plan_label: ent?.planLabel || "Basic Plan",
     cost: "$0 / month via connected Gmail OAuth",
-    redirect_uri: "https://lead-scraper-mxs5.vercel.app/api/integrations/gmail/callback",
+    redirect_uri: getProductionRedirectUri(),
+    oauth_source: resolvedCreds.source,
+    oauth_audience_status: platformSettings.oauthAudienceStatus,
+    oauth_mode: platformSettings.oauthMode,
     scopes: [
       "https://www.googleapis.com/auth/gmail.send",
       "https://www.googleapis.com/auth/userinfo.email"

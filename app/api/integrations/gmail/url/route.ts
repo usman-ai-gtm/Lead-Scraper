@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { getCurrentUserFromRequest, verifyClientActiveSubscription, signOAuthState } from "@/lib/serverless-auth";
+import { resolveWorkspaceGmailOAuthCredentials } from "@/lib/platform-settings-db";
 
 function getExactRedirectUri(request: Request): string {
   if (process.env.GOOGLE_GMAIL_REDIRECT_URI) {
@@ -24,8 +25,12 @@ export async function GET(request: Request) {
   const workspaceId = Number(subCheck.userRecord?.workspace_id || currentUser.workspace_id) || 1;
   const userId = Number(subCheck.userRecord?.id || currentUser.id) || 1;
 
-  const clientId = (process.env.GOOGLE_CLIENT_ID || process.env.NEXT_PUBLIC_GOOGLE_CLIENT_ID || "").trim();
-  const clientSecret = (process.env.GOOGLE_CLIENT_SECRET || "").trim();
+  const reqUrl = new URL(request.url);
+  const preferParam = reqUrl.searchParams.get("oauth_source");
+  const forceSource = preferParam === "shared" ? "shared" : preferParam === "customer" ? "customer" : undefined;
+  const creds = await resolveWorkspaceGmailOAuthCredentials(workspaceId, forceSource);
+  const clientId = creds.clientId;
+  const clientSecret = creds.clientSecret;
   const isConfigured = Boolean(clientId.length > 0 && clientSecret.length > 0);
 
   const redirectUri = getExactRedirectUri(request);
@@ -35,6 +40,7 @@ export async function GET(request: Request) {
     action: "gmail_connect",
     workspace_id: workspaceId,
     user_id: userId,
+    oauth_source: creds.source,
   });
 
   // Least-privileged scopes strictly required for user-initiated Gmail sending + sender email identity

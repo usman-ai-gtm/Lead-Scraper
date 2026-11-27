@@ -26,13 +26,13 @@ import {
 } from "lucide-react";
 
 const METHOD_PRESETS = [
-  { name: "Bank Transfer", region: "International / Local Wire", currency: "USD", isBank: true },
-  { name: "Payoneer", region: "Worldwide", currency: "USD", isBank: false },
-  { name: "Binance", region: "Worldwide (Crypto)", currency: "USDT", isBank: false },
-  { name: "Trust Wallet", region: "Worldwide (Crypto)", currency: "USDT", isBank: false },
-  { name: "JazzCash", region: "Pakistan", currency: "PKR", isBank: false },
-  { name: "Easypaisa", region: "Pakistan", currency: "PKR", isBank: false },
-  { name: "NayaPay", region: "Pakistan", currency: "PKR", isBank: false },
+  { name: "Easypaisa", region: "Pakistan", currency: "PKR", method_type: "mobile_wallet" },
+  { name: "JazzCash", region: "Pakistan", currency: "PKR", method_type: "mobile_wallet" },
+  { name: "Meezan Bank", region: "Pakistan", currency: "PKR", method_type: "bank_transfer" },
+  { name: "NayaPay", region: "Pakistan", currency: "PKR", method_type: "mobile_wallet" },
+  { name: "Binance", region: "Worldwide (Crypto)", currency: "USDT", method_type: "crypto" },
+  { name: "Payoneer", region: "Worldwide", currency: "USD", method_type: "payoneer" },
+  { name: "Bank Transfer", region: "International / Local Wire", currency: "USD", method_type: "bank_transfer" },
 ];
 
 export default function AdminPaymentsPage() {
@@ -67,7 +67,13 @@ export default function AdminPaymentsPage() {
   const [fxEditRate, setFxEditRate] = useState<string>("");
   const [fxSaving, setFxSaving] = useState(false);
 
-  // Payment Method + Structured Bank Transfer Form
+  // Owner Support WhatsApp / Email Settings
+  const [ownerWhatsapp, setOwnerWhatsapp] = useState<string>("+923174383702");
+  const [ownerSupportEmail, setOwnerSupportEmail] = useState<string>("");
+  const [savingSupport, setSavingSupport] = useState<boolean>(false);
+  const [pendingBonusCount, setPendingBonusCount] = useState<number>(0);
+
+  // Payment Method + Structured Bank / Receiving Configuration Form
   const emptyMethodForm = {
     id: undefined as number | undefined,
     name: "",
@@ -82,14 +88,22 @@ export default function AdminPaymentsPage() {
     is_active: false,
     sort_order: 10,
     details_json: {
+      method_type: "custom",
+      display_title: "",
       bank_name: "",
       bank_address: "",
       beneficiary_name: "",
+      receiving_number: "",
       account_number: "",
+      iban: "",
+      branch_info: "",
       routing_aba: "",
       swift_bic: "",
-      account_type: "Checking / Business",
+      account_type: "",
       supported_currency: "USD",
+      network: "",
+      warning_text: "",
+      payment_email: "",
     },
   };
   const [methodForm, setMethodForm] = useState<any>(emptyMethodForm);
@@ -98,17 +112,28 @@ export default function AdminPaymentsPage() {
   const loadAll = async () => {
     setLoading(true);
     try {
-      const [clientsRes, subsRes, methRes, fxRes] = await Promise.all([
+      const [clientsRes, subsRes, methRes, fxRes, settingsRes, gmailGovRes] = await Promise.all([
         api.get<any>("/admin/clients").catch(() => null),
         api.get<any>("/admin/payments/submissions").catch(() => null),
         api.get<any>("/admin/payments/methods").catch(() => null),
         api.get<any>("/admin/payments/fx").catch(() => null),
+        api.get<any>("/admin/settings").catch(() => null),
+        api.get<any>("/admin/gmail/overview").catch(() => null),
       ]);
       const list = Array.isArray(clientsRes) ? clientsRes : clientsRes?.clients || [];
       setClients(list);
       setSubmissions(Array.isArray(subsRes?.submissions) ? subsRes.submissions : []);
       setMethods(Array.isArray(methRes?.methods) ? methRes.methods : []);
       setFxRates(Array.isArray(fxRes?.rates) ? fxRes.rates : []);
+      if (settingsRes?.settings) {
+        setOwnerWhatsapp(settingsRes.settings.whatsappNumber || "");
+        setOwnerSupportEmail(settingsRes.settings.supportEmail || "");
+      }
+      if (Array.isArray(gmailGovRes?.bonus_requests)) {
+        setPendingBonusCount(
+          gmailGovRes.bonus_requests.filter((b: any) => String(b.status).toUpperCase() === "PENDING").length
+        );
+      }
     } catch (err: any) {
       setMsg({ text: err?.message || "Failed to load payment workspace.", type: "error" });
     } finally {
@@ -217,17 +242,31 @@ export default function AdminPaymentsPage() {
     reader.readAsDataURL(file);
   };
 
+  const handleSaveSupportSettings = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setSavingSupport(true);
+    setMsg(null);
+    try {
+      await api.post("/admin/settings", {
+        whatsapp_number: ownerWhatsapp.trim(),
+        support_email: ownerSupportEmail.trim(),
+      });
+      setMsg({ text: "Saved Owner WhatsApp & support contact settings cleanly.", type: "success" });
+    } catch (err: any) {
+      setMsg({ text: err?.message || "Failed to update support settings.", type: "error" });
+    } finally {
+      setSavingSupport(false);
+    }
+  };
+
   const handleSaveMethod = async (e: React.FormEvent) => {
     e.preventDefault();
     setSavingMethod(true);
     setMsg(null);
     try {
-      const isBankLike =
-        String(methodForm.name || "").toLowerCase().includes("bank") ||
-        Boolean(methodForm.details_json?.bank_name?.trim());
       const payload = {
         ...methodForm,
-        details_json: isBankLike ? methodForm.details_json : null,
+        details_json: methodForm.details_json || null,
       };
       const res = await api.post<any>("/admin/payments/methods", payload);
       setMsg({
@@ -357,7 +396,18 @@ export default function AdminPaymentsPage() {
           </p>
         </div>
 
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 flex-wrap">
+          <Link
+            href="/app/admin/integrations/google"
+            className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-blue-600/20 hover:bg-blue-600/35 border border-blue-500/35 text-blue-200 font-bold text-xs"
+          >
+            <span>Google OAuth &amp; Setup Bonuses</span>
+            {pendingBonusCount > 0 && (
+              <span className="px-1.5 py-0.5 rounded-full bg-amber-500 text-black text-[10px] font-black">
+                {pendingBonusCount}
+              </span>
+            )}
+          </Link>
           <button
             onClick={loadAll}
             className="p-2 text-slate-400 hover:text-white rounded-xl bg-white/[0.03] border border-white/10 transition-colors cursor-pointer"
@@ -365,15 +415,17 @@ export default function AdminPaymentsPage() {
           >
             <RefreshCw className={`h-4 w-4 ${loading ? "animate-spin" : ""}`} />
           </button>
-          <a
-            href="https://wa.me/923174383702"
-            target="_blank"
-            rel="noopener noreferrer"
-            className="inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs shadow-glow-sm transition-all cursor-pointer"
-          >
-            <MessageCircle className="h-4 w-4" />
-            <span>Support WhatsApp (+923174383702)</span>
-          </a>
+          {ownerWhatsapp && (
+            <a
+              href={`https://wa.me/${ownerWhatsapp.replace(/[^0-9]/g, "")}`}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs shadow-glow-sm transition-all cursor-pointer"
+            >
+              <MessageCircle className="h-4 w-4" />
+              <span>Support WhatsApp ({ownerWhatsapp})</span>
+            </a>
+          )}
         </div>
       </div>
 
@@ -662,7 +714,10 @@ export default function AdminPaymentsPage() {
                         currency: p.currency,
                         details_json: {
                           ...prev.details_json,
+                          method_type: p.method_type,
                           supported_currency: p.currency,
+                          bank_name: p.method_type === "bank_transfer" ? p.name : prev.details_json?.bank_name || "",
+                          network: p.method_type === "crypto" ? "TRC20" : "",
                         },
                       }))
                     }
@@ -682,7 +737,7 @@ export default function AdminPaymentsPage() {
                       required
                       value={methodForm.name}
                       onChange={(e) => setMethodForm({ ...methodForm, name: e.target.value })}
-                      placeholder="Bank Transfer / Payoneer"
+                      placeholder="Meezan Bank / Payoneer"
                       className="w-full rounded-xl border border-white/10 bg-[#121824] px-3 py-2 text-white"
                     />
                   </div>
@@ -711,7 +766,7 @@ export default function AdminPaymentsPage() {
                 {/* Structured Bank Transfer Fields Section */}
                 <div className="p-3.5 rounded-xl bg-white/[0.02] border border-white/10 space-y-2.5">
                   <div className="text-[11px] font-bold text-blue-300 uppercase tracking-wider">
-                    Structured Bank Transfer Configuration (If Bank Transfer)
+                    Structured Bank Details (Meezan Bank / Wire Transfers — Only Filled Fields Display)
                   </div>
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
                     <div>
@@ -725,12 +780,12 @@ export default function AdminPaymentsPage() {
                             details_json: { ...methodForm.details_json, bank_name: e.target.value },
                           })
                         }
-                        placeholder="e.g. Mercury / Lead Bank / Meezan Bank"
+                        placeholder="e.g. Meezan Bank / Mercury"
                         className="w-full rounded-lg border border-white/10 bg-[#121824] px-2.5 py-1.5 text-white"
                       />
                     </div>
                     <div>
-                      <label className="block text-[10px] text-slate-400 mb-1">Beneficiary Name</label>
+                      <label className="block text-[10px] text-slate-400 mb-1">Beneficiary / Account Holder</label>
                       <input
                         type="text"
                         value={methodForm.details_json?.beneficiary_name || ""}
@@ -744,7 +799,22 @@ export default function AdminPaymentsPage() {
                       />
                     </div>
                     <div>
-                      <label className="block text-[10px] text-slate-400 mb-1">Account Number / IBAN</label>
+                      <label className="block text-[10px] text-slate-400 mb-1">Receiving Number / Raast ID</label>
+                      <input
+                        type="text"
+                        value={methodForm.details_json?.receiving_number || ""}
+                        onChange={(e) =>
+                          setMethodForm({
+                            ...methodForm,
+                            details_json: { ...methodForm.details_json, receiving_number: e.target.value },
+                          })
+                        }
+                        placeholder="e.g. 03072074354 (if not IBAN)"
+                        className="w-full rounded-lg border border-white/10 bg-[#121824] px-2.5 py-1.5 text-white font-mono"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-[10px] text-slate-400 mb-1">Bank Account Number</label>
                       <input
                         type="text"
                         value={methodForm.details_json?.account_number || ""}
@@ -758,17 +828,31 @@ export default function AdminPaymentsPage() {
                       />
                     </div>
                     <div>
-                      <label className="block text-[10px] text-slate-400 mb-1">Routing / ABA Number</label>
+                      <label className="block text-[10px] text-slate-400 mb-1">IBAN</label>
                       <input
                         type="text"
-                        value={methodForm.details_json?.routing_aba || ""}
+                        value={methodForm.details_json?.iban || ""}
                         onChange={(e) =>
                           setMethodForm({
                             ...methodForm,
-                            details_json: { ...methodForm.details_json, routing_aba: e.target.value },
+                            details_json: { ...methodForm.details_json, iban: e.target.value },
                           })
                         }
                         className="w-full rounded-lg border border-white/10 bg-[#121824] px-2.5 py-1.5 text-white font-mono"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-[10px] text-slate-400 mb-1">Branch Information</label>
+                      <input
+                        type="text"
+                        value={methodForm.details_json?.branch_info || ""}
+                        onChange={(e) =>
+                          setMethodForm({
+                            ...methodForm,
+                            details_json: { ...methodForm.details_json, branch_info: e.target.value },
+                          })
+                        }
+                        className="w-full rounded-lg border border-white/10 bg-[#121824] px-2.5 py-1.5 text-white"
                       />
                     </div>
                     <div>
@@ -786,41 +870,27 @@ export default function AdminPaymentsPage() {
                       />
                     </div>
                     <div>
-                      <label className="block text-[10px] text-slate-400 mb-1">Account Type</label>
+                      <label className="block text-[10px] text-slate-400 mb-1">Supported Receiving Currency</label>
                       <input
                         type="text"
-                        value={methodForm.details_json?.account_type || ""}
+                        value={methodForm.details_json?.supported_currency || ""}
                         onChange={(e) =>
                           setMethodForm({
                             ...methodForm,
-                            details_json: { ...methodForm.details_json, account_type: e.target.value },
+                            details_json: { ...methodForm.details_json, supported_currency: e.target.value.toUpperCase() },
                           })
                         }
-                        placeholder="Checking / Savings / Current"
-                        className="w-full rounded-lg border border-white/10 bg-[#121824] px-2.5 py-1.5 text-white"
-                      />
-                    </div>
-                    <div className="sm:col-span-2">
-                      <label className="block text-[10px] text-slate-400 mb-1">Bank Address</label>
-                      <input
-                        type="text"
-                        value={methodForm.details_json?.bank_address || ""}
-                        onChange={(e) =>
-                          setMethodForm({
-                            ...methodForm,
-                            details_json: { ...methodForm.details_json, bank_address: e.target.value },
-                          })
-                        }
-                        className="w-full rounded-lg border border-white/10 bg-[#121824] px-2.5 py-1.5 text-white"
+                        placeholder="PKR / USD"
+                        className="w-full rounded-lg border border-white/10 bg-[#121824] px-2.5 py-1.5 text-white font-mono"
                       />
                     </div>
                   </div>
                 </div>
 
-                {/* Standard Non-Bank Fields (Payoneer, Crypto, Mobile Wallet) */}
+                {/* Standard Non-Bank Fields (Easypaisa, JazzCash, NayaPay, Payoneer, Binance) */}
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
                   <div>
-                    <label className="block font-semibold text-slate-300 mb-1">Account Holder (Wallet/Payoneer)</label>
+                    <label className="block font-semibold text-slate-300 mb-1">Account Holder / Beneficiary</label>
                     <input
                       type="text"
                       value={methodForm.account_holder_name || ""}
@@ -829,7 +899,7 @@ export default function AdminPaymentsPage() {
                     />
                   </div>
                   <div>
-                    <label className="block font-semibold text-slate-300 mb-1">Account Email / Mobile / ID</label>
+                    <label className="block font-semibold text-slate-300 mb-1">Mobile Number / Payoneer Email</label>
                     <input
                       type="text"
                       value={methodForm.account_identifier || ""}
@@ -838,12 +908,42 @@ export default function AdminPaymentsPage() {
                     />
                   </div>
                   <div>
-                    <label className="block font-semibold text-slate-300 mb-1">Wallet Address (Binance/Trust Wallet)</label>
+                    <label className="block font-semibold text-slate-300 mb-1">Wallet Address (Binance Crypto)</label>
                     <input
                       type="text"
                       value={methodForm.wallet_address || ""}
                       onChange={(e) => setMethodForm({ ...methodForm, wallet_address: e.target.value })}
                       className="w-full rounded-xl border border-white/10 bg-[#121824] px-3 py-2 text-white font-mono"
+                    />
+                  </div>
+                  <div>
+                    <label className="block font-semibold text-slate-300 mb-1">Crypto Network (e.g. TRC20)</label>
+                    <input
+                      type="text"
+                      value={methodForm.details_json?.network || ""}
+                      onChange={(e) =>
+                        setMethodForm({
+                          ...methodForm,
+                          details_json: { ...methodForm.details_json, network: e.target.value.toUpperCase() },
+                        })
+                      }
+                      placeholder="TRC20"
+                      className="w-full rounded-xl border border-white/10 bg-[#121824] px-3 py-2 text-white font-mono"
+                    />
+                  </div>
+                  <div>
+                    <label className="block font-semibold text-slate-300 mb-1">Network Warning (If Crypto)</label>
+                    <input
+                      type="text"
+                      value={methodForm.details_json?.warning_text || ""}
+                      onChange={(e) =>
+                        setMethodForm({
+                          ...methodForm,
+                          details_json: { ...methodForm.details_json, warning_text: e.target.value },
+                        })
+                      }
+                      placeholder="Send funds only using the TRC20 network..."
+                      className="w-full rounded-xl border border-white/10 bg-[#121824] px-3 py-2 text-white"
                     />
                   </div>
                   <div>
@@ -951,10 +1051,22 @@ export default function AdminPaymentsPage() {
                           </div>
                         </div>
                         <div className="font-mono text-[11px] text-slate-400 space-y-0.5">
-                          {m.details_json?.bank_name && <div>Bank: {m.details_json.bank_name} ({m.details_json.account_number})</div>}
+                          {m.details_json?.bank_name && (
+                            <div>
+                              Bank: {m.details_json.bank_name}
+                              {m.details_json.receiving_number ? ` (Receiving: ${m.details_json.receiving_number})` : ""}
+                              {m.details_json.account_number ? ` (Acc: ${m.details_json.account_number})` : ""}
+                              {m.details_json.iban ? ` (IBAN: ${m.details_json.iban})` : ""}
+                            </div>
+                          )}
                           {m.account_holder_name && <div>Holder: {m.account_holder_name}</div>}
                           {m.account_identifier && <div>Identifier: {m.account_identifier}</div>}
-                          {m.wallet_address && <div>Wallet: {m.wallet_address}</div>}
+                          {m.wallet_address && (
+                            <div>
+                              Wallet: {m.wallet_address}
+                              {m.details_json?.network ? ` (${m.details_json.network})` : ""}
+                            </div>
+                          )}
                         </div>
                         {m.instructions && <div className="text-[11px] text-slate-300">{m.instructions}</div>}
                       </div>
@@ -1040,6 +1152,51 @@ export default function AdminPaymentsPage() {
                     className="px-3.5 py-1.5 rounded-lg bg-amber-600 hover:bg-amber-500 text-white font-bold cursor-pointer"
                   >
                     Pin Manual Rate
+                  </button>
+                </form>
+              </div>
+
+              {/* Owner Support Contact Settings (Used by Other Payment Method & Support Links) */}
+              <div className="rounded-2xl border border-white/[0.08] bg-[#0c1017] p-6 space-y-4 text-xs">
+                <div className="border-b border-white/[0.08] pb-3">
+                  <h2 className="text-sm font-bold text-white flex items-center gap-2">
+                    <MessageCircle className="h-4 w-4 text-emerald-400" />
+                    <span>Owner Support Contact Settings</span>
+                  </h2>
+                  <p className="text-[11px] text-slate-400 mt-0.5">
+                    Used dynamically when customers click &quot;Other Payment Method &rarr; Contact the Owner&quot;. Leave WhatsApp blank to hide unconfigured links cleanly.
+                  </p>
+                </div>
+
+                <form onSubmit={handleSaveSupportSettings} className="space-y-3">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    <div>
+                      <label className="block text-[10px] font-semibold text-slate-300 mb-1">Owner WhatsApp Support Number</label>
+                      <input
+                        type="text"
+                        value={ownerWhatsapp}
+                        onChange={(e) => setOwnerWhatsapp(e.target.value)}
+                        placeholder="+923174383702"
+                        className="w-full rounded-xl border border-white/10 bg-[#121824] px-3 py-2 text-white font-mono"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-[10px] font-semibold text-slate-300 mb-1">Owner Support Email (Optional)</label>
+                      <input
+                        type="email"
+                        value={ownerSupportEmail}
+                        onChange={(e) => setOwnerSupportEmail(e.target.value)}
+                        placeholder="support@yourdomain.com"
+                        className="w-full rounded-xl border border-white/10 bg-[#121824] px-3 py-2 text-white"
+                      />
+                    </div>
+                  </div>
+                  <button
+                    type="submit"
+                    disabled={savingSupport}
+                    className="px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-bold cursor-pointer disabled:opacity-50"
+                  >
+                    {savingSupport ? "Saving..." : "Save Support Contact Settings"}
                   </button>
                 </form>
               </div>

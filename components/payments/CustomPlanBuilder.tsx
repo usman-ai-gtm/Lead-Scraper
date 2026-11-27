@@ -64,6 +64,7 @@ export function CustomPlanBuilder({
   initialCurrency = "USD",
   activePlanType,
   onChange,
+  onPlanCommitted,
   ctaSlot,
 }: {
   initialPlan?: FixedOrCustomPlan;
@@ -72,6 +73,7 @@ export function CustomPlanBuilder({
   initialCurrency?: string;
   activePlanType?: string | null;
   onChange?: (selection: PlanSelectionValue) => void;
+  onPlanCommitted?: (selection: PlanSelectionValue) => void;
   ctaSlot?: (selection: PlanSelectionValue) => React.ReactNode;
 }) {
   const [selectedPlan, setSelectedPlan] = useState<FixedOrCustomPlan>(initialPlan);
@@ -117,7 +119,7 @@ export function CustomPlanBuilder({
     if (selectedPlan !== "CUSTOM") setSelectedPlan("CUSTOM");
   };
 
-  const selection: PlanSelectionValue = useMemo(() => {
+  const buildSelectionFor = (planOverride: FixedOrCustomPlan): PlanSelectionValue => {
     let priceUsd = FIXED_PLAN_SPECS.BASIC.priceUsd;
     let leadAllowance = FIXED_PLAN_SPECS.BASIC.leadAllowance;
     let dailyEmailLimit = FIXED_PLAN_SPECS.BASIC.dailyEmailLimit;
@@ -126,7 +128,7 @@ export function CustomPlanBuilder({
     let durValOut: number | null = 30;
     let mapsOut = false;
 
-    if (selectedPlan === "LIFETIME") {
+    if (planOverride === "LIFETIME") {
       priceUsd = FIXED_PLAN_SPECS.LIFETIME.priceUsd;
       leadAllowance = FIXED_PLAN_SPECS.LIFETIME.leadAllowance;
       dailyEmailLimit = FIXED_PLAN_SPECS.LIFETIME.dailyEmailLimit;
@@ -134,7 +136,7 @@ export function CustomPlanBuilder({
       durUnitOut = "lifetime";
       durValOut = null;
       mapsOut = true;
-    } else if (selectedPlan === "CUSTOM") {
+    } else if (planOverride === "CUSTOM") {
       const rule = CUSTOM_UNIT_PRICING[durationUnit];
       priceUsd = Number((clampedQty * rule.usdPerUnit).toFixed(2));
       leadAllowance = clampedQty * rule.leadsPerUnit;
@@ -149,7 +151,7 @@ export function CustomPlanBuilder({
     const curMeta = CURRENCY_CHOICES.find((c) => c.code === currency) || CURRENCY_CHOICES[0];
     if (curMeta.code === "USD") {
       return {
-        plan: selectedPlan,
+        plan: planOverride,
         durationUnit: durUnitOut,
         durationValue: durValOut,
         includeGoogleMaps: mapsOut,
@@ -168,7 +170,7 @@ export function CustomPlanBuilder({
     const fxItem = rates[curMeta.code];
     if (!fxItem || !Number.isFinite(Number(fxItem.rateFromUsd)) || Number(fxItem.rateFromUsd) <= 0) {
       return {
-        plan: selectedPlan,
+        plan: planOverride,
         durationUnit: durUnitOut,
         durationValue: durValOut,
         includeGoogleMaps: mapsOut,
@@ -190,7 +192,7 @@ export function CustomPlanBuilder({
       curMeta.decimals === 0 ? Math.round(rawConv) : Number(rawConv.toFixed(curMeta.decimals));
 
     return {
-      plan: selectedPlan,
+      plan: planOverride,
       durationUnit: durUnitOut,
       durationValue: durValOut,
       includeGoogleMaps: mapsOut,
@@ -205,7 +207,19 @@ export function CustomPlanBuilder({
       fxSource: fxItem.source,
       fxUpdatedAt: fxItem.updatedAt,
     };
-  }, [selectedPlan, durationUnit, clampedQty, includeMaps, currency, rates, fxLoading]);
+  };
+
+  const selection: PlanSelectionValue = useMemo(
+    () => buildSelectionFor(selectedPlan),
+    [selectedPlan, durationUnit, clampedQty, includeMaps, currency, rates, fxLoading]
+  );
+
+  const handleCommitPlan = (planToSelect: FixedOrCustomPlan) => {
+    setSelectedPlan(planToSelect);
+    const nextSel = buildSelectionFor(planToSelect);
+    if (onChange) onChange(nextSel);
+    if (onPlanCommitted) onPlanCommitted(nextSel);
+  };
 
   useEffect(() => {
     if (onChange) onChange(selection);
@@ -326,14 +340,14 @@ export function CustomPlanBuilder({
 
           <button
             type="button"
-            onClick={() => setSelectedPlan("BASIC")}
+            onClick={() => handleCommitPlan("BASIC")}
             className={`w-full py-2.5 rounded-xl font-bold text-xs cursor-pointer transition-all ${
               selectedPlan === "BASIC"
                 ? "bg-blue-600 text-white shadow-md"
                 : "bg-white/[0.06] hover:bg-blue-600/30 text-slate-200 border border-white/10"
             }`}
           >
-            {selectedPlan === "BASIC" ? "Selected: Basic ($25 USD)" : "Choose Basic ($25 USD)"}
+            {selectedPlan === "BASIC" ? "Choose Basic ($25 USD) ✓" : "Choose Basic ($25 USD)"}
           </button>
         </div>
 
@@ -390,14 +404,14 @@ export function CustomPlanBuilder({
 
           <button
             type="button"
-            onClick={() => setSelectedPlan("LIFETIME")}
+            onClick={() => handleCommitPlan("LIFETIME")}
             className={`w-full py-2.5 rounded-xl font-black text-xs cursor-pointer transition-all ${
               selectedPlan === "LIFETIME"
                 ? "bg-gradient-to-r from-amber-400 to-yellow-500 text-black shadow-md"
                 : "bg-amber-500/20 hover:bg-amber-500/35 text-amber-200 border border-amber-500/40"
             }`}
           >
-            {selectedPlan === "LIFETIME" ? "Selected: Lifetime ($100 USD)" : "Choose Lifetime ($100 USD)"}
+            {selectedPlan === "LIFETIME" ? "Choose Lifetime ($100 USD) ✓" : "Choose Lifetime ($100 USD)"}
           </button>
         </div>
 
@@ -528,7 +542,7 @@ export function CustomPlanBuilder({
 
           <button
             type="button"
-            onClick={() => setSelectedPlan("CUSTOM")}
+            onClick={() => handleCommitPlan("CUSTOM")}
             className={`w-full py-2.5 rounded-xl font-bold text-xs cursor-pointer transition-all mt-4 ${
               selectedPlan === "CUSTOM"
                 ? "bg-purple-600 text-white shadow-md"
@@ -536,8 +550,8 @@ export function CustomPlanBuilder({
             }`}
           >
             {selectedPlan === "CUSTOM"
-              ? `Selected: ${clampedQty} ${clampedQty === 1 ? unitConfig.unitLabelSingular : unitConfig.unitLabelPlural} ($${clampedQty * unitConfig.usdPerUnit} USD)`
-              : "Use This Custom Package"}
+              ? `Use This Custom (${clampedQty} ${clampedQty === 1 ? unitConfig.unitLabelSingular : unitConfig.unitLabelPlural} • $${clampedQty * unitConfig.usdPerUnit}) ✓`
+              : `Use This Custom ($${clampedQty * unitConfig.usdPerUnit} USD)`}
           </button>
         </div>
       </div>

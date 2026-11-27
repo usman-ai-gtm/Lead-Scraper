@@ -50,11 +50,11 @@ export default function TermsPage() {
                   <strong className="text-white">Lifetime Access Plan ($100 One-time):</strong> Grants permanent access to all platform modules including Google Maps Lead Generator and AI Lead Research (subject to fair Gmail daily safety caps of up to 500 emails/UTC day).
                 </li>
                 <li>
-                  <strong className="text-white">Custom Subscription Plans:</strong> Configurable duration, module entitlements, and daily email allowances agreed with the platform Owner.
+                  <strong className="text-white">Custom Subscription Plans:</strong> Configurable pay-as-you-need duration tiers billed in USD (or converted FX equivalents): Hourly ($1/hour, 50 leads per hour), Daily ($15/day, 250 leads/day), Weekly ($50/week, 1,000 leads/week), and Monthly ($75/month, 5,000 leads/month). Time spent completing verified Gmail setup may be compensated upon Owner approval via the in-app Gmail Setup Time Bonus request.
                 </li>
               </ul>
               <p className="text-xs text-slate-400">
-                All subscriptions are managed and approved by platform administration. Activation is completed upon payment verification via official WhatsApp (+923174383702).
+                All subscriptions are verified manually before activation. Payment proof uploads (Easypaisa, JazzCash, Meezan Bank, NayaPay, Binance USDT TRC20, Payoneer, or Owner-approved alternatives) remain PENDING until the Owner verifies receipt of funds. For crypto transfers via Binance, send solely over the TRC20 network — transfers over wrong networks risk permanent loss of funds. Need support? Contact WhatsApp (+923174383702).
               </p>
             </section>
 

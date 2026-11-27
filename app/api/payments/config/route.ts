@@ -2,11 +2,8 @@ import { NextResponse } from "next/server";
 import { unstable_noStore as noStore } from "next/cache";
 import { getCurrentUserFromRequest, isAuthorizedOwner } from "@/lib/serverless-auth";
 import { getNeonSql, isNeonConfigured } from "@/lib/neon-db";
-import {
-  getOwnerSupportEmail,
-  getOfficialWhatsAppNumber,
-  listPaymentMethods,
-} from "@/lib/payments-db";
+import { listPaymentMethods } from "@/lib/payments-db";
+import { getOwnerPlatformSettings } from "@/lib/platform-settings-db";
 
 export const dynamic = "force-dynamic";
 export const fetchCache = "force-no-store";
@@ -37,14 +34,14 @@ export async function GET(req: Request) {
       }
     }
 
-    const supportEmail = getOwnerSupportEmail();
-    const whatsappNumber = getOfficialWhatsAppNumber();
+    const settings = await getOwnerPlatformSettings();
     const methods = isNeonConfigured() ? await listPaymentMethods(false) : [];
 
     return NextResponse.json({
-      support_email: supportEmail,
-      support_email_configured: Boolean(supportEmail),
-      whatsapp_number: whatsappNumber,
+      support_email: settings.supportEmail,
+      support_email_configured: Boolean(settings.supportEmail),
+      whatsapp_number: settings.whatsappNumber,
+      whatsapp_configured: settings.whatsappConfigured,
       methods,
     });
   } catch (err: any) {

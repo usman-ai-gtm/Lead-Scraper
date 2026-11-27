@@ -1,21 +1,19 @@
 "use client";
 
-import React, { useState } from "react";
+import React from "react";
 import {
   AlertTriangle,
   ExternalLink,
   CheckCircle2,
   ShieldAlert,
-  Wrench,
   UserCheck,
   RefreshCw,
-  ChevronDown,
-  ChevronUp,
   Info,
+  CheckSquare,
 } from "lucide-react";
 import {
   GOOGLE_CLOUD_CONSOLE_LINKS,
-  GMAIL_8_STEP_SETUP_GUIDE,
+  buildGmail8Steps,
   classifyGoogleOAuthError,
 } from "@/lib/google-oauth-diagnostics";
 
@@ -59,7 +57,7 @@ export function GmailDiagnosticBanner({
           <button
             type="button"
             onClick={onDismiss}
-            className="text-xs text-slate-400 hover:text-white px-2 py-1 rounded-lg"
+            className="text-xs text-slate-400 hover:text-white px-2 py-1 rounded-lg cursor-pointer"
           >
             Dismiss
           </button>
@@ -98,8 +96,11 @@ export function GmailDiagnosticBanner({
   );
 }
 
+/**
+ * Displays ALL EIGHT GMAIL SETUP STEPS OPENLY BY DEFAULT in a clear numbered vertical layout.
+ * Never collapsed inside accordions, dropdowns, or "Show Full Steps" toggles.
+ */
 export function GmailSetupGuide({
-  isAdmin = false,
   expectedCallbackUri = "https://lead-scraper-mxs5.vercel.app/api/integrations/gmail/callback",
   oauthHealth,
 }: {
@@ -109,152 +110,173 @@ export function GmailSetupGuide({
     oauthConfigured?: boolean;
     gmailScope?: string;
     callbackUri?: string;
+    oauthAudienceStatus?: string;
+    oauthSource?: string;
   } | null;
 }) {
-  const [showAdminSteps, setShowAdminSteps] = useState(isAdmin);
+  const effectiveCallbackUri = oauthHealth?.callbackUri || expectedCallbackUri;
+  const steps = buildGmail8Steps(effectiveCallbackUri);
 
   const quickLinks = [
-    {
-      label: "1. Google Cloud Project Selector",
-      url: GOOGLE_CLOUD_CONSOLE_LINKS.projectSelector,
-      role: "Admin",
-    },
-    {
-      label: "2. Enable Gmail API",
-      url: GOOGLE_CLOUD_CONSOLE_LINKS.gmailApi,
-      role: "Admin",
-    },
-    {
-      label: "3. OAuth Branding / Consent",
-      url: GOOGLE_CLOUD_CONSOLE_LINKS.oauthBranding,
-      role: "Admin",
-    },
-    {
-      label: "4. OAuth Audience / Test Users",
-      url: GOOGLE_CLOUD_CONSOLE_LINKS.oauthAudience,
-      role: "Admin",
-    },
-    {
-      label: "5. OAuth Clients (Redirect URI)",
-      url: GOOGLE_CLOUD_CONSOLE_LINKS.oauthClients,
-      role: "Admin",
-    },
-    {
-      label: "6. Google API Credentials",
-      url: GOOGLE_CLOUD_CONSOLE_LINKS.apiCredentials,
-      role: "Admin",
-    },
+    { label: "Project Selection", url: GOOGLE_CLOUD_CONSOLE_LINKS.projectSelector },
+    { label: "Gmail API", url: GOOGLE_CLOUD_CONSOLE_LINKS.gmailApi },
+    { label: "OAuth Branding", url: GOOGLE_CLOUD_CONSOLE_LINKS.oauthBranding },
+    { label: "OAuth Audience", url: GOOGLE_CLOUD_CONSOLE_LINKS.oauthAudience },
+    { label: "OAuth Clients", url: GOOGLE_CLOUD_CONSOLE_LINKS.oauthClients },
+    { label: "Credentials", url: GOOGLE_CLOUD_CONSOLE_LINKS.apiCredentials },
   ];
 
   return (
-    <div className="rounded-2xl border border-white/[0.08] bg-[#0c1017] p-6 space-y-5">
+    <div id="gmail-8-steps" className="rounded-2xl border border-white/[0.08] bg-[#0c1017] p-6 space-y-5">
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 border-b border-white/[0.08] pb-4">
         <div>
-          <h3 className="text-base font-bold text-white flex items-center gap-2">
+          <h3 className="text-base font-extrabold text-white flex items-center gap-2">
             <Info className="h-4 w-4 text-blue-400" />
-            <span>Simple Gmail Connection &amp; Troubleshooting Guide</span>
+            <span>Complete 8-Step Gmail Setup Guide (All 8 Steps Open by Default)</span>
           </h3>
           <p className="text-xs text-slate-400 mt-1">
-            Understand how ordinary customers connect Gmail in seconds vs. the one-time Administrator Google Cloud setup.
+            All eight steps remain open for full transparency. Normal customers connect in seconds using Shared Owner-Managed OAuth (no Google Cloud project needed); optional customer-specific OAuth instructions are included below.
           </p>
         </div>
 
-        <button
-          type="button"
-          onClick={() => setShowAdminSteps(!showAdminSteps)}
-          className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-white/[0.05] hover:bg-white/[0.1] border border-white/10 text-xs font-semibold text-slate-200 cursor-pointer shrink-0"
-        >
-          <Wrench className="h-3.5 w-3.5 text-amber-400" />
-          <span>{showAdminSteps ? "Hide Admin Cloud Setup Steps (1-6)" : "Show Full 8-Step Google Cloud Guide"}</span>
-          {showAdminSteps ? <ChevronUp className="h-3.5 w-3.5" /> : <ChevronDown className="h-3.5 w-3.5" />}
-        </button>
+        <span className="px-3 py-1 rounded-full bg-blue-500/15 border border-blue-500/30 text-[11px] font-bold text-blue-200 shrink-0 self-start">
+          8 Steps Always Visible
+        </span>
       </div>
 
-      {/* Clear Role Distinction */}
+      {/* Clear Architecture Explanation */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
         <div className="p-4 rounded-xl bg-emerald-500/10 border border-emerald-500/25 space-y-1.5">
           <div className="flex items-center gap-2 text-xs font-bold text-emerald-300">
             <UserCheck className="h-4 w-4" />
-            <span>For Customers (2 Quick Steps — Zero Cloud Project Needed)</span>
+            <span>Default: Shared Owner-Managed OAuth (Recommended)</span>
           </div>
           <p className="text-xs text-slate-200 leading-relaxed">
-            You do <strong>NOT</strong> need to create your own Google Cloud project or developer account. Click <strong>Connect Gmail</strong> above, pick your Google mailbox, approve email sending permission, and run a safe test email.
+            Ordinary customers do <strong>NOT</strong> need to create a Google Cloud project or upload any JSON file. Jump straight to <strong>Step 8</strong> and click <strong>Connect Official Gmail Account</strong> above.
           </p>
         </div>
 
         <div className="p-4 rounded-xl bg-amber-500/10 border border-amber-500/25 space-y-1.5">
           <div className="flex items-center gap-2 text-xs font-bold text-amber-300">
             <ShieldAlert className="h-4 w-4" />
-            <span>For Platform Administrator (One-Time App Setup &amp; Testing Notice)</span>
+            <span>Optional Advanced / Google Testing Notice</span>
           </div>
           <p className="text-xs text-slate-200 leading-relaxed">
-            The Owner configures Google Cloud once (Steps 1–6). While the Google OAuth app is in <strong>Testing mode</strong> before Google Verification approval, only Gmail addresses added in <strong>Audience &rarr; Test Users</strong> can authorize.
+            If the shared app is in Google <strong>Testing mode</strong> or unverified for restricted scopes, only approved test users can authorize it — or workspaces with their own Google Cloud project can follow Steps 1–8 to upload their encrypted Web OAuth JSON securely.
           </p>
         </div>
       </div>
 
       {/* Backend Config Readout (Zero Secrets) */}
       <div className="p-3.5 rounded-xl bg-white/[0.02] border border-white/[0.06] flex flex-wrap items-center justify-between gap-3 text-xs">
-        <div>
-          <span className="text-slate-400">Backend OAuth Environment: </span>
-          {oauthHealth?.oauthConfigured === false ? (
-            <span className="font-bold text-rose-400">Incomplete (Credentials missing on server)</span>
-          ) : (
-            <span className="font-bold text-emerald-400">Configured (Minimum gmail.send scope)</span>
-          )}
+        <div className="flex flex-wrap items-center gap-3">
+          <span>
+            <span className="text-slate-400">Active OAuth Mode: </span>
+            <strong className="text-white">
+              {oauthHealth?.oauthSource === "customer" ? "Workspace Custom OAuth" : "Shared Owner-Managed OAuth"}
+            </strong>
+          </span>
+          <span>
+            <span className="text-slate-400">Server Status: </span>
+            {oauthHealth?.oauthConfigured === false ? (
+              <strong className="text-rose-400">Configuration Required</strong>
+            ) : (
+              <strong className="text-emerald-400">Configured (gmail.send)</strong>
+            )}
+          </span>
         </div>
-        <div className="font-mono text-[11px] text-slate-300 bg-black/30 px-2.5 py-1 rounded border border-white/10">
-          Redirect URI: {oauthHealth?.callbackUri || expectedCallbackUri}
+        <div className="font-mono text-[11px] text-slate-300 bg-black/30 px-2.5 py-1 rounded border border-white/10 break-all">
+          Authorized Redirect URI: {effectiveCallbackUri}
         </div>
       </div>
 
-      {/* Customer-Visible Steps 7 & 8 Always Shown */}
+      {/* ALL 8 STEPS — STRICTLY OPEN IN VERTICAL NUMBERED LAYOUT */}
       <div className="space-y-3">
-        {(showAdminSteps ? GMAIL_8_STEP_SETUP_GUIDE : GMAIL_8_STEP_SETUP_GUIDE.filter((s) => s.audience === "CUSTOMER_ANYTIME")).map(
-          (step) => (
-            <div
-              key={step.stepNumber}
-              className={`p-4 rounded-xl border ${
-                step.audience === "CUSTOMER_ANYTIME"
-                  ? "bg-blue-500/5 border-blue-500/20"
-                  : "bg-white/[0.02] border-white/[0.07]"
-              } flex flex-col sm:flex-row sm:items-center justify-between gap-3`}
-            >
-              <div className="space-y-1">
-                <div className="flex flex-wrap items-center gap-2">
-                  <span className="text-xs font-bold text-white">{step.title}</span>
-                  <span
-                    className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${
-                      step.audience === "CUSTOMER_ANYTIME"
-                        ? "bg-blue-500/20 text-blue-300"
-                        : "bg-amber-500/20 text-amber-300"
-                    }`}
-                  >
-                    {step.audience === "CUSTOMER_ANYTIME" ? "Customer Step" : "Admin One-Time Step"}
-                  </span>
-                </div>
-                <p className="text-xs text-slate-300 leading-relaxed">{step.summary}</p>
+        {steps.map((step) => (
+          <div
+            key={step.stepNumber}
+            className={`p-4 rounded-xl border space-y-2.5 ${
+              step.stepNumber >= 7
+                ? "bg-blue-500/10 border-blue-500/30"
+                : step.stepNumber === 6
+                ? "bg-amber-500/[0.06] border-amber-500/30"
+                : "bg-white/[0.025] border-white/[0.08]"
+            }`}
+          >
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+              <div className="flex flex-wrap items-center gap-2">
+                <span className="inline-flex h-6 w-6 items-center justify-center rounded-lg bg-blue-600 text-white text-xs font-black">
+                  {step.stepNumber}
+                </span>
+                <h4 className="text-sm font-extrabold text-white">{step.title}</h4>
+                <span
+                  className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${
+                    step.stepNumber >= 7
+                      ? "bg-emerald-500/20 text-emerald-300"
+                      : "bg-slate-800 text-slate-300"
+                  }`}
+                >
+                  {step.stepNumber >= 7 ? "All Customers" : "Owner / Custom OAuth Setup"}
+                </span>
               </div>
+
               {step.linkUrl && step.linkLabel && (
                 <a
                   href={step.linkUrl}
                   target="_blank"
                   rel="noopener noreferrer"
-                  className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg bg-white/[0.06] hover:bg-blue-600/25 border border-white/10 hover:border-blue-500/40 text-xs font-semibold text-blue-300 transition-all shrink-0"
+                  className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-blue-600/20 hover:bg-blue-600/35 border border-blue-500/40 text-xs font-bold text-blue-200 transition-all shrink-0 self-start"
                 >
                   <span>{step.linkLabel}</span>
                   <ExternalLink className="h-3.5 w-3.5" />
                 </a>
               )}
             </div>
-          )
-        )}
+
+            <p className="text-xs text-slate-200 leading-relaxed">{step.summary}</p>
+
+            {step.details && step.details.length > 0 && (
+              <div className="space-y-1">
+                {step.details.map((line) => (
+                  <div
+                    key={line}
+                    className="font-mono text-[11px] text-blue-200 bg-black/45 px-3 py-2 rounded-lg border border-white/10 break-all"
+                  >
+                    {line}
+                  </div>
+                ))}
+              </div>
+            )}
+
+            {step.importantWarning && (
+              <div className="p-3 rounded-lg bg-amber-500/15 border border-amber-400/40 text-xs font-extrabold text-amber-200">
+                {step.importantWarning}
+              </div>
+            )}
+
+            {step.checklist && step.checklist.length > 0 && (
+              <div className="p-3 rounded-lg bg-black/35 border border-white/10 space-y-1.5">
+                <div className="text-[10px] font-bold uppercase tracking-wider text-emerald-300">
+                  Manual Verification Checklist (Confirm Each Item Yourself)
+                </div>
+                <ul className="grid grid-cols-1 sm:grid-cols-2 gap-1.5 text-xs text-slate-200">
+                  {step.checklist.map((item) => (
+                    <li key={item} className="flex items-center gap-2">
+                      <CheckSquare className="h-3.5 w-3.5 text-emerald-400 shrink-0" />
+                      <span>{item}</span>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
+          </div>
+        ))}
       </div>
 
-      {/* Direct 6 Google Cloud Console Buttons */}
+      {/* Direct 6 Google Cloud Console Destinations */}
       <div className="pt-2 border-t border-white/[0.08] space-y-2.5">
         <div className="text-[11px] font-bold uppercase tracking-wider text-slate-400">
-          Direct Google Cloud Console Links (Administrator Reference)
+          Direct Google Cloud Console Destinations
         </div>
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2.5">
           {quickLinks.map((lnk) => (
@@ -275,7 +297,7 @@ export function GmailSetupGuide({
       <div className="flex items-start gap-2 text-[11px] text-slate-400 pt-1">
         <CheckCircle2 className="h-4 w-4 text-emerald-400 shrink-0 mt-0.5" />
         <span>
-          Never share or type your Gmail password. Authorization uses official Google OAuth 2.0 encrypted tokens tied exclusively to your workspace, with instant one-click disconnect at any time.
+          Never share Gmail passwords or send OAuth Client Secrets / JSON files through WhatsApp. All OAuth credentials and tokens stored in this platform are AES-256-GCM encrypted and isolated per workspace.
         </span>
       </div>
     </div>
