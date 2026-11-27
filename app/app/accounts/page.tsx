@@ -700,7 +700,7 @@ function EmailAccountsContent() {
               If a secondary Gmail account displays this Google prompt during connection, your Google Cloud OAuth Consent Screen is currently in <strong>Testing</strong> mode.
             </p>
             <div className="space-y-1 text-slate-300 font-mono text-[10px] bg-black/40 p-2.5 rounded-lg border border-white/5">
-              <div>1. Go to Google Cloud Console (Project: semiotic-tracer-466311-j4)</div>
+              <div>1. Go to Google Cloud Console (Project: usman-ai-gtm-516005)</div>
               <div>2. Navigate to: APIs & Services &gt; OAuth consent screen</div>
               <div>3. Click &quot;PUBLISH APP&quot; to switch from Testing to In Production</div>
               <div>OR add the user&apos;s Gmail under &quot;Test users&quot; (+ ADD USERS)</div>

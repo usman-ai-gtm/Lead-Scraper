@@ -152,7 +152,7 @@ export default function AdminGoogleIntegrationPage() {
               </span>
             </div>
             <p className="text-[11px] text-slate-300 leading-relaxed">
-              Sending outreach uses Google&apos;s Restricted <code className="text-amber-300">gmail.send</code> scope under project <code className="text-blue-300">semiotic-tracer-466311-j4</code>. Code-side OAuth security, HMAC state verification, refresh token preservation, and Google Limited Use Privacy Policy (<Link href="/privacy" className="underline text-blue-300">/privacy</Link>) are live. To allow arbitrary Gmail customers worldwide without <code className="text-rose-300">Error 403: access_denied</code>, complete these steps in Google Cloud Console:
+              Sending outreach uses Google&apos;s Restricted <code className="text-amber-300">gmail.send</code> scope under project <code className="text-blue-300">usman-ai-gtm-516005</code>. Code-side OAuth security, HMAC state verification, refresh token preservation, and Google Limited Use Privacy Policy (<Link href="/privacy" className="underline text-blue-300">/privacy</Link>) are live. To allow arbitrary Gmail customers worldwide without <code className="text-rose-300">Error 403: access_denied</code>, complete these steps in Google Cloud Console:
             </p>
             <ol className="list-decimal list-inside space-y-1 text-[11px] text-slate-400">
               <li><strong className="text-slate-200">Google Auth Platform → Audience:</strong> Click <em>Publish App</em> to move Publishing Status from <em>Testing</em> to <em>In Production</em> (External).</li>
@@ -170,7 +170,7 @@ export default function AdminGoogleIntegrationPage() {
               <ol className="list-decimal list-inside space-y-1 text-slate-400">
                 <li><strong>Show Homepage &amp; App URL:</strong> Open <code className="text-slate-300">https://lead-scraper-mxs5.vercel.app</code> with clear English UI, Privacy Policy (<code className="text-slate-300">/privacy</code>), and Terms (<code className="text-slate-300">/terms</code>) visible.</li>
                 <li><strong>Show Gmail Connect Screen:</strong> Sign in, open <em>Email Accounts</em> (<code className="text-slate-300">/app/accounts</code>), and click <em>Connect Official Gmail Account</em>.</li>
-                <li><strong>Show Consent Screen &amp; Client ID:</strong> Ensure browser address bar displays full URL including <code className="text-slate-300">client_id=855677476876-...</code>, select your test Gmail, expand permissions showing only <code className="text-slate-300">gmail.send</code> and email address, and click <em>Allow</em>.</li>
+                <li><strong>Show Consent Screen &amp; Client ID:</strong> Ensure browser address bar displays full URL including <code className="text-slate-300">client_id=1013980990090-...</code>, select your test Gmail, expand permissions showing only <code className="text-slate-300">gmail.send</code> and email address, and click <em>Allow</em>.</li>
                 <li><strong>Demonstrate Live Feature:</strong> Show the connected mailbox badge on <code className="text-slate-300">/app/accounts</code>, open <em>Send Test Email</em> (or <em>Cold Email</em>), manually compose and send a 1-to-1 test email, open Gmail Sent folder to confirm delivery, then click <em>Disconnect</em> to show revocation works.</li>
               </ol>
             </div>
@@ -184,12 +184,12 @@ export default function AdminGoogleIntegrationPage() {
 
         <div className="pt-4 border-t border-white/[0.06] flex items-center justify-between flex-wrap gap-2">
           <a
-            href="https://console.cloud.google.com/auth/overview?project=semiotic-tracer-466311-j4"
+            href="https://console.cloud.google.com/auth/overview?project=usman-ai-gtm-516005"
             target="_blank"
             rel="noreferrer"
             className="text-xs font-bold text-blue-400 hover:text-blue-300 flex items-center gap-1.5"
           >
-            <span>Open Google Auth Platform (Project semiotic-tracer-466311-j4)</span>
+            <span>Open Google Auth Platform (Project usman-ai-gtm-516005)</span>
             <ExternalLink className="h-3.5 w-3.5" />
           </a>
 
