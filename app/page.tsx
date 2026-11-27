@@ -103,36 +103,36 @@ export default function HomePage() {
       {/* HERO */}
       <section className="relative overflow-hidden pt-16 pb-20 lg:pt-24 lg:pb-28">
         <div className="absolute inset-0 bg-radial-glow pointer-events-none" />
-        <div className="absolute top-0 left-1/2 -translate-x-1/2 w-[720px] h-[360px] bg-amber-500/[0.05] rounded-full blur-[140px] pointer-events-none" />
+        <div className="absolute top-0 left-1/2 w-[720px] h-[360px] bg-amber-500/[0.06] rounded-full blur-[140px] pointer-events-none animate-ambient-drift" />
 
         <div className="relative mx-auto max-w-6xl px-4 sm:px-6 lg:px-8 text-center">
-          <div className="inline-flex items-center gap-2 rounded-full border border-amber-400/25 bg-amber-500/[0.08] px-4 py-1.5 text-[11px] font-semibold uppercase tracking-[0.16em] text-amber-200 mb-8">
+          <div className="animate-fade-up inline-flex items-center gap-2 rounded-full border border-amber-400/25 bg-amber-500/[0.08] px-4 py-1.5 text-[11px] font-semibold uppercase tracking-[0.16em] text-amber-200 mb-8">
             <Sparkles className="h-3.5 w-3.5 text-amber-300" />
             <span>USMAN AI GTM • B2B Lead Intelligence &amp; Outreach</span>
           </div>
 
-          <h1 className="text-4xl sm:text-5xl lg:text-6xl font-extrabold tracking-tight text-white max-w-4xl mx-auto leading-[1.12] mb-6">
+          <h1 className="animate-fade-up-delay-1 text-4xl sm:text-5xl lg:text-6xl font-extrabold tracking-tight text-white max-w-4xl mx-auto leading-[1.12] mb-6">
             Find Business Leads. Understand Companies.{" "}
-            <span className="bg-gradient-to-r from-amber-200 via-white to-blue-300 bg-clip-text text-transparent">
+            <span className="animate-text-shimmer bg-gradient-to-r from-amber-200 via-white to-blue-300 bg-clip-text text-transparent">
               Reach the Right Customers.
             </span>
           </h1>
 
-          <p className="text-base sm:text-lg text-slate-300 max-w-2xl mx-auto mb-10 leading-relaxed">
+          <p className="animate-fade-up-delay-2 text-base sm:text-lg text-slate-300 max-w-2xl mx-auto mb-10 leading-relaxed">
             Describe what you sell by voice or text in your own language, discover real business prospects with source links and domain MX checks, write personalized outreach, and send directly through Gmail.
           </p>
 
-          <div className="flex flex-col sm:flex-row items-center justify-center gap-4 mb-16">
+          <div className="animate-fade-up-delay-2 flex flex-col sm:flex-row items-center justify-center gap-4 mb-16">
             <Link
               href="/login"
-              className="w-full sm:w-auto inline-flex items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-amber-500 via-amber-400 to-yellow-500 px-8 py-3.5 text-sm font-bold text-slate-950 shadow-[0_12px_36px_-10px_rgba(245,158,11,0.55)] transition-all hover:brightness-105 hover:-translate-y-0.5"
+              className="w-full sm:w-auto inline-flex items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-amber-500 via-amber-400 to-yellow-500 px-8 py-3.5 text-sm font-bold text-slate-950 shadow-[0_12px_36px_-10px_rgba(245,158,11,0.55)] transition-all duration-300 hover:brightness-105 hover:-translate-y-0.5 hover:shadow-[0_16px_40px_-10px_rgba(245,158,11,0.7)]"
             >
               <span>Sign In to Workspace</span>
-              <ArrowRight className="h-4 w-4" />
+              <ArrowRight className="h-4 w-4 transition-transform duration-300 group-hover:translate-x-0.5" />
             </Link>
             <Link
               href="/pricing"
-              className="w-full sm:w-auto inline-flex items-center justify-center gap-2 rounded-xl border border-white/15 bg-white/[0.03] px-8 py-3.5 text-sm font-semibold text-white backdrop-blur-md transition-all hover:bg-white/[0.07] hover:border-amber-400/40"
+              className="w-full sm:w-auto inline-flex items-center justify-center gap-2 rounded-xl border border-white/15 bg-white/[0.03] px-8 py-3.5 text-sm font-semibold text-white backdrop-blur-md transition-all duration-300 hover:bg-white/[0.07] hover:border-amber-400/40 hover:-translate-y-0.5"
             >
               <span>Explore Plans &amp; Global Currency</span>
             </Link>
@@ -141,11 +141,11 @@ export default function HomePage() {
           {/* RESTRAINED INTERACTIVE WORKSPACE PREVIEW (ILLUSTRATIVE LAYOUT) */}
           <div
             id="platform"
-            className="relative mx-auto max-w-5xl rounded-2xl border border-white/[0.1] bg-gradient-to-b from-[#0d121c] to-[#080b11] p-4 sm:p-6 shadow-[0_30px_90px_-30px_rgba(0,0,0,0.9)] text-left"
+            className="animate-fade-up-delay-3 relative mx-auto max-w-5xl rounded-2xl border border-white/[0.1] bg-gradient-to-b from-[#0d121c] to-[#080b11] p-4 sm:p-6 shadow-[0_30px_90px_-30px_rgba(0,0,0,0.9)] text-left"
           >
-            <div className="flex flex-wrap items-center justify-between gap-2 border-b border-white/[0.07] pb-3.5 mb-5">
+            <div className="flex flex-wrap items-center justify-between gap-2 border-b border-white/[0.07] pb-3.5 mb-4">
               <div className="flex items-center gap-2.5">
-                <span className="h-2.5 w-2.5 rounded-full bg-amber-400/80" />
+                <span className="h-2.5 w-2.5 rounded-full bg-amber-400/80 animate-pulse" />
                 <span className="text-xs font-mono text-slate-400">
                   Illustrative Workspace Preview (Sample Demonstration Layout)
                 </span>
@@ -158,6 +158,20 @@ export default function HomePage() {
                   Source-Backed Data
                 </span>
               </div>
+            </div>
+
+            {/* Subtle Decorative Search Interface Bar (Illustrative Visual Only) */}
+            <div className="relative overflow-hidden rounded-xl border border-white/[0.08] bg-[#070a10] px-4 py-2.5 mb-4 flex items-center justify-between gap-3">
+              <div className="pointer-events-none absolute inset-y-0 left-0 w-1/3 bg-gradient-to-r from-transparent via-amber-400/[0.07] to-transparent animate-search-scan" />
+              <div className="relative flex items-center gap-2.5 min-w-0">
+                <Search className="h-3.5 w-3.5 text-amber-300 shrink-0" />
+                <span className="text-xs text-slate-300 font-mono truncate">
+                  &ldquo;Private dental clinics in United Kingdom &amp; UAE&rdquo;
+                </span>
+              </div>
+              <span className="relative text-[10px] font-mono text-slate-500 shrink-0 hidden sm:inline">
+                Sample Query Illustration
+              </span>
             </div>
 
             <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
@@ -249,10 +263,10 @@ export default function HomePage() {
                 <Link
                   key={s.step}
                   href={s.href}
-                  className="group rounded-2xl border border-white/[0.08] bg-[#0c1018] p-7 transition-all duration-300 hover:-translate-y-1 hover:border-white/20"
+                  className="group rounded-2xl border border-white/[0.08] bg-[#0c1018] p-7 transition-all duration-300 hover:-translate-y-1.5 hover:border-amber-400/35 hover:shadow-[0_18px_45px_-20px_rgba(245,158,11,0.3)]"
                 >
                   <div className="flex items-center justify-between mb-6">
-                    <span className={`inline-flex h-11 w-11 items-center justify-center rounded-xl border ${s.accent}`}>
+                    <span className={`inline-flex h-11 w-11 items-center justify-center rounded-xl border transition-transform duration-300 group-hover:scale-105 ${s.accent}`}>
                       <Icon className="h-5 w-5" />
                     </span>
                     <span className="text-xs font-mono text-slate-500">STEP {s.step}</span>

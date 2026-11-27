@@ -10,6 +10,7 @@ import {
   Plus, Trash2, BookmarkPlus
 } from "lucide-react";
 import { VoiceCaptureButton, VoiceCaptureResult } from "@/components/voice/VoiceCaptureButton";
+import { ChatGptVoiceFallback } from "@/components/voice/ChatGptVoiceFallback";
 import { OUTREACH_LANGUAGES } from "@/lib/business-profile-ai";
 
 interface LeadItem {
@@ -381,8 +382,8 @@ function ColdEmailContent() {
         body: JSON.stringify({
           lead: firstSelected,
           instruction: effectiveInstruction || undefined,
-          instruction_audio_base64: audioCap?.audioBase64,
-          instruction_audio_mime: audioCap?.audioMime,
+          instruction_audio_base64: audioCap?.transcript ? undefined : audioCap?.audioBase64,
+          instruction_audio_mime: audioCap?.transcript ? undefined : audioCap?.audioMime,
           template_name: activeTpl?.name,
           output_language: outputLanguage,
           tone: emailTone,
@@ -842,6 +843,7 @@ function ColdEmailContent() {
               <VoiceCaptureButton
                 compact
                 label="Speak Instruction"
+                applyButtonLabel="Use Instruction & Draft"
                 disabled={aiGenerating}
                 onLiveTranscript={(txt) => setAssistantInstruction(txt)}
                 onCaptureComplete={(res) => handlePersonalizedDraft(res)}
@@ -851,6 +853,7 @@ function ColdEmailContent() {
                 }}
               />
             </div>
+            <ChatGptVoiceFallback targetFieldLabel="the assistant instruction box above" />
           </div>
 
           {/* Template Selector Bar */}

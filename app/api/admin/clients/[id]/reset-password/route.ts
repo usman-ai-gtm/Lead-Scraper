@@ -44,6 +44,7 @@ export async function POST(req: Request, { params }: RouteParams) {
       const res = await sql.query(
         `UPDATE users
          SET password_hash = $1,
+             hashed_password = $1,
              must_change_password = TRUE,
              session_version = COALESCE(session_version, 1) + 1,
              updated_at = $2

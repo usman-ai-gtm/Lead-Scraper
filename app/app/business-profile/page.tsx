@@ -8,6 +8,7 @@ import {
   OUTREACH_LANGUAGES,
 } from "@/lib/business-profile-ai";
 import { VoiceCaptureButton, VoiceCaptureResult } from "@/components/voice/VoiceCaptureButton";
+import { ChatGptVoiceFallback } from "@/components/voice/ChatGptVoiceFallback";
 import {
   Briefcase, Sparkles, Building2, Globe, Target,
   CheckCircle2, AlertTriangle, RefreshCw, Save, ArrowRight,
@@ -163,7 +164,13 @@ export default function BusinessProfilePage() {
   };
 
   const handleVoiceComplete = async (cap: VoiceCaptureResult) => {
-    if (cap.transcript) setNaturalText(cap.transcript);
+    if (cap.transcript) {
+      setNaturalText(cap.transcript);
+      await handleUnderstand({
+        text: cap.transcript,
+      });
+      return;
+    }
     await handleUnderstand({
       text: cap.transcript,
       audioBase64: cap.audioBase64,
@@ -290,6 +297,8 @@ export default function BusinessProfilePage() {
             </p>
             <VoiceCaptureButton
               label="Describe Your Business"
+              applyButtonLabel="Apply & Organize Profile"
+              languageHint={voiceLangCode === "auto" ? "auto" : selectedVoiceLang.label}
               languageBcp47={selectedVoiceLang.bcp47}
               disabled={understanding}
               onLiveTranscript={(txt) => setNaturalText(txt)}
@@ -301,6 +310,7 @@ export default function BusinessProfilePage() {
                 Recognized language: {detectedMeta.language}
               </div>
             )}
+            <ChatGptVoiceFallback targetFieldLabel="the business description box on the right" />
           </div>
 
           {/* B. Type Box */}

@@ -7,7 +7,8 @@ import { api } from "@/lib/api";
 import {
   Settings, Key, Shield, User, Building, Bell,
   Lock, CheckCircle2, Save, Sparkles, RefreshCw, Target, HelpCircle,
-  Mail, Send, Globe, AlertCircle, AlertTriangle, ExternalLink, ShieldCheck, Check
+  Mail, Send, Globe, AlertCircle, AlertTriangle, ExternalLink, ShieldCheck, Check,
+  Eye, EyeOff, KeyRound
 } from "lucide-react";
 
 interface GmailStatus {
@@ -41,12 +42,29 @@ interface DnsCheckData {
 }
 
 export default function SettingsPage() {
-  const { user, activeWorkspace } = useAuth();
+  const { user, activeWorkspace, refreshUser, changePassword } = useAuth();
   const [activeTab, setActiveTab] = useState<"profile" | "icp" | "gmail" | "workspace" | "vault" | "security">("profile");
 
-  // User Profile
-  const [fullName, setFullName] = useState(user?.full_name || "Administrator");
+  // User Profile (Username is permanent & server-enforced read-only)
+  const [fullName, setFullName] = useState(user?.full_name || "");
   const [company, setCompany] = useState(user?.company || "USMAN AI GTM");
+  const [savingProfile, setSavingProfile] = useState(false);
+  const [profileErr, setProfileErr] = useState<string | null>(null);
+
+  // Secure Customer Password Change State
+  const [oldPassword, setOldPassword] = useState("");
+  const [newPassword, setNewPassword] = useState("");
+  const [confirmPassword, setConfirmPassword] = useState("");
+  const [showOldPwd, setShowOldPwd] = useState(false);
+  const [showNewPwd, setShowNewPwd] = useState(false);
+  const [changingPwd, setChangingPwd] = useState(false);
+  const [pwdError, setPwdError] = useState<string | null>(null);
+  const [pwdSuccess, setPwdSuccess] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (user?.full_name) setFullName(user.full_name);
+    if (user?.company) setCompany(user.company);
+  }, [user?.full_name, user?.company]);
 
   // Ideal Customer Profile (ICP)
   const [icp, setIcp] = useState({
@@ -64,10 +82,6 @@ export default function SettingsPage() {
   const [loadingIcp, setLoadingIcp] = useState(false);
   const [savingIcp, setSavingIcp] = useState(false);
 
-  // API Vault
-  const [serperKey, setSerperKey] = useState("");
-  const [openaiKey, setOpenaiKey] = useState("");
-  const [geminiKey, setGeminiKey] = useState("");
   const [savedMsg, setSavedMsg] = useState<string | null>(null);
 
   // Gmail Integration State
@@ -233,10 +247,67 @@ export default function SettingsPage() {
     }
   };
 
-  const handleSaveProfile = (e: React.FormEvent) => {
+  const handleSaveProfile = async (e: React.FormEvent) => {
     e.preventDefault();
-    setSavedMsg("Profile information updated successfully");
-    setTimeout(() => setSavedMsg(null), 3500);
+    setProfileErr(null);
+    const cleanName = fullName.trim();
+    if (!cleanName || cleanName.length < 2) {
+      setProfileErr("Full name must be at least 2 characters.");
+      return;
+    }
+    setSavingProfile(true);
+    try {
+      await api.patch("/auth/profile", { full_name: cleanName });
+      await refreshUser();
+      setSavedMsg("Profile display name updated. Your permanent username remains unchanged.");
+      setTimeout(() => setSavedMsg(null), 4000);
+    } catch (err: any) {
+      setProfileErr(err?.message || "Failed to update profile.");
+    } finally {
+      setSavingProfile(false);
+    }
+  };
+
+  const handleChangePassword = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setPwdError(null);
+    setPwdSuccess(null);
+
+    if (!oldPassword) {
+      setPwdError("Please enter your current password.");
+      return;
+    }
+    if (!newPassword || newPassword.length < 8) {
+      setPwdError("New password must be at least 8 characters long.");
+      return;
+    }
+    if (!/[a-zA-Z]/.test(newPassword) || !/[0-9!@#$%^&*()_+\-=\[\]{};':"\\|,.<>/?`~]/.test(newPassword)) {
+      setPwdError("New password must include letters plus at least one number or special character.");
+      return;
+    }
+    if (newPassword === oldPassword) {
+      setPwdError("New password must be different from your current password.");
+      return;
+    }
+    if (newPassword !== confirmPassword) {
+      setPwdError("New password and confirm password do not match.");
+      return;
+    }
+
+    setChangingPwd(true);
+    try {
+      await changePassword(oldPassword, newPassword, confirmPassword);
+      setOldPassword("");
+      setNewPassword("");
+      setConfirmPassword("");
+      setPwdSuccess("Password updated successfully. Other active sessions have been signed out while your current session stays active.");
+      setSavedMsg("Password updated and verified cleanly.");
+      setTimeout(() => setSavedMsg(null), 4500);
+    } catch (err: any) {
+      setPwdError(err?.message || "Failed to update password. Verify your current password and try again.");
+    } finally {
+      setChangingPwd(false);
+    }
   };
 
   const handleSaveIcp = async (e: React.FormEvent) => {
@@ -251,12 +322,6 @@ export default function SettingsPage() {
       setSavingIcp(false);
       setTimeout(() => setSavedMsg(null), 4000);
     }
-  };
-
-  const handleSaveVault = (e: React.FormEvent) => {
-    e.preventDefault();
-    setSavedMsg("API Key Vault credentials encrypted and stored securely");
-    setTimeout(() => setSavedMsg(null), 3500);
   };
 
   return (
@@ -280,103 +345,232 @@ export default function SettingsPage() {
       <div className="flex rounded-xl bg-white/[0.03] border border-white/10 p-1 text-xs overflow-x-auto">
         <button
           onClick={() => setActiveTab("profile")}
-          className={`flex-1 min-w-[90px] py-2 rounded-lg font-bold transition-all ${
-            activeTab === "profile" ? "bg-blue-600 text-white shadow-glow-sm" : "text-slate-400 hover:text-white"
-          }`}
+          className={`flex-1 min-w-[90px] py-2 rounded-lg font-bold transition-all ${activeTab === "profile" ? "bg-blue-600 text-white shadow-glow-sm" : "text-slate-400 hover:text-white"
+            }`}
         >
           Profile
         </button>
         <button
           onClick={() => setActiveTab("icp")}
-          className={`flex-1 min-w-[130px] py-2 rounded-lg font-bold transition-all flex items-center justify-center gap-1.5 ${
-            activeTab === "icp" ? "bg-blue-600 text-white shadow-glow-sm" : "text-slate-400 hover:text-white"
-          }`}
+          className={`flex-1 min-w-[130px] py-2 rounded-lg font-bold transition-all flex items-center justify-center gap-1.5 ${activeTab === "icp" ? "bg-blue-600 text-white shadow-glow-sm" : "text-slate-400 hover:text-white"
+            }`}
         >
           <Target className="h-3.5 w-3.5" />
           <span>My Business & ICP</span>
         </button>
         <button
           onClick={() => setActiveTab("gmail")}
-          className={`flex-1 min-w-[150px] py-2 rounded-lg font-bold transition-all flex items-center justify-center gap-1.5 ${
-            activeTab === "gmail" ? "bg-blue-600 text-white shadow-glow-sm" : "text-slate-400 hover:text-white"
-          }`}
+          className={`flex-1 min-w-[150px] py-2 rounded-lg font-bold transition-all flex items-center justify-center gap-1.5 ${activeTab === "gmail" ? "bg-blue-600 text-white shadow-glow-sm" : "text-slate-400 hover:text-white"
+            }`}
         >
           <Mail className="h-3.5 w-3.5" />
           <span>Gmail & Domain Health</span>
         </button>
         <button
           onClick={() => setActiveTab("workspace")}
-          className={`flex-1 min-w-[90px] py-2 rounded-lg font-bold transition-all ${
-            activeTab === "workspace" ? "bg-blue-600 text-white shadow-glow-sm" : "text-slate-400 hover:text-white"
-          }`}
+          className={`flex-1 min-w-[90px] py-2 rounded-lg font-bold transition-all ${activeTab === "workspace" ? "bg-blue-600 text-white shadow-glow-sm" : "text-slate-400 hover:text-white"
+            }`}
         >
           Workspace
         </button>
         <button
           onClick={() => setActiveTab("vault")}
-          className={`flex-1 min-w-[100px] py-2 rounded-lg font-bold transition-all ${
-            activeTab === "vault" ? "bg-blue-600 text-white shadow-glow-sm" : "text-slate-400 hover:text-white"
-          }`}
+          className={`flex-1 min-w-[100px] py-2 rounded-lg font-bold transition-all ${activeTab === "vault" ? "bg-blue-600 text-white shadow-glow-sm" : "text-slate-400 hover:text-white"
+            }`}
         >
           API Key Vault
         </button>
         <button
           onClick={() => setActiveTab("security")}
-          className={`flex-1 min-w-[110px] py-2 rounded-lg font-bold transition-all ${
-            activeTab === "security" ? "bg-blue-600 text-white shadow-glow-sm" : "text-slate-400 hover:text-white"
-          }`}
+          className={`flex-1 min-w-[110px] py-2 rounded-lg font-bold transition-all ${activeTab === "security" ? "bg-blue-600 text-white shadow-glow-sm" : "text-slate-400 hover:text-white"
+            }`}
         >
           Security & Access
         </button>
       </div>
 
-      {/* TAB CONTENT: PROFILE */}
+      {/* TAB CONTENT: PROFILE & CHANGE PASSWORD */}
       {activeTab === "profile" && (
-        <div className="rounded-2xl border border-white/[0.08] bg-[#0c1017] p-6 space-y-4">
-          <h2 className="text-base font-bold text-white flex items-center gap-2">
-            <User className="h-4 w-4 text-blue-400" /> Account Identity
-          </h2>
-
-          <form onSubmit={handleSaveProfile} className="space-y-4">
-            <div>
-              <label className="block text-xs font-semibold text-slate-300 mb-1">Full Name</label>
-              <input
-                type="text"
-                value={fullName}
-                onChange={(e) => setFullName(e.target.value)}
-                className="w-full rounded-xl border border-white/10 bg-white/[0.03] px-3.5 py-2 text-xs text-white focus:outline-none"
-              />
+        <div className="space-y-6">
+          <div className="rounded-2xl border border-white/[0.08] bg-[#0c1017] p-6 space-y-4">
+            <div className="flex items-center justify-between flex-wrap gap-2">
+              <h2 className="text-base font-bold text-white flex items-center gap-2">
+                <User className="h-4 w-4 text-blue-400" /> Account Identity
+              </h2>
+              <span className="text-[10px] font-mono px-2.5 py-0.5 rounded-full bg-white/[0.04] border border-white/10 text-slate-300 flex items-center gap-1">
+                <Lock className="h-3 w-3 text-amber-400" />
+                <span>Permanent Account Username</span>
+              </span>
             </div>
 
-            <div>
-              <label className="block text-xs font-semibold text-slate-300 mb-1">Email Address</label>
-              <input
-                type="email"
-                disabled
-                value={user?.email || "telegramtiktokn1@gmail.com"}
-                className="w-full rounded-xl border border-white/5 bg-white/[0.01] px-3.5 py-2 text-xs text-slate-500 cursor-not-allowed"
-              />
+            {profileErr && (
+              <div className="p-3 rounded-xl bg-rose-500/10 border border-rose-500/30 text-xs text-rose-300 flex items-center gap-2">
+                <AlertCircle className="h-4 w-4 shrink-0" />
+                <span>{profileErr}</span>
+              </div>
+            )}
+
+            <form onSubmit={handleSaveProfile} className="space-y-4">
+              <div>
+                <label className="block text-xs font-semibold text-slate-300 mb-1 flex items-center justify-between">
+                  <span>Permanent Username (Login ID)</span>
+                  <span className="text-[10px] text-amber-400 font-normal">Assigned by Owner • Cannot Be Changed</span>
+                </label>
+                <div className="relative">
+                  <input
+                    type="text"
+                    readOnly
+                    disabled
+                    value={user?.username || user?.email || ""}
+                    className="w-full rounded-xl border border-white/10 bg-white/[0.015] px-3.5 py-2 text-xs font-mono text-slate-300 cursor-not-allowed"
+                  />
+                  <Lock className="h-3.5 w-3.5 text-slate-500 absolute right-3.5 top-2.5" />
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-xs font-semibold text-slate-300 mb-1">Full Name</label>
+                <input
+                  type="text"
+                  required
+                  value={fullName}
+                  onChange={(e) => setFullName(e.target.value)}
+                  className="w-full rounded-xl border border-white/10 bg-white/[0.03] px-3.5 py-2 text-xs text-white focus:border-blue-500 focus:outline-none"
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-semibold text-slate-300 mb-1">Email Address</label>
+                <input
+                  type="email"
+                  disabled
+                  readOnly
+                  value={user?.email || ""}
+                  className="w-full rounded-xl border border-white/5 bg-white/[0.01] px-3.5 py-2 text-xs text-slate-400 cursor-not-allowed"
+                />
+              </div>
+
+              <div className="pt-1">
+                <button
+                  type="submit"
+                  disabled={savingProfile}
+                  className="px-6 py-2 rounded-xl bg-blue-600 hover:bg-blue-500 text-white font-bold text-xs shadow-glow-sm disabled:opacity-50 cursor-pointer"
+                >
+                  {savingProfile ? "Saving..." : "Save Display Name"}
+                </button>
+              </div>
+            </form>
+          </div>
+
+          {/* CHANGE PASSWORD SECTION */}
+          <div className="rounded-2xl border border-white/[0.08] bg-[#0c1017] p-6 space-y-4">
+            <div className="flex items-center justify-between flex-wrap gap-2 pb-2 border-b border-white/[0.06]">
+              <div>
+                <h2 className="text-base font-bold text-white flex items-center gap-2">
+                  <KeyRound className="h-4 w-4 text-amber-400" /> Change Password
+                </h2>
+                <p className="text-[11px] text-slate-400 mt-0.5">
+                  Update your password securely anytime. All other active sessions are signed out automatically when your password changes.
+                </p>
+              </div>
             </div>
 
-            <div>
-              <label className="block text-xs font-semibold text-slate-300 mb-1">Company / Organization</label>
-              <input
-                type="text"
-                value={company}
-                onChange={(e) => setCompany(e.target.value)}
-                className="w-full rounded-xl border border-white/10 bg-white/[0.03] px-3.5 py-2 text-xs text-white focus:outline-none"
-              />
-            </div>
+            {pwdError && (
+              <div className="p-3 rounded-xl bg-rose-500/10 border border-rose-500/30 text-xs text-rose-300 flex items-center gap-2">
+                <AlertCircle className="h-4 w-4 shrink-0" />
+                <span>{pwdError}</span>
+              </div>
+            )}
+            {pwdSuccess && (
+              <div className="p-3 rounded-xl bg-emerald-500/10 border border-emerald-500/30 text-xs text-emerald-300 flex items-center gap-2">
+                <CheckCircle2 className="h-4 w-4 shrink-0" />
+                <span>{pwdSuccess}</span>
+              </div>
+            )}
 
-            <div className="pt-2">
-              <button
-                type="submit"
-                className="px-6 py-2 rounded-xl bg-blue-600 hover:bg-blue-500 text-white font-bold text-xs shadow-glow-sm"
-              >
-                Save Changes
-              </button>
-            </div>
-          </form>
+            <form onSubmit={handleChangePassword} className="space-y-4">
+              <div>
+                <label htmlFor="settings-cur-pwd" className="block text-xs font-semibold text-slate-300 mb-1">
+                  Current Password
+                </label>
+                <div className="relative">
+                  <input
+                    id="settings-cur-pwd"
+                    type={showOldPwd ? "text" : "password"}
+                    required
+                    value={oldPassword}
+                    onChange={(e) => setOldPassword(e.target.value)}
+                    placeholder="Enter your current password"
+                    className="w-full rounded-xl border border-white/10 bg-white/[0.03] px-3.5 pr-10 py-2 text-xs text-white focus:border-blue-500 focus:outline-none"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowOldPwd((v) => !v)}
+                    className="absolute right-3 top-2 text-slate-400 hover:text-white cursor-pointer"
+                    aria-label="Toggle current password visibility"
+                  >
+                    {showOldPwd ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                  </button>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div>
+                  <label htmlFor="settings-new-pwd" className="block text-xs font-semibold text-slate-300 mb-1">
+                    New Password
+                  </label>
+                  <div className="relative">
+                    <input
+                      id="settings-new-pwd"
+                      type={showNewPwd ? "text" : "password"}
+                      required
+                      value={newPassword}
+                      onChange={(e) => setNewPassword(e.target.value)}
+                      placeholder="Min 8 chars, letters + numbers/symbols"
+                      className="w-full rounded-xl border border-white/10 bg-white/[0.03] px-3.5 pr-10 py-2 text-xs text-white focus:border-blue-500 focus:outline-none"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setShowNewPwd((v) => !v)}
+                      className="absolute right-3 top-2 text-slate-400 hover:text-white cursor-pointer"
+                      aria-label="Toggle new password visibility"
+                    >
+                      {showNewPwd ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                    </button>
+                  </div>
+                </div>
+
+                <div>
+                  <label htmlFor="settings-conf-pwd" className="block text-xs font-semibold text-slate-300 mb-1">
+                    Confirm New Password
+                  </label>
+                  <input
+                    id="settings-conf-pwd"
+                    type={showNewPwd ? "text" : "password"}
+                    required
+                    value={confirmPassword}
+                    onChange={(e) => setConfirmPassword(e.target.value)}
+                    placeholder="Re-enter your new password"
+                    className="w-full rounded-xl border border-white/10 bg-white/[0.03] px-3.5 py-2 text-xs text-white focus:border-blue-500 focus:outline-none"
+                  />
+                </div>
+              </div>
+
+              <div className="flex items-center justify-between flex-wrap gap-3 pt-1">
+                <span className="text-[11px] text-slate-500">
+                  Forgot a temporary password? Contact your Workspace Owner for a secure password reset.
+                </span>
+                <button
+                  type="submit"
+                  disabled={changingPwd}
+                  className="px-6 py-2.5 rounded-xl bg-amber-500 hover:bg-amber-400 text-slate-950 font-extrabold text-xs shadow-glow-sm disabled:opacity-50 cursor-pointer flex items-center gap-2"
+                >
+                  <Lock className="h-3.5 w-3.5" />
+                  <span>{changingPwd ? "Updating..." : "Update Password"}</span>
+                </button>
+              </div>
+            </form>
+          </div>
         </div>
       )}
 
@@ -557,15 +751,14 @@ export default function SettingsPage() {
             <div className="p-4 rounded-xl border border-white/[0.06] bg-white/[0.02] space-y-4">
               <div className="flex items-center justify-between flex-wrap gap-4">
                 <div className="flex items-center gap-3">
-                  <div className={`h-10 w-10 rounded-xl flex items-center justify-center font-bold text-base ${
-                    (gmailStatus?.status_code === "CONNECTED" || (gmailStatus?.connected && gmailStatus?.status_code !== "RECONNECT_REQUIRED"))
-                      ? "bg-emerald-500/10 text-emerald-400 border border-emerald-500/20"
-                      : gmailStatus?.status_code === "RECONNECT_REQUIRED"
+                  <div className={`h-10 w-10 rounded-xl flex items-center justify-center font-bold text-base ${(gmailStatus?.status_code === "CONNECTED" || (gmailStatus?.connected && gmailStatus?.status_code !== "RECONNECT_REQUIRED"))
+                    ? "bg-emerald-500/10 text-emerald-400 border border-emerald-500/20"
+                    : gmailStatus?.status_code === "RECONNECT_REQUIRED"
                       ? "bg-amber-500/10 text-amber-400 border border-amber-500/20"
                       : gmailStatus?.status_code === "CONFIGURATION_ERROR" || !gmailStatus?.configured
-                      ? "bg-rose-500/10 text-rose-400 border border-rose-500/20"
-                      : "bg-white/[0.05] text-slate-400 border border-white/10"
-                  }`}>
+                        ? "bg-rose-500/10 text-rose-400 border border-rose-500/20"
+                        : "bg-white/[0.05] text-slate-400 border border-white/10"
+                    }`}>
                     <Mail className="h-5 w-5" />
                   </div>
                   <div>
@@ -747,13 +940,12 @@ export default function SettingsPage() {
                   </div>
                   <div className="flex items-center gap-1.5">
                     <span className="text-[11px] text-slate-400">Deliverability Grade:</span>
-                    <span className={`px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider ${
-                      dnsResult.overall === "EXCELLENT"
-                        ? "bg-emerald-500/20 text-emerald-400 border border-emerald-500/30"
-                        : dnsResult.overall === "GOOD"
+                    <span className={`px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider ${dnsResult.overall === "EXCELLENT"
+                      ? "bg-emerald-500/20 text-emerald-400 border border-emerald-500/30"
+                      : dnsResult.overall === "GOOD"
                         ? "bg-blue-500/20 text-blue-400 border border-blue-500/30"
                         : "bg-amber-500/20 text-amber-400 border border-amber-500/30"
-                    }`}>
+                      }`}>
                       {dnsResult.overall}
                     </span>
                   </div>
@@ -767,11 +959,10 @@ export default function SettingsPage() {
                       <span className="font-bold text-white flex items-center gap-1.5">
                         <Mail className="h-3.5 w-3.5 text-blue-400" /> MX (Mail Routing)
                       </span>
-                      <span className={`px-1.5 py-0.5 rounded text-[9px] font-bold uppercase ${
-                        dnsResult.mx.status === "PASS"
-                          ? "bg-emerald-500/20 text-emerald-400"
-                          : "bg-rose-500/20 text-rose-400"
-                      }`}>
+                      <span className={`px-1.5 py-0.5 rounded text-[9px] font-bold uppercase ${dnsResult.mx.status === "PASS"
+                        ? "bg-emerald-500/20 text-emerald-400"
+                        : "bg-rose-500/20 text-rose-400"
+                        }`}>
                         {dnsResult.mx.status}
                       </span>
                     </div>
@@ -791,11 +982,10 @@ export default function SettingsPage() {
                       <span className="font-bold text-white flex items-center gap-1.5">
                         <Shield className="h-3.5 w-3.5 text-emerald-400" /> SPF (Sender Policy)
                       </span>
-                      <span className={`px-1.5 py-0.5 rounded text-[9px] font-bold uppercase ${
-                        dnsResult.spf.status === "PASS"
-                          ? "bg-emerald-500/20 text-emerald-400"
-                          : "bg-amber-500/20 text-amber-400"
-                      }`}>
+                      <span className={`px-1.5 py-0.5 rounded text-[9px] font-bold uppercase ${dnsResult.spf.status === "PASS"
+                        ? "bg-emerald-500/20 text-emerald-400"
+                        : "bg-amber-500/20 text-amber-400"
+                        }`}>
                         {dnsResult.spf.status}
                       </span>
                     </div>
@@ -813,11 +1003,10 @@ export default function SettingsPage() {
                       <span className="font-bold text-white flex items-center gap-1.5">
                         <Lock className="h-3.5 w-3.5 text-purple-400" /> DMARC Policy
                       </span>
-                      <span className={`px-1.5 py-0.5 rounded text-[9px] font-bold uppercase ${
-                        dnsResult.dmarc.status === "PASS"
-                          ? "bg-emerald-500/20 text-emerald-400"
-                          : "bg-amber-500/20 text-amber-400"
-                      }`}>
+                      <span className={`px-1.5 py-0.5 rounded text-[9px] font-bold uppercase ${dnsResult.dmarc.status === "PASS"
+                        ? "bg-emerald-500/20 text-emerald-400"
+                        : "bg-amber-500/20 text-amber-400"
+                        }`}>
                         {dnsResult.dmarc.status}
                       </span>
                     </div>
@@ -835,11 +1024,10 @@ export default function SettingsPage() {
                       <span className="font-bold text-white flex items-center gap-1.5">
                         <Key className="h-3.5 w-3.5 text-amber-400" /> DKIM Signature ({dnsResult.dkim.selector})
                       </span>
-                      <span className={`px-1.5 py-0.5 rounded text-[9px] font-bold uppercase ${
-                        dnsResult.dkim.status === "PASS"
-                          ? "bg-emerald-500/20 text-emerald-400"
-                          : "bg-amber-500/20 text-amber-400"
-                      }`}>
+                      <span className={`px-1.5 py-0.5 rounded text-[9px] font-bold uppercase ${dnsResult.dkim.status === "PASS"
+                        ? "bg-emerald-500/20 text-emerald-400"
+                        : "bg-amber-500/20 text-amber-400"
+                        }`}>
                         {dnsResult.dkim.status}
                       </span>
                     </div>
@@ -931,8 +1119,27 @@ export default function SettingsPage() {
               <Shield className="h-4 w-4 text-emerald-400" /> Security & Account Protection
             </h2>
             <p className="text-xs text-slate-400 mt-1">
-              Plain-language overview of how your workspace data and credentials are kept safe.
+              Plain-language overview of how your workspace identity, password, and credentials are protected.
             </p>
+          </div>
+
+          <div className="p-4 rounded-xl border border-amber-500/25 bg-amber-500/[0.04] flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs">
+            <div>
+              <div className="font-bold text-white flex items-center gap-1.5">
+                <KeyRound className="h-4 w-4 text-amber-400" />
+                <span>Permanent Username: <span className="font-mono text-amber-300">{user?.username || user?.email}</span></span>
+              </div>
+              <p className="text-[11px] text-slate-400 mt-0.5">
+                Your username cannot be modified by users. You can update your password anytime from Account Profile.
+              </p>
+            </div>
+            <button
+              type="button"
+              onClick={() => setActiveTab("profile")}
+              className="px-4 py-2 rounded-xl bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold text-xs shrink-0 cursor-pointer"
+            >
+              Go to Change Password
+            </button>
           </div>
 
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-xs">

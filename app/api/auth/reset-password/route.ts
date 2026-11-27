@@ -60,6 +60,7 @@ export async function POST(request: Request) {
     await sql.query(
       `UPDATE users
        SET password_hash = $1,
+           hashed_password = $1,
            must_change_password = FALSE,
            session_version = COALESCE(session_version, 1) + 1,
            updated_at = NOW()

@@ -21,8 +21,9 @@ import {
   Users, UserPlus, KeyRound, ShieldAlert, CheckCircle2,
   AlertTriangle, Copy, Check, RefreshCw, Lock, Unlock, Trash2, Power, Search,
   Sparkles, Key, ExternalLink, ShieldCheck, Clock, Eye, EyeOff, UserCheck, Globe,
-  Crown, AlertCircle, Sliders, X, DollarSign
+  Crown, AlertCircle, Sliders, X, DollarSign, MessageCircle, RotateCcw
 } from "lucide-react";
+import { buildWhatsAppWelcomeMessage } from "@/lib/whatsapp-credential-message";
 
 interface OneTimeCreds {
   customer_id?: number;
@@ -35,11 +36,18 @@ interface OneTimeCreds {
   password?: string;
   plan?: string;
   duration?: string;
+  start_date?: string;
   expires_at?: string;
+  is_lifetime?: boolean;
+  is_password_reset?: boolean;
   google_maps_enabled?: boolean;
   daily_email_limit?: number;
   custom_price_usd?: number | null;
   suggested_price_usd?: number | null;
+  agreed_amount?: number | null;
+  agreed_currency?: string | null;
+  support_whatsapp?: string | null;
+  support_email?: string | null;
   login_url?: string;
   note?: string;
 }
@@ -168,9 +176,22 @@ export function ClientProvisioningSection() {
   const [successMsg, setSuccessMsg] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
 
-  // One-time credentials display modal
+  // One-time credentials & WhatsApp welcome delivery modal
   const [oneTimeCreds, setOneTimeCreds] = useState<OneTimeCreds | null>(null);
+  const [modalStep, setModalStep] = useState<"credentials" | "whatsapp">("credentials");
+  const [waOverrides, setWaOverrides] = useState<{ customerName: string; amount: string; currency: string }>({
+    customerName: "",
+    amount: "",
+    currency: "USD",
+  });
+  const [waPreviewText, setWaPreviewText] = useState<string>("");
+  const [ownerSupport, setOwnerSupport] = useState<{ whatsapp: string | null; email: string | null }>({
+    whatsapp: null,
+    email: null,
+  });
   const [copied, setCopied] = useState(false);
+  const [copiedWhatsapp, setCopiedWhatsapp] = useState(false);
+  const [clipboardError, setClipboardError] = useState<string | null>(null);
   const [actionLoadingId, setActionLoadingId] = useState<number | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<{
     id: number;
@@ -192,6 +213,8 @@ export function ClientProvisioningSection() {
     password: generateStrongPassword(),
     showPassword: true,
     plan: "BASIC" as "BASIC" | "LIFETIME" | "CUSTOM",
+    agreedCurrency: "USD",
+    agreedAmount: "",
     clientNotes: "",
     durationValue: 7,
     durationUnit: "days" as DurationUnit,
@@ -296,10 +319,84 @@ export function ClientProvisioningSection() {
     }
   };
 
+  const fetchOwnerSupport = async () => {
+    try {
+      const sRes = await api.get<any>("/admin/settings");
+      if (sRes?.settings) {
+        setOwnerSupport({
+          whatsapp: sRes.settings.whatsappNumber || null,
+          email: sRes.settings.supportEmail || null,
+        });
+      }
+    } catch {
+      // Uses server response credentials support contact fallback
+    }
+  };
+
   useEffect(() => {
     fetchClients();
     fetchInquiries();
+    fetchOwnerSupport();
   }, []);
+
+  const buildMsgFromCreds = (
+    credsObj: OneTimeCreds,
+    overrides?: { customerName?: string; amount?: string; currency?: string }
+  ) => {
+    const useAmount =
+      overrides?.amount !== undefined && overrides.amount.trim() !== ""
+        ? overrides.amount.trim()
+        : credsObj.agreed_amount ?? credsObj.custom_price_usd;
+    const useCurrency =
+      overrides?.currency !== undefined && overrides.currency.trim() !== ""
+        ? overrides.currency.trim().toUpperCase()
+        : credsObj.agreed_currency || "USD";
+    const useCustomerName =
+      overrides?.customerName !== undefined ? overrides.customerName : credsObj.full_name;
+
+    return buildWhatsAppWelcomeMessage({
+      customerName: useCustomerName,
+      username: credsObj.username,
+      password: credsObj.password || credsObj.temporary_password || "",
+      planName: credsObj.plan || "Active Plan",
+      amount: useAmount,
+      currency: useCurrency,
+      durationLabel: credsObj.duration,
+      startDate: credsObj.start_date,
+      expiryDate: credsObj.expires_at,
+      isLifetime: Boolean(credsObj.is_lifetime),
+      isPasswordReset: Boolean(credsObj.is_password_reset),
+      loginUrl: credsObj.login_url,
+      supportWhatsapp: credsObj.support_whatsapp || ownerSupport.whatsapp,
+      supportEmail: credsObj.support_email || ownerSupport.email,
+    });
+  };
+
+  const openOneTimeCredentialsModal = (credsObj: OneTimeCreds) => {
+    const cleanName =
+      credsObj.full_name && credsObj.full_name.toLowerCase() !== credsObj.username.toLowerCase()
+        ? credsObj.full_name
+        : "";
+    const initAmount =
+      credsObj.agreed_amount != null
+        ? String(credsObj.agreed_amount)
+        : credsObj.custom_price_usd != null
+        ? String(credsObj.custom_price_usd)
+        : "";
+    const initCurrency = (credsObj.agreed_currency || "USD").toUpperCase();
+
+    setOneTimeCreds(credsObj);
+    setModalStep("credentials");
+    setCopied(false);
+    setCopiedWhatsapp(false);
+    setClipboardError(null);
+    setWaOverrides({
+      customerName: cleanName,
+      amount: initAmount,
+      currency: initCurrency,
+    });
+    setWaPreviewText(buildMsgFromCreds(credsObj, { customerName: cleanName, amount: initAmount, currency: initCurrency }));
+  };
 
   // Compute dynamic client seat and subscription statistics
   const totalPaid = clients.length;
@@ -391,6 +488,8 @@ export function ClientProvisioningSection() {
         username: cleanUsername,
         password: createForm.password.trim(),
         plan: createForm.plan,
+        agreed_currency: createForm.agreedCurrency || "USD",
+        agreed_amount: createForm.agreedAmount.trim() !== "" ? Number(createForm.agreedAmount) : undefined,
         client_notes: createForm.clientNotes.trim() || undefined,
       };
 
@@ -419,18 +518,25 @@ export function ClientProvisioningSection() {
       const creds = res.credentials || {};
       const client = res.client || {};
 
-      setOneTimeCreds({
+      openOneTimeCredentialsModal({
         customer_id: creds.customer_id || client.id,
-        full_name: creds.customer_name || client.full_name || createForm.customerName || cleanUsername,
+        full_name: creds.customer_name || createForm.customerName.trim() || "",
         username: creds.username || cleanUsername,
         password: creds.password || createForm.password.trim(),
         plan: creds.plan || client.plan_label || createForm.plan,
         duration: creds.duration || client.remaining_days,
-        expires_at: creds.expires_at || client.subscription_expires_at || "Never (Permanent)",
+        start_date: creds.start_date || client.subscription_start || new Date().toISOString(),
+        expires_at: creds.expires_at || client.subscription_expires_at || "Never (Lifetime)",
+        is_lifetime: Boolean(creds.is_lifetime),
+        is_password_reset: false,
         google_maps_enabled: creds.google_maps_enabled ?? client.google_maps_enabled,
         daily_email_limit: creds.daily_email_limit ?? client.daily_email_limit,
         custom_price_usd: creds.custom_price_usd ?? client.custom_price_usd,
         suggested_price_usd: creds.suggested_price_usd ?? client.suggested_price_usd,
+        agreed_amount: creds.agreed_amount ?? creds.custom_price_usd ?? client.custom_price_usd,
+        agreed_currency: creds.agreed_currency || createForm.agreedCurrency || "USD",
+        support_whatsapp: creds.support_whatsapp || ownerSupport.whatsapp,
+        support_email: creds.support_email || ownerSupport.email,
         workspace_id: client.workspace_id,
         workspace_name: client.workspace_name || "Client Workspace",
         login_url: creds.login_url || "https://lead-scraper-mxs5.vercel.app/login",
@@ -444,6 +550,8 @@ export function ClientProvisioningSection() {
         password: generateStrongPassword(),
         showPassword: true,
         plan: "BASIC",
+        agreedCurrency: "USD",
+        agreedAmount: "",
         clientNotes: "",
         durationValue: 7,
         durationUnit: "days",
@@ -567,13 +675,23 @@ export function ClientProvisioningSection() {
       ).catch(() => null);
 
       const targetClient = freshClient || clients.find((c) => c.id === clientId);
-      setOneTimeCreds({
+      const isLif = String(targetClient?.raw_plan || targetClient?.plan_type || "").toUpperCase() === "LIFETIME";
+      openOneTimeCredentialsModal({
         customer_id: clientId,
-        full_name: targetClient?.full_name || clientUsername,
+        full_name: targetClient?.full_name || "",
         username: targetClient?.username || clientUsername,
         password: res.temporary_password,
-        plan: targetClient?.plan || "Paid Account",
+        plan: targetClient?.plan_label || targetClient?.plan || "Paid Account",
         duration: targetClient?.remaining_days ? String(targetClient.remaining_days) : "Active",
+        start_date: targetClient?.subscription_start || undefined,
+        expires_at: targetClient?.subscription_expires_at || (isLif ? "Lifetime (No Expiry)" : undefined),
+        is_lifetime: isLif,
+        is_password_reset: true,
+        custom_price_usd: targetClient?.custom_price_usd,
+        agreed_amount: targetClient?.custom_price_usd,
+        agreed_currency: "USD",
+        support_whatsapp: ownerSupport.whatsapp,
+        support_email: ownerSupport.email,
         workspace_id: targetClient?.workspace_id,
         login_url: "https://lead-scraper-mxs5.vercel.app/login",
         note: "Password reset complete and old sessions invalidated. This new password is shown ONCE.",
@@ -705,8 +823,15 @@ export function ClientProvisioningSection() {
     }
   };
 
-  const copyCredsToClipboard = () => {
+  const copyCredsToClipboard = async () => {
     if (!oneTimeCreds) return;
+    setClipboardError(null);
+    const amountShown =
+      oneTimeCreds.agreed_amount != null
+        ? `${oneTimeCreds.agreed_amount} ${oneTimeCreds.agreed_currency || "USD"}`
+        : oneTimeCreds.custom_price_usd != null
+        ? `$${oneTimeCreds.custom_price_usd} USD`
+        : "Configured";
     const text =
       `==========================================\n` +
       `USMAN AI GTM — CLIENT LOGIN CREDENTIALS\n` +
@@ -714,17 +839,45 @@ export function ClientProvisioningSection() {
       `Login URL: ${oneTimeCreds.login_url || "https://lead-scraper-mxs5.vercel.app/login"}\n` +
       `Username: ${oneTimeCreds.username}\n` +
       `Password: ${oneTimeCreds.password}\n` +
-      `Customer Name: ${oneTimeCreds.full_name}\n` +
+      (oneTimeCreds.full_name ? `Customer Name: ${oneTimeCreds.full_name}\n` : "") +
       `Customer ID: #${oneTimeCreds.customer_id || "N/A"}\n` +
       `Subscription: ${oneTimeCreds.plan || "Paid Account"}\n` +
+      `Amount: ${amountShown}\n` +
       `Access Duration: ${oneTimeCreds.duration || "Active"}\n` +
+      `Expiry: ${oneTimeCreds.is_lifetime ? "Lifetime (No Expiry)" : oneTimeCreds.expires_at || "Active"}\n` +
       `------------------------------------------\n` +
-      `Go to the Login URL, enter your Username and Password, and click 'Sign In to Paid Account'.\n` +
+      `Go to the Login URL, enter your Username and Password, and sign in.\n` +
       `==========================================`;
 
-    navigator.clipboard.writeText(text);
-    setCopied(true);
-    setTimeout(() => setCopied(false), 2500);
+    try {
+      await navigator.clipboard.writeText(text);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2600);
+    } catch {
+      setCopied(false);
+      setClipboardError("Clipboard permission was blocked. Please select and copy the text manually.");
+    }
+  };
+
+  const handleRegenerateWhatsApp = () => {
+    if (!oneTimeCreds) return;
+    setCopiedWhatsapp(false);
+    setClipboardError(null);
+    setWaPreviewText(buildMsgFromCreds(oneTimeCreds, waOverrides));
+  };
+
+  const copyWhatsAppWelcomeToClipboard = async () => {
+    if (!waPreviewText) return;
+    setClipboardError(null);
+    try {
+      if (!navigator.clipboard?.writeText) throw new Error("Clipboard unavailable");
+      await navigator.clipboard.writeText(waPreviewText);
+      setCopiedWhatsapp(true);
+      setTimeout(() => setCopiedWhatsapp(false), 3000);
+    } catch {
+      setCopiedWhatsapp(false);
+      setClipboardError("Browser clipboard write failed. Select all text inside the WhatsApp preview box to copy manually.");
+    }
   };
 
   return (
@@ -928,6 +1081,51 @@ export function ClientProvisioningSection() {
                     </p>
                   </div>
                 </div>
+              </div>
+            </div>
+
+            {/* Recorded Payment Currency & Agreed Amount (Populates WhatsApp Welcome Message Dynamically) */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <div>
+                <label className="block text-xs font-semibold text-slate-300 mb-1.5">
+                  Payment Currency <span className="text-slate-500 font-normal">(For WhatsApp Receipt Message)</span>
+                </label>
+                <select
+                  value={createForm.agreedCurrency}
+                  onChange={(e) => setCreateForm({ ...createForm, agreedCurrency: e.target.value })}
+                  className="w-full rounded-xl border border-white/10 bg-[#121824] px-3.5 py-2.5 text-xs text-white font-mono focus:border-blue-500 focus:outline-none"
+                >
+                  <option value="USD">USD ($)</option>
+                  <option value="PKR">PKR (Rs)</option>
+                  <option value="EUR">EUR (€)</option>
+                  <option value="GBP">GBP (£)</option>
+                  <option value="AED">AED</option>
+                  <option value="SAR">SAR</option>
+                  <option value="INR">INR (₹)</option>
+                  <option value="CAD">CAD (C$)</option>
+                  <option value="AUD">AUD (A$)</option>
+                  <option value="USDT">USDT (TRC20 Only)</option>
+                </select>
+              </div>
+              <div>
+                <label className="block text-xs font-semibold text-slate-300 mb-1.5">
+                  Agreed / Paid Amount <span className="text-slate-500 font-normal">(Optional — defaults to plan price)</span>
+                </label>
+                <input
+                  type="number"
+                  min={0}
+                  step="0.01"
+                  value={createForm.agreedAmount}
+                  onChange={(e) => setCreateForm({ ...createForm, agreedAmount: e.target.value })}
+                  placeholder={
+                    createForm.plan === "LIFETIME"
+                      ? "Default: 100 USD"
+                      : createForm.plan === "CUSTOM"
+                      ? `Default: ${finalCustomPriceUsd} USD`
+                      : "Default: 25 USD"
+                  }
+                  className="w-full rounded-xl border border-white/10 bg-white/[0.04] px-3.5 py-2.5 text-xs font-mono text-white placeholder-slate-500 focus:border-blue-500 focus:outline-none"
+                />
               </div>
             </div>
 
@@ -1847,107 +2045,270 @@ export function ClientProvisioningSection() {
       )}
 
       {/* ========================================================================= */}
-      {/* 7. ONE-TIME CREDENTIALS MODAL                                             */}
+      {/* 7. ONE-TIME CREDENTIALS & WHATSAPP DELIVERY MODAL                         */}
       {/* ========================================================================= */}
       {oneTimeCreds && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/85 backdrop-blur-md px-4">
-          <div className="w-full max-w-lg rounded-2xl border border-amber-500/50 bg-[#0c1017] p-6 shadow-2xl text-slate-100 space-y-4">
-            <div className="flex items-center gap-3 pb-3 border-b border-white/[0.08]">
-              <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-amber-500/15 border border-amber-500/30 text-amber-400">
-                <ShieldAlert className="h-5 w-5" />
-              </div>
-              <div>
-                <div className="text-[10px] font-bold uppercase tracking-wider text-amber-400">Zero-Knowledge Security</div>
-                <h3 className="text-base font-bold text-white">Application Credentials Generated</h3>
-              </div>
-            </div>
-
-            <div className="p-3 rounded-xl bg-amber-500/10 border border-amber-500/20 text-amber-300 text-xs">
-              <strong>IMPORTANT:</strong> These credentials are displayed <u>ONCE</u>. The password is saved only as a secure cryptographic hash in the production database. Copy and send these credentials to your paying client.
-            </div>
-
-            <div className="space-y-2 p-4 rounded-xl bg-black/50 border border-white/[0.08] font-mono text-xs">
-              <div className="flex justify-between">
-                <span className="text-slate-500">Sign-In URL:</span>
-                <span className="text-blue-400 font-semibold">{oneTimeCreds.login_url || "https://lead-scraper-mxs5.vercel.app/login"}</span>
-              </div>
-              <div className="flex justify-between items-center pt-1 border-t border-white/[0.04]">
-                <span className="text-slate-400 font-bold">Username:</span>
-                <span className="text-emerald-400 font-bold text-sm bg-emerald-500/10 px-2 py-0.5 rounded select-all">
-                  {oneTimeCreds.username}
-                </span>
-              </div>
-              <div className="flex justify-between items-center pt-1 border-t border-white/[0.04]">
-                <span className="text-amber-400 font-bold">Password:</span>
-                <span className="text-white font-extrabold text-sm bg-white/10 px-2 py-0.5 rounded select-all">
-                  {oneTimeCreds.password}
-                </span>
-              </div>
-              <div className="flex justify-between pt-1 border-t border-white/[0.04]">
-                <span className="text-slate-500">Customer Name:</span>
-                <span className="text-slate-200">{oneTimeCreds.full_name}</span>
-              </div>
-              <div className="flex justify-between">
-                <span className="text-slate-500">Internal Customer ID:</span>
-                <span className="text-slate-300">#{oneTimeCreds.customer_id}</span>
-              </div>
-              <div className="flex justify-between">
-                <span className="text-slate-500">Subscription Plan:</span>
-                <span className="text-blue-300 font-bold">{oneTimeCreds.plan}</span>
-              </div>
-              <div className="flex justify-between">
-                <span className="text-slate-500">Access Duration:</span>
-                <span className="text-emerald-300 font-semibold">{oneTimeCreds.duration}</span>
-              </div>
-              {oneTimeCreds.expires_at && (
-                <div className="flex justify-between">
-                  <span className="text-slate-500">Expires At (UTC):</span>
-                  <span className="text-slate-300">{oneTimeCreds.expires_at}</span>
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/85 backdrop-blur-md px-4 py-6 overflow-y-auto">
+          <div className="w-full max-w-2xl rounded-2xl border border-amber-500/50 bg-[#0c1017] p-6 shadow-2xl text-slate-100 space-y-4 my-auto">
+            <div className="flex items-center justify-between gap-3 pb-3 border-b border-white/[0.08] flex-wrap">
+              <div className="flex items-center gap-3">
+                <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-amber-500/15 border border-amber-500/30 text-amber-400">
+                  {modalStep === "whatsapp" ? (
+                    <MessageCircle className="h-5 w-5 text-emerald-400" />
+                  ) : (
+                    <ShieldAlert className="h-5 w-5" />
+                  )}
                 </div>
-              )}
-              <div className="flex justify-between">
-                <span className="text-slate-500">Google Maps Entitlement:</span>
-                <span className={oneTimeCreds.google_maps_enabled ? "text-emerald-400 font-bold" : "text-slate-400"}>
-                  {oneTimeCreds.google_maps_enabled ? "INCLUDED" : "EXCLUDED"}
-                </span>
-              </div>
-              <div className="flex justify-between">
-                <span className="text-slate-500">Daily Cold Email Limit:</span>
-                <span className="text-slate-200">{oneTimeCreds.daily_email_limit ?? 10} / UTC day</span>
-              </div>
-              {oneTimeCreds.custom_price_usd != null && (
-                <div className="flex justify-between">
-                  <span className="text-slate-500">Final Plan Price:</span>
-                  <span className="text-emerald-300 font-bold">${oneTimeCreds.custom_price_usd} USD</span>
+                <div>
+                  <div className="text-[10px] font-bold uppercase tracking-wider text-amber-400">
+                    One-Time Disclosure • Zero Plaintext Storage
+                  </div>
+                  <h3 className="text-base font-bold text-white">
+                    {modalStep === "whatsapp"
+                      ? "Professional WhatsApp Customer Message"
+                      : oneTimeCreds.is_password_reset
+                      ? "New Temporary Password Generated"
+                      : "Application Credentials Generated"}
+                  </h3>
                 </div>
-              )}
+              </div>
+
+              <div className="flex rounded-xl bg-white/[0.04] border border-white/10 p-1 text-[11px]">
+                <button
+                  type="button"
+                  onClick={() => setModalStep("credentials")}
+                  className={`px-3 py-1 rounded-lg font-bold cursor-pointer transition-colors ${
+                    modalStep === "credentials" ? "bg-amber-500 text-slate-950" : "text-slate-300 hover:text-white"
+                  }`}
+                >
+                  1. Credentials
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setModalStep("whatsapp")}
+                  className={`px-3 py-1 rounded-lg font-bold cursor-pointer transition-colors inline-flex items-center gap-1 ${
+                    modalStep === "whatsapp" ? "bg-emerald-500 text-slate-950" : "text-emerald-300 hover:text-white"
+                  }`}
+                >
+                  <MessageCircle className="h-3 w-3" />
+                  <span>2. WhatsApp Message</span>
+                </button>
+              </div>
             </div>
 
-            <div className="flex items-center justify-between pt-2">
-              <button
-                onClick={copyCredsToClipboard}
-                className="inline-flex items-center gap-2 px-4 py-2.5 text-xs font-bold text-white bg-blue-600 hover:bg-blue-500 rounded-xl transition-all shadow-glow-sm cursor-pointer"
-              >
-                {copied ? (
-                  <>
-                    <Check className="h-4 w-4 text-emerald-400" />
-                    <span>Credentials Copied!</span>
-                  </>
-                ) : (
-                  <>
-                    <Copy className="h-4 w-4" />
-                    <span>Copy All Credentials</span>
-                  </>
-                )}
-              </button>
+            {clipboardError && (
+              <div className="p-3 rounded-xl bg-rose-500/10 border border-rose-500/30 text-rose-300 text-xs flex items-center gap-2">
+                <AlertCircle className="h-4 w-4 shrink-0" />
+                <span>{clipboardError}</span>
+              </div>
+            )}
 
-              <button
-                onClick={() => setOneTimeCreds(null)}
-                className="px-4 py-2 text-xs font-semibold text-slate-300 hover:text-white bg-white/[0.06] hover:bg-white/[0.1] border border-white/10 rounded-xl transition-colors cursor-pointer"
-              >
-                I Have Saved These Credentials
-              </button>
-            </div>
+            {modalStep === "credentials" ? (
+              <>
+                <div className="p-3 rounded-xl bg-amber-500/10 border border-amber-500/20 text-amber-300 text-xs">
+                  <strong>IMPORTANT:</strong> Displayed <u>ONCE</u>. The password is hashed in the database and cannot be read again later. Click <strong>I Have Saved These Credentials</strong> below to generate the formatted WhatsApp welcome message.
+                </div>
+
+                <div className="space-y-2 p-4 rounded-xl bg-black/50 border border-white/[0.08] font-mono text-xs">
+                  <div className="flex justify-between gap-2">
+                    <span className="text-slate-500">Sign-In URL:</span>
+                    <span className="text-blue-400 font-semibold break-all text-right">
+                      {oneTimeCreds.login_url || "https://lead-scraper-mxs5.vercel.app/login"}
+                    </span>
+                  </div>
+                  <div className="flex justify-between items-center pt-1 border-t border-white/[0.04]">
+                    <span className="text-slate-400 font-bold">Username (Permanent):</span>
+                    <span className="text-emerald-400 font-bold text-sm bg-emerald-500/10 px-2 py-0.5 rounded select-all">
+                      {oneTimeCreds.username}
+                    </span>
+                  </div>
+                  <div className="flex justify-between items-center pt-1 border-t border-white/[0.04]">
+                    <span className="text-amber-400 font-bold">Initial Password:</span>
+                    <span className="text-white font-extrabold text-sm bg-white/10 px-2 py-0.5 rounded select-all">
+                      {oneTimeCreds.password}
+                    </span>
+                  </div>
+                  {oneTimeCreds.full_name && (
+                    <div className="flex justify-between pt-1 border-t border-white/[0.04]">
+                      <span className="text-slate-500">Customer Name:</span>
+                      <span className="text-slate-200">{oneTimeCreds.full_name}</span>
+                    </div>
+                  )}
+                  <div className="flex justify-between">
+                    <span className="text-slate-500">Internal Customer ID:</span>
+                    <span className="text-slate-300">#{oneTimeCreds.customer_id}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-slate-500">Subscription Plan:</span>
+                    <span className="text-blue-300 font-bold">{oneTimeCreds.plan}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-slate-500">Agreed Amount:</span>
+                    <span className="text-emerald-300 font-bold">
+                      {oneTimeCreds.agreed_amount ?? oneTimeCreds.custom_price_usd ?? 0}{" "}
+                      {oneTimeCreds.agreed_currency || "USD"}
+                    </span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-slate-500">Access Duration:</span>
+                    <span className="text-emerald-300 font-semibold">{oneTimeCreds.duration}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-slate-500">Expiry:</span>
+                    <span className="text-slate-300">
+                      {oneTimeCreds.is_lifetime ? "Lifetime (No Expiry)" : oneTimeCreds.expires_at || "Active"}
+                    </span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-slate-500">Google Maps Entitlement:</span>
+                    <span className={oneTimeCreds.google_maps_enabled ? "text-emerald-400 font-bold" : "text-slate-400"}>
+                      {oneTimeCreds.google_maps_enabled ? "INCLUDED" : "EXCLUDED"}
+                    </span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-slate-500">Daily Cold Email Limit:</span>
+                    <span className="text-slate-200">{oneTimeCreds.daily_email_limit ?? 10} / UTC day</span>
+                  </div>
+                </div>
+
+                <div className="flex flex-wrap items-center justify-between gap-2 pt-2">
+                  <button
+                    type="button"
+                    onClick={copyCredsToClipboard}
+                    className="inline-flex items-center gap-2 px-4 py-2.5 text-xs font-bold text-white bg-white/[0.08] hover:bg-white/[0.14] border border-white/15 rounded-xl transition-all cursor-pointer"
+                  >
+                    {copied ? (
+                      <>
+                        <Check className="h-4 w-4 text-emerald-400" />
+                        <span>Credentials Copied!</span>
+                      </>
+                    ) : (
+                      <>
+                        <Copy className="h-4 w-4" />
+                        <span>Copy Raw Credentials</span>
+                      </>
+                    )}
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => {
+                      handleRegenerateWhatsApp();
+                      setModalStep("whatsapp");
+                    }}
+                    className="inline-flex items-center gap-2 px-5 py-2.5 text-xs font-extrabold text-slate-950 bg-gradient-to-r from-emerald-400 to-emerald-500 hover:brightness-105 rounded-xl shadow-glow-sm transition-all cursor-pointer"
+                  >
+                    <MessageCircle className="h-4 w-4" />
+                    <span>I Have Saved These Credentials → Generate WhatsApp Message</span>
+                  </button>
+                </div>
+              </>
+            ) : (
+              <>
+                <div className="p-3 rounded-xl bg-emerald-500/10 border border-emerald-500/25 text-xs text-emerald-200 leading-relaxed">
+                  <strong>Ready for WhatsApp!</strong> Formatted using WhatsApp-compatible single asterisks (<code className="font-mono">*bold*</code> / <code className="font-mono">_italic_</code>). Adjust details below if needed and click <strong>Regenerate</strong>, then paste directly into WhatsApp manually.
+                </div>
+
+                {/* Optional pre-copy detail tweaks + Regenerate */}
+                <div className="grid grid-cols-1 sm:grid-cols-4 gap-2.5 text-xs">
+                  <div>
+                    <label className="block text-[10px] text-slate-400 mb-1">Customer Name (Optional)</label>
+                    <input
+                      type="text"
+                      value={waOverrides.customerName}
+                      onChange={(e) => setWaOverrides({ ...waOverrides, customerName: e.target.value })}
+                      placeholder="Leave blank if none"
+                      className="w-full rounded-lg border border-white/10 bg-black/40 px-2.5 py-1.5 text-xs text-white"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-[10px] text-slate-400 mb-1">Paid / Agreed Amount</label>
+                    <input
+                      type="text"
+                      value={waOverrides.amount}
+                      onChange={(e) => setWaOverrides({ ...waOverrides, amount: e.target.value })}
+                      placeholder="e.g. 25 or 7000"
+                      className="w-full rounded-lg border border-white/10 bg-black/40 px-2.5 py-1.5 text-xs text-white font-mono"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-[10px] text-slate-400 mb-1">Currency</label>
+                    <input
+                      type="text"
+                      value={waOverrides.currency}
+                      onChange={(e) => setWaOverrides({ ...waOverrides, currency: e.target.value.toUpperCase() })}
+                      placeholder="USD / PKR / EUR"
+                      className="w-full rounded-lg border border-white/10 bg-black/40 px-2.5 py-1.5 text-xs text-white font-mono uppercase"
+                    />
+                  </div>
+                  <div className="flex items-end">
+                    <button
+                      type="button"
+                      onClick={handleRegenerateWhatsApp}
+                      className="w-full py-1.5 px-3 rounded-lg bg-white/[0.08] hover:bg-white/[0.14] border border-white/15 text-xs font-bold text-white inline-flex items-center justify-center gap-1.5 cursor-pointer"
+                    >
+                      <RotateCcw className="h-3.5 w-3.5" />
+                      <span>Regenerate</span>
+                    </button>
+                  </div>
+                </div>
+
+                {/* Live WhatsApp Formatted Text Preview */}
+                <div className="space-y-1.5">
+                  <div className="flex items-center justify-between text-[10px] text-slate-400">
+                    <span>WhatsApp Message Preview (Ready to Paste):</span>
+                    <span className="font-mono text-emerald-400">*bold* • _italic_ markers intact</span>
+                  </div>
+                  <textarea
+                    readOnly
+                    rows={12}
+                    value={waPreviewText}
+                    className="w-full rounded-xl border border-emerald-500/30 bg-[#06090f] p-4 text-xs text-slate-100 leading-relaxed font-sans select-all focus:outline-none"
+                  />
+                </div>
+
+                <div className="flex flex-wrap items-center justify-between gap-2 pt-2">
+                  <button
+                    type="button"
+                    onClick={copyWhatsAppWelcomeToClipboard}
+                    className="inline-flex items-center gap-2 px-5 py-2.5 text-xs font-extrabold text-white bg-emerald-600 hover:bg-emerald-500 rounded-xl shadow-glow-sm transition-all cursor-pointer"
+                  >
+                    {copiedWhatsapp ? (
+                      <>
+                        <Check className="h-4 w-4" />
+                        <span>WhatsApp Message Copied!</span>
+                      </>
+                    ) : (
+                      <>
+                        <Copy className="h-4 w-4" />
+                        <span>Copy WhatsApp Message</span>
+                      </>
+                    )}
+                  </button>
+
+                  <div className="flex items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={() => setModalStep("credentials")}
+                      className="px-3.5 py-2 text-xs font-semibold text-slate-300 hover:text-white bg-white/[0.05] rounded-xl cursor-pointer"
+                    >
+                      ← Back
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setOneTimeCreds(null);
+                        setWaPreviewText("");
+                        setCopiedWhatsapp(false);
+                      }}
+                      className="px-4 py-2 text-xs font-bold text-slate-200 hover:text-white bg-white/[0.08] hover:bg-white/[0.15] border border-white/15 rounded-xl transition-colors cursor-pointer"
+                    >
+                      Done &amp; Clear Credentials
+                    </button>
+                  </div>
+                </div>
+              </>
+            )}
           </div>
         </div>
       )}

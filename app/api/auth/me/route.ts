@@ -150,3 +150,17 @@ export async function GET(request: Request) {
     { status: 401, headers: { "Cache-Control": "no-store, no-cache, must-revalidate, proxy-revalidate" } }
   );
 }
+
+export async function PATCH() {
+  return NextResponse.json(
+    { detail: "Customer usernames and account identities are permanent and cannot be modified." },
+    { status: 403 }
+  );
+}
+
+export async function PUT() {
+  return NextResponse.json(
+    { detail: "Customer usernames and account identities are permanent and cannot be modified." },
+    { status: 403 }
+  );
+}

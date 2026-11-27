@@ -487,6 +487,7 @@ function AssistantContent() {
             <VoiceCaptureButton
               compact
               label="Voice"
+              applyButtonLabel="Send Message"
               disabled={isSending}
               onLiveTranscript={(txt) => setInputText(txt)}
               onCaptureComplete={async (cap: VoiceCaptureResult) => {
@@ -502,8 +503,8 @@ function AssistantContent() {
                     headers: getAuthHeaders(),
                     body: JSON.stringify({
                       message: cap.transcript || "",
-                      audioBase64: cap.audioBase64,
-                      audioMime: cap.audioMime,
+                      audioBase64: cap.transcript ? undefined : cap.audioBase64,
+                      audioMime: cap.transcript ? undefined : cap.audioMime,
                       conversation_id: activeConvId,
                     }),
                   });

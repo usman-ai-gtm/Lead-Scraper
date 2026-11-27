@@ -15,6 +15,7 @@ import {
   BASIC_DAILY_EMAIL_LIMIT,
   MAX_GMAIL_DAILY_SAFE_CAP,
 } from "@/lib/entitlements";
+import { getOwnerPlatformSettings } from "@/lib/platform-settings-db";
 import crypto from "crypto";
 
 export const dynamic = "force-dynamic";
@@ -241,6 +242,19 @@ export async function POST(req: Request) {
       },
     });
 
+    const agreedCurrency = String(body.agreed_currency || "USD").trim().toUpperCase().replace(/[^A-Z0-9]/g, "") || "USD";
+    const parsedAgreedAmount =
+      body.agreed_amount !== undefined && body.agreed_amount !== null && String(body.agreed_amount).trim() !== ""
+        ? Number(body.agreed_amount)
+        : NaN;
+    const agreedAmount =
+      !Number.isNaN(parsedAgreedAmount) && parsedAgreedAmount >= 0
+        ? Number(parsedAgreedAmount.toFixed(2))
+        : agreedCurrency === "USD"
+        ? customPriceUsd
+        : null;
+
+    const ownerSettings = await getOwnerPlatformSettings().catch(() => null);
     const isLifetime = plan === "LIFETIME" || (plan === "CUSTOM" && durationUnit === "lifetime");
     const durationHuman =
       plan === "CUSTOM"
@@ -282,14 +296,20 @@ export async function POST(req: Request) {
         customer_id: res.client.id,
         username,
         password: plainPassword,
-        customer_name: res.client.full_name,
-        plan: plan === "CUSTOM" ? planLabel : isLifetime ? "LIFETIME ($100 One-Time)" : "BASIC ($25 / 30 Days)",
+        customer_name: customerName || "",
+        plan: plan === "CUSTOM" ? planLabel : isLifetime ? "Lifetime Access ($100 One-Time)" : "Basic Plan ($25 / 30 Days)",
         duration: durationHuman,
-        expires_at: res.client.subscription_expires_at || "Never (Permanent)",
+        start_date: res.client.subscription_start,
+        expires_at: isLifetime ? "Never (Lifetime)" : res.client.subscription_expires_at || "30 Days",
+        is_lifetime: isLifetime,
         google_maps_enabled: googleMapsEnabled,
         daily_email_limit: dailyEmailLimit,
         custom_price_usd: customPriceUsd,
         suggested_price_usd: suggestedPriceUsd,
+        agreed_amount: agreedAmount ?? customPriceUsd,
+        agreed_currency: agreedCurrency,
+        support_whatsapp: ownerSettings?.whatsappNumber || null,
+        support_email: ownerSettings?.supportEmail || null,
         login_url: "https://lead-scraper-mxs5.vercel.app/login",
       },
       temporary_password: plainPassword,

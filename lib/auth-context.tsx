@@ -13,7 +13,7 @@ interface AuthContextType {
   refreshUser: () => Promise<User | null>;
   login: (email: string, pass: string) => Promise<void>;
   signup: (data: { email: string; pass: string; fullName: string; company?: string; workspaceName?: string }) => Promise<void>;
-  changePassword: (oldPass: string, newPass: string) => Promise<void>;
+  changePassword: (oldPass: string, newPass: string, confirmPass?: string) => Promise<void>;
   logout: () => void;
   switchWorkspace: (workspaceId: number) => void;
 }
@@ -238,10 +238,11 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     localStorage.setItem("usman_gtm_workspaces", JSON.stringify([newWs]));
   };
 
-  const changePassword = async (oldPass: string, newPass: string) => {
+  const changePassword = async (oldPass: string, newPass: string, confirmPass?: string) => {
     const res = await api.post<any>("/auth/change-password", {
       old_password: oldPass,
       new_password: newPass,
+      confirm_password: confirmPass !== undefined ? confirmPass : newPass,
     });
     if (res?.access_token && typeof window !== "undefined") {
       localStorage.setItem("usman_gtm_token", res.access_token);
