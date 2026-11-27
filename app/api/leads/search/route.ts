@@ -165,27 +165,41 @@ function buildIntentChannels(
   }
 
   if (useCase === "ecommerce_shopify") {
+    const nicheTerm = effectiveKeyword
+      .replace(/\b(shopify|woocommerce|stores?|brands?|online|shops?|websites?)\b/gi, "")
+      .replace(/\s+/g, " ")
+      .trim();
+    const nicheQuery = nicheTerm ? `"${nicheTerm}" ` : "";
+    const locTerm = shortCountry || countryName || "";
+
     channels.push(
       {
         id: "ecommerce_shopify",
-        name: "Shopify Storefronts & E-commerce Brands",
+        name: "Shopify Storefronts & Powered-By Sites",
         platformLabel: "Shopify Storefront",
-        buildQuery: (v, c, co) =>
-          `("powered by shopify" OR "myshopify.com" OR "shopify") "${v}" ${[c, shortCountry || co].filter(Boolean).join(" ")} (contact OR email) -site:shopify.com/blog`,
+        buildQuery: (_v, c, co) =>
+          `${tldHint ? `(${tldHint}) ` : ""}"powered by shopify" ${nicheQuery}${c || locTerm || co} (contact OR email) -site:shopify.com -site:apps.shopify.com`,
+      },
+      {
+        id: "myshopify_stores",
+        name: "Shopify Direct Store Domains",
+        platformLabel: "Shopify Storefront",
+        buildQuery: (_v, c, co) =>
+          `(site:myshopify.com OR "cdn.shopify.com") ${nicheQuery}${[c, locTerm || co].filter(Boolean).join(" ")} (email OR contact OR "@") -site:shopify.com`,
       },
       {
         id: "official_websites",
         name: "Regional E-commerce Websites",
         platformLabel: "Official Store Website",
-        buildQuery: (v, c, co) =>
-          `${tldHint ? `(${tldHint}) ` : ""}"${v}" ${deLegalHint} ${c || shortCountry || co} -"top 10" -"best"`,
+        buildQuery: (_v, c, co) =>
+          `${tldHint ? `(${tldHint}) ` : ""}${nicheQuery || "shopify online store"} (collections OR "add to cart") (email OR contact) ${c || locTerm || co} -site:shopify.com -"top 10" -"best"`,
       },
       {
         id: "instagram_business",
         name: "Instagram E-commerce Brands",
         platformLabel: "Instagram Store Profile",
-        buildQuery: (v, c, co) =>
-          `site:instagram.com "${v}" ${[c, shortCountry || co].filter(Boolean).join(" ")} (email OR "@gmail.com" OR shop)`,
+        buildQuery: (_v, c, co) =>
+          `site:instagram.com ${nicheQuery || "shopify"} ${[c, locTerm || co].filter(Boolean).join(" ")} (email OR "@gmail.com" OR shop)`,
       }
     );
     return channels;
@@ -225,14 +239,18 @@ function buildIntentChannels(
         name: "Official Manufacturer & Supplier Websites",
         platformLabel: "Official Company Website",
         buildQuery: (v, c, co) =>
-          `${tldHint ? `(${tldHint}) ` : ""}${v} ${deLegalHint} ${[c, shortCountry || co].filter(Boolean).join(" ")} -"top 10" -site:alibaba.com -site:made-in-china.com`,
+          glCode === "de"
+            ? `(site:.de) (${v} OR hersteller OR maschinenbau OR industrie) (impressum OR kontakt) ${c || "Deutschland"} -"top 10" -site:alibaba.com`
+            : `${tldHint ? `(${tldHint}) ` : ""}${v} ${deLegalHint} ${[c, shortCountry || co].filter(Boolean).join(" ")} -"top 10" -site:alibaba.com -site:made-in-china.com`,
       },
       {
         id: "wholesale_b2b",
         name: "B2B Distributors & Trade Suppliers",
         platformLabel: "B2B Trade Website",
-        buildQuery: (v, c, co) =>
-          `"${effectiveKeyword}" (manufacturer OR distributor OR wholesale OR factory) email ${[c, shortCountry || co].filter(Boolean).join(" ")} -"top 10"`,
+        buildQuery: (_v, c, co) =>
+          glCode === "de"
+            ? `(hersteller OR industrieunternehmen OR manufacturing) (gmbh OR ag) (email OR telefon OR kontakt) ${c || "Germany"} -"top 10"`
+            : `"${effectiveKeyword}" (manufacturer OR distributor OR wholesale OR factory) email ${[c, shortCountry || co].filter(Boolean).join(" ")} -"top 10"`,
       },
       {
         id: "linkedin_company",

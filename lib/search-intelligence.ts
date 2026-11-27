@@ -221,8 +221,15 @@ export function isNoiseOrListicleResult(
     return false;
   }
 
-  // Filter pure forums, Q&A, listicle aggregators
-  if (NOISE_AGGREGATORS.some((d) => host === d || host.endsWith("." + d))) {
+  // Filter pure forums, Q&A, listicle aggregators, and Shopify's own platform documentation/app pages
+  if (
+    NOISE_AGGREGATORS.some((d) => host === d || host.endsWith("." + d)) ||
+    host === "shopify.com" ||
+    host === "apps.shopify.com" ||
+    host === "themes.shopify.com" ||
+    host === "community.shopify.com" ||
+    host === "help.shopify.com"
+  ) {
     return true;
   }
 

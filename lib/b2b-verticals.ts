@@ -254,7 +254,7 @@ export function classifyUseCaseIntent(query: string, explicitFocus?: string): Le
   const q = ` ${query.toLowerCase()} `;
 
   if (/\b(hiring|recruiting|looking to hire|job openings?|open roles?|careers?|staff accountant|companies hiring)\b/i.test(q) &&
-      !/\b(recruitment agenc|staffing agenc|headhunter|recruiter firms?)\b/i.test(q)) {
+      !/\b(recruitment agenc(?:y|ies)|staffing agenc(?:y|ies)|headhunter|recruiter firms?)\b/i.test(q)) {
     return "hiring_signals";
   }
 
@@ -278,7 +278,7 @@ export function classifyUseCaseIntent(query: string, explicitFocus?: string): Le
     return "finance_accounting";
   }
 
-  if (/\b(marketing agenc|seo agenc|web design|website redesign|digital agenc|smma|branding agenc|creative agenc|advertising agenc|lead generation agenc)\b/i.test(q)) {
+  if (/\b(marketing agenc(?:y|ies)|seo agenc(?:y|ies)|web design|website redesign|digital agenc(?:y|ies)|smma|branding agenc(?:y|ies)|creative agenc(?:y|ies)|advertising agenc(?:y|ies)|lead generation agenc(?:y|ies))\b/i.test(q)) {
     return "agency_web_audit";
   }
 
@@ -286,7 +286,7 @@ export function classifyUseCaseIntent(query: string, explicitFocus?: string): Le
     return "software_it";
   }
 
-  if (/\b(dental|dentist|clinic|chiropractor|orthodont|hospital|medical|construction|contractor|plumbing|hvac|roofing|salon|restaurant|hotel|law firm|attorney|recruitment agenc|staffing agenc)\b/i.test(q)) {
+  if (/\b(dental|dentist|clinic|chiropractor|orthodont|hospital|medical|construction|contractor|plumbing|hvac|roofing|salon|restaurant|hotel|law firm|attorney|recruitment agenc(?:y|ies)|staffing agenc(?:y|ies))\b/i.test(q)) {
     return "local_services";
   }
 
