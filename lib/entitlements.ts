@@ -419,6 +419,8 @@ export function resolveUserEntitlements(user: any): ResolvedEntitlements {
     planType = "CUSTOM";
   } else if (planTypeUpper === "LIFETIME" || planRawUpper === "LIFETIME") {
     planType = "LIFETIME";
+  } else if (planTypeUpper === "BASIC" || planRawUpper === "BASIC") {
+    planType = "BASIC";
   } else if (
     planTypeUpper === "FREE_PREVIEW" ||
     planRawUpper === "FREE" ||
