@@ -6,6 +6,7 @@ import { useParams, useRouter } from "next/navigation";
 import { api } from "@/lib/api";
 import { useAuth } from "@/lib/auth-context";
 import { FEATURE_CATALOG } from "@/lib/entitlements";
+import { formatPktTimestamp } from "@/lib/timezone-pkt";
 import {
   ArrowLeft,
   ShieldCheck,
@@ -28,18 +29,7 @@ import {
 } from "lucide-react";
 
 function fmtDate(val?: string | null): string {
-  if (!val) return "Not recorded";
-  const d = new Date(val);
-  if (Number.isNaN(d.getTime())) return String(val);
-  return d.toLocaleString(undefined, {
-    year: "numeric",
-    month: "short",
-    day: "numeric",
-    hour: "2-digit",
-    minute: "2-digit",
-    second: "2-digit",
-    timeZoneName: "short",
-  });
+  return formatPktTimestamp(val) || "Not recorded";
 }
 
 export default function OwnerClientDetailsPage() {
@@ -282,11 +272,15 @@ export default function OwnerClientDetailsPage() {
                 <div className="divide-y divide-white/[0.06] font-mono text-[11px]">
                   {[
                     ["Username", acc.username],
+                    ["Google / Contact Email", acc.email || "Not set"],
+                    ["Sign-in Provider", acc.auth_provider === "google" || acc.google_sub ? "Google OAuth Linked" : "Username & Password"],
                     ["Account ID / Workspace", `#${acc.id} / Workspace #${acc.workspace_id} (${acc.workspace_name})`],
                     ["Account Type", acc.account_type],
                     ["Created Date", fmtDate(acc.created_at)],
+                    ["First Google Sign-in", acc.first_google_signin_at ? fmtDate(acc.first_google_signin_at) : "Historical timestamp unavailable"],
+                    ["Latest Sign-in", (acc.last_google_signin_at || acc.last_login) ? fmtDate(acc.last_google_signin_at || acc.last_login) : "No sign-in recorded"],
+                    ...(acc.converted_from_preview_at ? [["Converted From Preview", fmtDate(acc.converted_from_preview_at)]] : []),
                     ["Total Days Elapsed", `${acc.days_active_total} day(s)`],
-                    ["Last Login", fmtDate(acc.last_login)],
                     ["Last Recorded Activity", fmtDate(acc.last_activity)],
                     ["Suspension Status", acc.is_suspended ? `YES (${acc.raw_status})` : "No"],
                     ["Current Plan", acc.plan_label || acc.plan],
@@ -294,7 +288,7 @@ export default function OwnerClientDetailsPage() {
                     ["Google Maps Entitlement", acc.google_maps_enabled ? "INCLUDED" : "EXCLUDED"],
                     ["Daily Cold Email Limit", `${acc.daily_email_limit} / UTC day`],
                     ["Subscription Start", fmtDate(acc.subscription_start)],
-                    ["Exact Expiry (UTC)", acc.subscription_expires_at ? fmtDate(acc.subscription_expires_at) : "Never / Lifetime"],
+                    ["Exact Expiry (PKT)", acc.subscription_expires_at ? fmtDate(acc.subscription_expires_at) : "Never / Lifetime"],
                     ["Remaining Time", acc.remaining_detailed],
                   ].map(([k, v]) => (
                     <div key={String(k)} className="py-2 flex justify-between gap-4">

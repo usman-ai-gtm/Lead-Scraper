@@ -37,11 +37,24 @@ export async function POST(request: Request) {
       );
     }
 
-    // Check user in Neon PostgreSQL
+    const googleSub = String(body.sub || body.google_sub || "").trim() || null;
+
+    await Promise.all([
+      sql`ALTER TABLE users ADD COLUMN IF NOT EXISTS first_google_signin_at TIMESTAMPTZ`.catch(() => {}),
+      sql`ALTER TABLE users ADD COLUMN IF NOT EXISTS last_google_signin_at TIMESTAMPTZ`.catch(() => {}),
+      sql`ALTER TABLE users ADD COLUMN IF NOT EXISTS google_sub TEXT`.catch(() => {}),
+      sql`ALTER TABLE users ADD COLUMN IF NOT EXISTS auth_provider TEXT`.catch(() => {}),
+    ]);
+
+    // Check user in Neon PostgreSQL by google_sub first, then normalized email or username
     const users = await sql`
-      SELECT id, email, username, full_name, role, workspace_id, status
+      SELECT id, email, username, full_name, role, account_type, workspace_id, status, plan,
+             google_sub, COALESCE(session_version, 1) AS session_version
       FROM users
-      WHERE LOWER(email) = LOWER(${email}) OR LOWER(username) = LOWER(${email})
+      WHERE (${googleSub}::text IS NOT NULL AND google_sub = ${googleSub}::text)
+         OR LOWER(email) = LOWER(${email})
+         OR LOWER(username) = LOWER(${email})
+      ORDER BY CASE WHEN COALESCE(account_type, '') = 'PAID_CLIENT' THEN 0 ELSE 1 END, id ASC
       LIMIT 1
     `;
 
@@ -88,18 +101,30 @@ export async function POST(request: Request) {
 
       try {
         const newUserRes = await sql`
-          INSERT INTO users (username, email, full_name, role, account_type, workspace_id, status, subscription_status, created_at, tenant_id, password_hash, active, is_active, plan)
-          VALUES (${email}, ${email}, ${fullName || email.split("@")[0]}, ${assignedRole}, ${assignedAccountType}, ${workspaceId}, ${initialStatus}, ${initialSubStatus}, ${nowIso}, 1, 'GOOGLE_PREVIEW_USER', 0, 0, ${initialPlan})
+          INSERT INTO users (
+            username, email, full_name, role, account_type, workspace_id, status,
+            subscription_status, created_at, tenant_id, password_hash, active, is_active,
+            plan, google_sub, auth_provider, first_google_signin_at, last_google_signin_at
+          )
+          VALUES (
+            ${email}, ${email}, ${fullName || email.split("@")[0]}, ${assignedRole}, ${assignedAccountType}, ${workspaceId}, ${initialStatus},
+            ${initialSubStatus}, ${nowIso}, 1, 'GOOGLE_PREVIEW_USER', 0, 0,
+            ${initialPlan}, ${googleSub}, 'google', NOW(), NOW()
+          )
           ON CONFLICT (username) DO UPDATE
             SET email = EXCLUDED.email,
-                full_name = COALESCE(users.full_name, EXCLUDED.full_name)
-          RETURNING id, email, full_name, role, account_type, workspace_id, status, plan, active, is_active
+                full_name = COALESCE(users.full_name, EXCLUDED.full_name),
+                google_sub = COALESCE(users.google_sub, EXCLUDED.google_sub),
+                auth_provider = COALESCE(users.auth_provider, 'google'),
+                first_google_signin_at = COALESCE(users.first_google_signin_at, NOW()),
+                last_google_signin_at = NOW()
+          RETURNING id, email, username, full_name, role, account_type, workspace_id, status, plan, active, is_active, COALESCE(session_version, 1) AS session_version
         `;
         activeUser = newUserRes[0];
       } catch (insertErr) {
         console.warn("[Google Session] Insert conflict handled, fetching existing user:", insertErr);
         const fallbackUsers = await sql`
-          SELECT id, email, username, full_name, role, account_type, workspace_id, status, plan, active, is_active
+          SELECT id, email, username, full_name, role, account_type, workspace_id, status, plan, active, is_active, COALESCE(session_version, 1) AS session_version
           FROM users
           WHERE TRIM(LOWER(email)) = TRIM(LOWER(${email})) OR TRIM(LOWER(username)) = TRIM(LOWER(${email}))
           LIMIT 1
@@ -109,22 +134,45 @@ export async function POST(request: Request) {
         } else {
           const safeUsername = `${email.split('@')[0]}_${Date.now()}@google.user`;
           const safeInsert = await sql`
-            INSERT INTO users (username, email, full_name, role, account_type, workspace_id, status, subscription_status, created_at, tenant_id, password_hash, active, is_active, plan)
-            VALUES (${safeUsername}, ${email}, ${fullName || email.split("@")[0]}, ${assignedRole}, ${assignedAccountType}, ${workspaceId}, ${initialStatus}, ${initialSubStatus}, ${nowIso}, 1, 'GOOGLE_PREVIEW_USER', 0, 0, ${initialPlan})
-            RETURNING id, email, full_name, role, account_type, workspace_id, status, plan, active, is_active
+            INSERT INTO users (
+              username, email, full_name, role, account_type, workspace_id, status,
+              subscription_status, created_at, tenant_id, password_hash, active, is_active,
+              plan, google_sub, auth_provider, first_google_signin_at, last_google_signin_at
+            )
+            VALUES (
+              ${safeUsername}, ${email}, ${fullName || email.split("@")[0]}, ${assignedRole}, ${assignedAccountType}, ${workspaceId}, ${initialStatus},
+              ${initialSubStatus}, ${nowIso}, 1, 'GOOGLE_PREVIEW_USER', 0, 0,
+              ${initialPlan}, ${googleSub}, 'google', NOW(), NOW()
+            )
+            RETURNING id, email, username, full_name, role, account_type, workspace_id, status, plan, active, is_active, COALESCE(session_version, 1) AS session_version
           `;
           activeUser = safeInsert[0];
         }
       }
     }
 
+    await sql`
+      UPDATE users
+      SET last_login = NOW(),
+          last_activity_at = NOW(),
+          google_sub = COALESCE(google_sub, ${googleSub}),
+          auth_provider = COALESCE(auth_provider, 'google'),
+          first_google_signin_at = COALESCE(first_google_signin_at, NOW()),
+          last_google_signin_at = NOW()
+      WHERE id = ${activeUser.id}
+    `.catch(() => {});
+
     const token = createJwtToken({
       sub: String(activeUser.id),
       email: activeUser.email,
+      username: activeUser.username || email,
+      account_type: activeUser.account_type || "FREE_PREVIEW",
       full_name: activeUser.full_name,
       role: activeUser.role,
       workspace_id: activeUser.workspace_id,
       status: activeUser.status || "ACTIVE",
+      plan: activeUser.plan || "FREE_PREVIEW",
+      sv: Number(activeUser.session_version) || 1,
     });
 
     const response = NextResponse.json({

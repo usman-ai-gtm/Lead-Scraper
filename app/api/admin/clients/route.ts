@@ -6,6 +6,7 @@ import {
   isNeonConfigured,
   logAccountAudit,
 } from "@/lib/neon-db";
+import { ensureGoogleTrackingColumns } from "@/lib/preview-conversion";
 import {
   calculateSuggestedCustomPrice,
   calculateCustomPlanExpiresAt,
@@ -45,6 +46,7 @@ export async function GET(req: Request) {
     }
 
     if (isNeonConfigured()) {
+      await ensureGoogleTrackingColumns();
       const allAccounts = await getNeonClients();
       const paidClients = allAccounts.filter((c: any) => c.account_type === "PAID_CLIENT" || c.account_type !== "FREE_PREVIEW");
       const previewClients = allAccounts.filter((c: any) => c.account_type === "FREE_PREVIEW");

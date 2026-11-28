@@ -49,6 +49,11 @@ export interface ClientAccount {
   client_notes?: string;
   created_at: string;
   last_login?: string;
+  first_google_signin_at?: string | null;
+  last_google_signin_at?: string | null;
+  google_sub?: string | null;
+  auth_provider?: string | null;
+  converted_from_preview_at?: string | null;
   leads_count: number;
   plan?: string;
   raw_plan?: string;

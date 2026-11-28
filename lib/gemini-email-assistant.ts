@@ -45,6 +45,7 @@ export interface EmailAssistantOptions {
   templateName?: string;
   outputLanguage?: string;
   tone?: string;
+  templateMode?: boolean;
 }
 
 export interface GeneratedEmailDraft {
@@ -174,6 +175,7 @@ CRITICAL LANGUAGE & HONESTY RULES:
 4. NEVER invent past conversations, meetings, awards, or unverified problems.
 5. Keep email concise (75–125 words), respectful, and practical.
 ${options?.templateName ? `6. Structural template intent: "${options.templateName}".` : ""}
+${options?.templateMode ? `7. Reusable Template Mode: Use clean placeholders like {{business_name}}, {{contact_name}}, {{city}}, and {{sender_name}} ONLY where natural for a reusable workspace template.` : ""}
 
 Respond strictly in valid JSON matching:
 {

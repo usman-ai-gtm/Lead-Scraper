@@ -54,9 +54,9 @@ export const Footer: React.FC = () => {
           <div>
             <h4 className="text-sm font-semibold uppercase tracking-wider text-slate-200 mb-4">Solutions</h4>
             <ul className="space-y-2.5 text-sm">
-              <li><Link href="/solutions" className="hover:text-white transition-colors">B2B Sales Teams</Link></li>
-              <li><Link href="/solutions" className="hover:text-white transition-colors">Local Service Prospecting</Link></li>
-              <li><Link href="/solutions" className="hover:text-white transition-colors">Lead Gen Agencies</Link></li>
+              <li><Link href="/solutions#b2b-agencies" className="hover:text-white transition-colors">B2B Sales Teams</Link></li>
+              <li><Link href="/solutions#local-service" className="hover:text-white transition-colors">Local Service Prospecting</Link></li>
+              <li><Link href="/solutions#lead-consultants" className="hover:text-white transition-colors">Lead Gen Agencies</Link></li>
               <li><Link href="/pricing" className="hover:text-white transition-colors">Pricing &amp; Plans</Link></li>
             </ul>
           </div>

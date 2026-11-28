@@ -117,15 +117,19 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
       "selftest_founder_2026@usmanai.com",
     ].includes(emailLower);
 
-  // Strict Protected Route Guard: Non-authenticated visitors CANNOT access the dashboard
+  // Strict Protected Route Guard: Non-authenticated visitors CANNOT access the dashboard (preserve deep-link destination via ?next=)
   useEffect(() => {
     if (!loading && !user) {
       const token = typeof window !== "undefined" ? localStorage.getItem("usman_gtm_token") : null;
       if (!token) {
-        router.push("/login");
+        const dest =
+          typeof window !== "undefined"
+            ? `${window.location.pathname}${window.location.search}`
+            : pathname;
+        router.push(dest && dest !== "/app" ? `/login?next=${encodeURIComponent(dest)}` : "/login");
       }
     }
-  }, [user, loading, router]);
+  }, [user, loading, router, pathname]);
 
   // Re-validate authoritative DB subscription & session version immediately on navigation
   useEffect(() => {

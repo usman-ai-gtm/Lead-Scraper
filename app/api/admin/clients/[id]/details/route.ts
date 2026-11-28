@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { getCurrentUserFromRequest, isAuthorizedOwner } from "@/lib/serverless-auth";
 import { getNeonClientFullProfile, isNeonConfigured } from "@/lib/neon-db";
+import { ensureGoogleTrackingColumns } from "@/lib/preview-conversion";
 
 export const dynamic = "force-dynamic";
 
@@ -31,6 +32,7 @@ export async function GET(req: Request, { params }: RouteParams) {
       return NextResponse.json({ detail: "Database unavailable" }, { status: 503 });
     }
 
+    await ensureGoogleTrackingColumns();
     const profile = await getNeonClientFullProfile(clientId);
     if (!profile) {
       return NextResponse.json({ detail: "Client account not found" }, { status: 404 });

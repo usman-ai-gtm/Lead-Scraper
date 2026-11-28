@@ -24,6 +24,8 @@ import {
   Crown, AlertCircle, Sliders, X, DollarSign, MessageCircle, RotateCcw
 } from "lucide-react";
 import { buildWhatsAppWelcomeMessage } from "@/lib/whatsapp-credential-message";
+import { ConvertPreviewModal } from "@/components/admin/ConvertPreviewModal";
+import { resolveGoogleSignInDisplay } from "@/lib/timezone-pkt";
 
 interface OneTimeCreds {
   customer_id?: number;
@@ -203,6 +205,7 @@ export function ClientProvisioningSection() {
 
   // Tabs: "paid" | "preview" | "inquiries"
   const [activeTab, setActiveTab] = useState<"paid" | "preview" | "inquiries">("paid");
+  const [convertPreviewTarget, setConvertPreviewTarget] = useState<any | null>(null);
   const [inquiries, setInquiries] = useState<any[]>([]);
   const [inquiriesLoading, setInquiriesLoading] = useState(false);
 
@@ -1604,10 +1607,23 @@ export function ClientProvisioningSection() {
                               {c.full_name && c.full_name !== c.username && (
                                 <span className="text-slate-300 text-xs">({c.full_name})</span>
                               )}
+                              {(c.auth_provider === "google" || c.google_sub || c.converted_from_preview_at) && (
+                                <span
+                                  className="text-[9px] font-bold px-1.5 py-0.5 rounded bg-emerald-500/15 border border-emerald-500/30 text-emerald-300"
+                                  title="Original Google identity linked & preserved — customer signs in with Google"
+                                >
+                                  Google Linked
+                                </span>
+                              )}
                             </div>
                             <div className="text-[10px] text-slate-500 font-mono">
                               Email: {c.email || `${c.username}@app.client`}
                             </div>
+                            {(c.last_google_signin_at || c.last_login) && (
+                              <div className="text-[9px] text-slate-400 font-mono mt-0.5">
+                                Last Sign-in: {resolveGoogleSignInDisplay(c).latestSignInDisplay}
+                              </div>
+                            )}
                           </td>
 
                           {/* Internal ID & Workspace ID */}
@@ -1860,7 +1876,7 @@ export function ClientProvisioningSection() {
                 </span>
               </h3>
               <p className="text-[11px] text-slate-400">
-                Visitors who signed in via &apos;Continue with Google&apos;. All paid features and APIs are strictly locked for these preview accounts.
+                Visitors in Free Preview mode. Click <strong className="text-emerald-300">Convert to Paid</strong> to upgrade the exact same Google account &amp; workspace in-place without creating duplicates.
               </p>
             </div>
           </div>
@@ -1872,7 +1888,7 @@ export function ClientProvisioningSection() {
               type="text"
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
-              placeholder="Search preview users by Google email or name..."
+              placeholder="Search preview users by Google email, name, ID, or workspace..."
               className="w-full bg-transparent text-white placeholder-slate-500 focus:outline-none text-xs font-mono"
             />
           </div>
@@ -1888,48 +1904,81 @@ export function ClientProvisioningSection() {
               <table className="w-full text-left text-xs">
                 <thead className="border-b border-white/[0.08] text-slate-400 uppercase tracking-wider font-semibold">
                   <tr>
-                    <th className="py-3 px-3">Google Account</th>
-                    <th className="py-3 px-3">User ID</th>
-                    <th className="py-3 px-3">Registered</th>
+                    <th className="py-3 px-3">Customer &amp; Google Account</th>
+                    <th className="py-3 px-3">Workspace &amp; Usage</th>
+                    <th className="py-3 px-3">First Google Sign-in (PKT)</th>
+                    <th className="py-3 px-3">Latest Sign-in (PKT)</th>
                     <th className="py-3 px-3">Status</th>
-                    <th className="py-3 px-3 text-right">Convert / Provision Action</th>
+                    <th className="py-3 px-3 text-right">Action</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-white/[0.04]">
-                  {filteredPreviewClients.map((p) => (
-                    <tr key={p.id} className="hover:bg-white/[0.02]">
-                      <td className="py-3 px-3">
-                        <Link href={`/app/admin/clients/${p.id}`} className="font-bold text-white hover:text-blue-300 hover:underline">
-                          {p.full_name || "Google Visitor"}
-                        </Link>
-                        <div className="text-[11px] text-purple-300 font-mono">{p.email}</div>
-                      </td>
-                      <td className="py-3 px-3 font-mono text-slate-400">#{p.id}</td>
-                      <td className="py-3 px-3 text-slate-400">
-                        {p.created_at ? new Date(p.created_at).toLocaleDateString() : "N/A"}
-                      </td>
-                      <td className="py-3 px-3">
-                        <span className="text-[10px] font-bold px-2 py-0.5 rounded border text-purple-400 bg-purple-500/10 border-purple-500/20">
-                          PREVIEW_ONLY
-                        </span>
-                      </td>
-                      <td className="py-3 px-3 text-right">
-                        <button
-                          onClick={() => {
-                            setCreateForm({
-                              ...createForm,
-                              customerName: p.full_name || "",
-                              username: (p.email?.split("@")[0] || generateRandomUsername()).toLowerCase().replace(/[^a-z0-9_-]/g, ""),
-                            });
-                            window.scrollTo({ top: 0, behavior: "smooth" });
-                          }}
-                          className="px-2.5 py-1 text-[10px] font-bold text-white bg-blue-600 hover:bg-blue-500 rounded cursor-pointer"
-                        >
-                          Provision Paid Account
-                        </button>
-                      </td>
-                    </tr>
-                  ))}
+                  {filteredPreviewClients.map((p) => {
+                    const ts = resolveGoogleSignInDisplay(p);
+                    const isGoogleLinked =
+                      Boolean(p.google_sub) ||
+                      p.auth_provider === "google" ||
+                      String(p.email || "").includes("@gmail.");
+                    return (
+                      <tr key={p.id} className="hover:bg-white/[0.02]">
+                        <td className="py-3 px-3">
+                          <div className="flex items-center gap-1.5 flex-wrap">
+                            <Link
+                              href={`/app/admin/clients/${p.id}`}
+                              className="font-bold text-white hover:text-blue-300 hover:underline"
+                            >
+                              {p.full_name || "Google Visitor"}
+                            </Link>
+                            {isGoogleLinked && (
+                              <span className="text-[9px] font-bold px-1.5 py-0.5 rounded bg-blue-500/15 border border-blue-500/30 text-blue-300">
+                                Google Auth
+                              </span>
+                            )}
+                          </div>
+                          <div className="text-[11px] text-purple-300 font-mono break-all">
+                            {p.email || p.username}
+                          </div>
+                          <div className="text-[10px] text-slate-500 font-mono">
+                            User #{p.id}
+                          </div>
+                        </td>
+                        <td className="py-3 px-3 font-mono text-[11px]">
+                          <div className="text-slate-200 font-semibold">WS #{p.workspace_id}</div>
+                          <div className="text-[10px] text-slate-400">
+                            {p.total_leads ?? 0} leads • {p.total_searches ?? 0} searches
+                          </div>
+                        </td>
+                        <td className="py-3 px-3 font-mono text-[11px]">
+                          <div className={ts.firstSignInRecorded ? "text-slate-200" : "text-slate-500 italic"}>
+                            {ts.firstSignInDisplay}
+                          </div>
+                          <div className="text-[10px] text-slate-500 mt-0.5">
+                            Registered: {ts.createdDisplay}
+                          </div>
+                        </td>
+                        <td className="py-3 px-3 font-mono text-[11px]">
+                          <div className={ts.latestSignInRecorded ? "text-emerald-300 font-semibold" : "text-slate-500 italic"}>
+                            {ts.latestSignInDisplay}
+                          </div>
+                        </td>
+                        <td className="py-3 px-3">
+                          <span className="text-[10px] font-bold px-2 py-0.5 rounded border text-purple-400 bg-purple-500/10 border-purple-500/20">
+                            PREVIEW_ONLY
+                          </span>
+                        </td>
+                        <td className="py-3 px-3 text-right">
+                          <button
+                            type="button"
+                            onClick={() => setConvertPreviewTarget(p)}
+                            className="px-3 py-1.5 text-[11px] font-bold text-white bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 rounded-lg shadow-sm cursor-pointer inline-flex items-center gap-1.5"
+                          >
+                            <Crown className="h-3.5 w-3.5" />
+                            <span>Convert to Paid</span>
+                          </button>
+                        </td>
+                      </tr>
+                    );
+                  })}
                 </tbody>
               </table>
             </div>
@@ -2723,6 +2772,32 @@ export function ClientProvisioningSection() {
             </div>
           </div>
         </div>
+      )}
+
+      {/* ========================================================================= */}
+      {/* 11. OWNER-ONLY CONVERT GOOGLE PREVIEW -> PAID ACCOUNT MODAL               */}
+      {/* ========================================================================= */}
+      {convertPreviewTarget && (
+        <ConvertPreviewModal
+          client={convertPreviewTarget}
+          onClose={() => setConvertPreviewTarget(null)}
+          onConverted={async (convertedClient) => {
+            await verifyClientMutationInDb(
+              Number(convertedClient.id),
+              (fresh) =>
+                String(fresh.account_type || "").toUpperCase() === "PAID_CLIENT" &&
+                Number(fresh.workspace_id) === Number(convertPreviewTarget.workspace_id)
+            );
+            const targetEmail =
+              convertedClient.email || convertPreviewTarget.email || convertPreviewTarget.username;
+            setConvertPreviewTarget(null);
+            await fetchClients();
+            setActiveTab("paid");
+            setSuccessMsg(
+              `Converted in-place & verified in Neon DB: '${targetEmail}' (#${convertedClient.id}, Workspace #${convertedClient.workspace_id}) is now ACTIVE on ${convertedClient.plan_label || convertedClient.plan} with original Google identity preserved.`
+            );
+          }}
+        />
       )}
     </div>
   );

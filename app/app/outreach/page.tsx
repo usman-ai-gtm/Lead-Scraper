@@ -9,9 +9,8 @@ import {
   Clock, AlertTriangle, ArrowRight, Ban, Filter, FileText,
   Plus, Trash2, BookmarkPlus
 } from "lucide-react";
-import { VoiceCaptureButton, VoiceCaptureResult } from "@/components/voice/VoiceCaptureButton";
 import { ChatGptVoiceFallback } from "@/components/voice/ChatGptVoiceFallback";
-import { OUTREACH_LANGUAGES } from "@/lib/business-profile-ai";
+import { OUTREACH_LANGUAGES, COLD_EMAIL_CHATGPT_INSTRUCTION } from "@/lib/business-profile-ai";
 
 interface LeadItem {
   id: number;
@@ -358,32 +357,33 @@ function ColdEmailContent() {
     return rendered.trim();
   };
 
-  // Generate personalized email draft using Business Profile + instruction (text or voice)
-  const handlePersonalizedDraft = async (audioCap?: VoiceCaptureResult) => {
+  // Generate personalized email draft using Business Profile + pasted instruction & auto-save template to customer workspace
+  const handlePersonalizedDraft = async () => {
     if (isLocked) {
       alert("Your account is currently locked. Please complete payment and contact the Owner for activation. Your premium access will begin after approval.");
       return;
     }
-    const firstSelected = leads.find((l) => selectedLeadIds.includes(l.id)) || leads[0];
-    if (!firstSelected) {
-      alert("Please select at least one lead from the table to draft personalized outreach.");
+    const firstSelected = leads.find((l) => selectedLeadIds.includes(l.id)) || leads[0] || null;
+    const effectiveInstruction = assistantInstruction.trim();
+
+    if (!firstSelected && !effectiveInstruction) {
+      setToastType("info");
+      setToastMsg("Please paste instructions from ChatGPT (or describe the email you want), or select a lead first.");
       return;
     }
 
     const activeTpl = templates.find((t) => String(t.id) === selectedTemplateId);
-    const effectiveInstruction = audioCap?.transcript || assistantInstruction;
-    if (audioCap?.transcript) setAssistantInstruction(audioCap.transcript);
 
     setAiGenerating(true);
+    setToastMsg(null);
     try {
       const res = await fetch("/api/outreach/generate-email", {
         method: "POST",
         headers: getAuthHeaders(),
         body: JSON.stringify({
-          lead: firstSelected,
+          lead: firstSelected || undefined,
+          template_mode: !firstSelected || Boolean(effectiveInstruction),
           instruction: effectiveInstruction || undefined,
-          instruction_audio_base64: audioCap?.transcript ? undefined : audioCap?.audioBase64,
-          instruction_audio_mime: audioCap?.transcript ? undefined : audioCap?.audioMime,
           template_name: activeTpl?.name,
           output_language: outputLanguage,
           tone: emailTone,
@@ -393,30 +393,74 @@ function ColdEmailContent() {
           },
         }),
       });
-      const data = await res.json();
+      const data = await res.json().catch(() => ({}));
       const draftObj = data?.draft || data?.email_draft;
-      if (res.ok && draftObj) {
-        if (draftObj.recognized_instruction) {
-          setAssistantInstruction(draftObj.recognized_instruction);
-        }
-        setSubject(draftObj.subject || subject);
-        setBodyText(
-          `${draftObj.greeting || "Hi Team,"}\n\n${draftObj.body}\n\n${
-            draftObj.call_to_action || ""
-          }\n\n${draftObj.signature || "Best regards,\n{{sender_name}}"}`
-        );
+      const generatedSubject = String(draftObj?.subject || "").trim();
+      const generatedCoreBody = String(draftObj?.body || "").trim();
+
+      if (!res.ok || !draftObj || !generatedSubject || !generatedCoreBody) {
+        setToastType("error");
+        setToastMsg(data?.error || "Failed to generate personalized email template. Nothing was saved.");
+        return;
+      }
+
+      if (draftObj.recognized_instruction && !effectiveInstruction) {
+        setAssistantInstruction(String(draftObj.recognized_instruction));
+      }
+
+      const composedBody = `${draftObj.greeting || "Hi {{contact_name}},"}
+
+${generatedCoreBody}
+
+${draftObj.call_to_action || ""}
+
+${draftObj.signature || "Best regards,\n{{sender_name}}"}`
+        .replace(/\n{3,}/g, "\n\n")
+        .trim();
+
+      setSubject(generatedSubject);
+      setBodyText(composedBody);
+
+      // Automatically save generated template cleanly to the customer's workspace library (without overwriting other templates)
+      const topicSeed = (effectiveInstruction || generatedSubject || "AI Campaign")
+        .replace(/[\r\n]+/g, " ")
+        .trim()
+        .slice(0, 34);
+      const timeLabel = new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" });
+      const uniqueTemplateName = `AI Template: ${topicSeed} (${timeLabel})`;
+
+      const saveRes = await fetch("/api/outreach/templates", {
+        method: "POST",
+        headers: getAuthHeaders(),
+        body: JSON.stringify({
+          name: uniqueTemplateName,
+          subject: generatedSubject,
+          body: composedBody,
+          category: "CUSTOM",
+        }),
+      });
+      const saveData = await saveRes.json().catch(() => ({}));
+
+      if (saveRes.ok && saveData?.template?.id) {
+        await fetchTemplates();
+        setSelectedTemplateId(String(saveData.template.id));
         setToastType("success");
         setToastMsg(
-          data.used_business_profile
-            ? "Personalized draft created using your Business Profile and lead details."
-            : "Personalized draft created from lead details."
+          `${
+            data.used_business_profile
+              ? "Personalized template generated using your saved Business Profile"
+              : "Personalized template generated"
+          } and saved as "${uniqueTemplateName}" to Workspace #${user?.workspace_id || 1}.`
         );
       } else {
-        setToastType("error");
-        setToastMsg(data.error || "Failed to generate personalized email draft.");
+        setToastType("info");
+        setToastMsg(
+          `Template generated in editor, but automatic library save failed (${saveData?.error || "DB save error"}). Please click "Save Template" to retry.`
+        );
       }
     } catch (err: any) {
-      alert("Error generating email: " + err.message);
+      setToastType("error");
+      setToastMsg("Error generating email: " + (err?.message || "Unknown error"));
     } finally {
       setAiGenerating(false);
     }
@@ -594,7 +638,15 @@ function ColdEmailContent() {
     }
   };
 
-  const previewLead = leads.find((l) => selectedLeadIds.includes(l.id)) || leads[0];
+  const sampleFallbackLead: LeadItem = {
+    id: 0,
+    business_name: "Sample Prospect Co.",
+    email: senderAccount?.sender_email || "contact@sampleprospect.com",
+    city: "London",
+    country: "United Kingdom",
+    industry: "Commercial Services",
+  };
+  const previewLead = leads.find((l) => selectedLeadIds.includes(l.id)) || leads[0] || sampleFallbackLead;
 
   return (
     <div className="space-y-8 max-w-6xl mx-auto pb-16">
@@ -789,11 +841,11 @@ function ColdEmailContent() {
 
               <button
                 onClick={() => handlePersonalizedDraft()}
-                disabled={aiGenerating || leads.length === 0}
+                disabled={aiGenerating || (leads.length === 0 && !assistantInstruction.trim())}
                 className="px-3 py-1.5 text-xs font-semibold text-purple-300 bg-purple-500/10 hover:bg-purple-500/20 border border-purple-500/20 rounded-xl transition-all flex items-center gap-1.5 disabled:opacity-50 cursor-pointer"
               >
                 <Sparkles className={`h-3.5 w-3.5 ${aiGenerating ? "animate-spin" : ""}`} />
-                <span>{aiGenerating ? "Drafting Email..." : "Generate Personalized Email"}</span>
+                <span>{aiGenerating ? "Drafting & Saving..." : "Generate Personalized Email"}</span>
               </button>
             </div>
           </div>
@@ -802,7 +854,7 @@ function ColdEmailContent() {
           <div className="rounded-xl border border-indigo-500/25 bg-indigo-500/[0.04] p-3.5 space-y-3">
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
               <span className="text-[11px] font-bold text-indigo-200">
-                Personalized Email Assistant (Uses Your Saved Business Profile)
+                Personalized Email Assistant (Uses Saved Business Profile + Auto-Saves Template)
               </span>
               <div className="flex items-center gap-2 flex-wrap">
                 <select
@@ -831,29 +883,28 @@ function ColdEmailContent() {
               </div>
             </div>
 
-            <div className="flex flex-col sm:flex-row gap-2 items-stretch sm:items-center">
-              <input
-                type="text"
-                dir="auto"
-                value={assistantInstruction}
-                onChange={(e) => setAssistantInstruction(e.target.value)}
-                placeholder='Tell the assistant what kind of email you want... (e.g. German, Urdu, or English instructions)'
-                className="flex-1 rounded-xl border border-white/10 bg-black/30 px-3 py-2 text-xs text-white placeholder-slate-500 focus:border-indigo-500 focus:outline-none"
-              />
-              <VoiceCaptureButton
-                compact
-                label="Speak Instruction"
-                applyButtonLabel="Use Instruction & Draft"
-                disabled={aiGenerating}
-                onLiveTranscript={(txt) => setAssistantInstruction(txt)}
-                onCaptureComplete={(res) => handlePersonalizedDraft(res)}
-                onError={(msg) => {
-                  setToastType("info");
-                  setToastMsg(msg);
-                }}
-              />
+            <ChatGptVoiceFallback
+              title="Option: Use ChatGPT to prepare your cold email instruction"
+              shortInstruction="Copy the instruction below, open ChatGPT, start a new chat, and use its Voice feature. Explain what email you want in your own language. ChatGPT will convert your requirements into clear English. Paste ChatGPT's instruction below."
+              promptInstruction={COLD_EMAIL_CHATGPT_INSTRUCTION}
+              targetFieldLabel="the Cold Email instruction box below"
+            />
+
+            <div className="space-y-1.5">
+              <label className="block text-[11px] font-semibold text-slate-300">
+                Paste ChatGPT English Instruction or Type Email Requirements
+              </label>
+              <div className="flex flex-col sm:flex-row gap-2 items-stretch sm:items-center">
+                <textarea
+                  rows={3}
+                  dir="auto"
+                  value={assistantInstruction}
+                  onChange={(e) => setAssistantInstruction(e.target.value)}
+                  placeholder='Paste the English campaign instruction from ChatGPT here, or type what email template you want to generate...'
+                  className="flex-1 rounded-xl border border-white/10 bg-black/30 px-3 py-2 text-xs text-white placeholder-slate-500 focus:border-indigo-500 focus:outline-none leading-relaxed"
+                />
+              </div>
             </div>
-            <ChatGptVoiceFallback targetFieldLabel="the assistant instruction box above" />
           </div>
 
           {/* Template Selector Bar */}
@@ -1023,8 +1074,8 @@ function ColdEmailContent() {
               <button
                 type="button"
                 onClick={() => setPreviewModalOpen(true)}
-                disabled={!previewLead}
-                className="px-3.5 py-2 text-xs font-semibold text-slate-300 hover:text-white bg-white/[0.04] hover:bg-white/[0.08] border border-white/10 rounded-xl transition-all flex items-center gap-1.5 disabled:opacity-40"
+                disabled={!subject.trim() && !bodyText.trim()}
+                className="px-3.5 py-2 text-xs font-semibold text-slate-300 hover:text-white bg-white/[0.04] hover:bg-white/[0.08] border border-white/10 rounded-xl transition-all flex items-center gap-1.5 disabled:opacity-40 cursor-pointer"
               >
                 <Eye className="h-3.5 w-3.5" />
                 <span>Preview Sample</span>

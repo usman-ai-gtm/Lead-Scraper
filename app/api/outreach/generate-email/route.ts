@@ -28,11 +28,13 @@ export async function POST(request: Request) {
     template_name,
     output_language,
     tone,
+    template_mode,
   } = body;
 
-  if (!lead || !lead.business_name) {
+  const hasExplicitLead = Boolean(lead && lead.business_name);
+  if (!hasExplicitLead && !String(instruction || "").trim()) {
     return NextResponse.json(
-      { error: "lead object with business_name is required." },
+      { error: "Please paste instructions or select a lead to generate an outreach email." },
       { status: 400 }
     );
   }
@@ -55,23 +57,31 @@ export async function POST(request: Request) {
     website: sender?.website || businessProfile?.website || "",
   };
 
-  const recipientLead: RecipientLead = {
-    id: lead.id,
-    business_name: lead.business_name,
-    domain: lead.domain,
-    website: lead.website,
-    email: lead.email || "",
-    phone: lead.phone,
-    city: lead.city,
-    country: lead.country,
-    industry: lead.industry,
-    address: lead.address,
-    notes: lead.notes,
-    snippet: lead.snippet,
-    search_keyword: lead.search_keyword,
-    positive_signals: lead.positive_signals,
-    enrichment_data: lead.enrichment_data,
-  };
+  const recipientLead: RecipientLead = hasExplicitLead
+    ? {
+        id: lead.id,
+        business_name: lead.business_name,
+        domain: lead.domain,
+        website: lead.website,
+        email: lead.email || "",
+        phone: lead.phone,
+        city: lead.city,
+        country: lead.country,
+        industry: lead.industry,
+        address: lead.address,
+        notes: lead.notes,
+        snippet: lead.snippet,
+        search_keyword: lead.search_keyword,
+        positive_signals: lead.positive_signals,
+        enrichment_data: lead.enrichment_data,
+      }
+    : {
+        business_name: "{{business_name}}",
+        email: "",
+        city: "{{city}}",
+        country: businessProfile?.country || businessProfile?.preferred_locations || "",
+        industry: businessProfile?.ideal_industries || businessProfile?.target_customer_type || "{{industry}}",
+      };
 
   try {
     const draft = await generatePersonalizedEmail(recipientLead, senderProfile, {
@@ -82,9 +92,10 @@ export async function POST(request: Request) {
       templateName: template_name,
       outputLanguage: output_language,
       tone,
+      templateMode: Boolean(template_mode || !hasExplicitLead),
     });
 
-    if (lead.id) {
+    if (lead?.id) {
       await updateNeonLeadOutreachStatus(workspaceId, Number(lead.id), "DRAFT READY");
     }
 

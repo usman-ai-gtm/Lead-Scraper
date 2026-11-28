@@ -7,6 +7,8 @@ import { Mail, Phone, MapPin, Send, CheckCircle2, Sparkles } from "lucide-react"
 
 export default function ContactPage() {
   const [submitted, setSubmitted] = useState(false);
+  const [submitting, setSubmitting] = useState(false);
+  const [submitError, setSubmitError] = useState<string | null>(null);
   const [form, setForm] = useState({
     name: "",
     email: "",
@@ -15,9 +17,32 @@ export default function ContactPage() {
     message: "",
   });
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    setSubmitted(true);
+    setSubmitting(true);
+    setSubmitError(null);
+    try {
+      const res = await fetch("/api/inquiries", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          customer_name: form.name.trim(),
+          email: form.email.trim(),
+          contact_info: form.email.trim(),
+          plan: "BASIC",
+          message: `[Contact Inquiry | Company: ${form.company || "N/A"} | Team: ${form.teamSize}] ${form.message.trim()}`,
+        }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        throw new Error(data?.error || "Unable to submit message. Please email or WhatsApp support directly.");
+      }
+      setSubmitted(true);
+    } catch (err: any) {
+      setSubmitError(err?.message || "Failed to send message. Please message us on WhatsApp (+923174383702).");
+    } finally {
+      setSubmitting(false);
+    }
   };
 
   return (
@@ -54,7 +79,9 @@ export default function ContactPage() {
                   <Mail className="h-6 w-6 text-blue-400" />
                   <div>
                     <div className="text-xs text-slate-400">Enterprise Inquiries</div>
-                    <div className="text-sm font-semibold text-white">telegramtiktokn1@gmail.com</div>
+                    <a href="mailto:telegramtiktokn1@gmail.com" className="text-sm font-semibold text-white hover:text-blue-300">
+                      telegramtiktokn1@gmail.com
+                    </a>
                   </div>
                 </div>
 
@@ -62,7 +89,14 @@ export default function ContactPage() {
                   <Phone className="h-6 w-6 text-emerald-400" />
                   <div>
                     <div className="text-xs text-slate-400">Direct Phone / WhatsApp</div>
-                    <div className="text-sm font-semibold text-white">+923304580601</div>
+                    <a
+                      href="https://wa.me/923174383702"
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="text-sm font-semibold text-white hover:text-emerald-300"
+                    >
+                      +923174383702
+                    </a>
                   </div>
                 </div>
 
@@ -83,13 +117,27 @@ export default function ContactPage() {
                   <div className="h-16 w-16 bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 rounded-full flex items-center justify-center mx-auto mb-4">
                     <CheckCircle2 className="h-8 w-8" />
                   </div>
-                  <h3 className="text-2xl font-bold text-white mb-2">Message Received</h3>
+                  <h3 className="text-2xl font-bold text-white mb-2">Inquiry Saved</h3>
                   <p className="text-sm text-slate-400">
-                    A dedicated enterprise solutions specialist will contact you within 2 business hours.
+                    Your inquiry has been recorded for the Owner. For fastest response, message{" "}
+                    <a
+                      href="https://wa.me/923174383702"
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="text-emerald-400 underline font-semibold"
+                    >
+                      +923174383702 on WhatsApp
+                    </a>
+                    .
                   </p>
                 </div>
               ) : (
                 <form onSubmit={handleSubmit} className="space-y-4">
+                  {submitError && (
+                    <div className="p-3 rounded-xl bg-rose-500/10 border border-rose-500/30 text-xs text-rose-300">
+                      {submitError}
+                    </div>
+                  )}
                   <div>
                     <label className="block text-xs font-semibold text-slate-300 mb-1.5">Full Name</label>
                     <input

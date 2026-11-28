@@ -30,22 +30,16 @@ export async function POST(req: Request) {
 
     const body = await req.json().catch(() => ({}));
     const text = typeof body.text === "string" ? body.text.slice(0, 6000) : "";
-    const audioBase64 = typeof body.audioBase64 === "string" ? body.audioBase64 : undefined;
-    const audioMime = typeof body.audioMime === "string" ? body.audioMime : undefined;
     const languageHint = typeof body.languageHint === "string" ? body.languageHint : "auto";
-
-    if (audioBase64 && audioBase64.length > 11_000_000) {
-      return NextResponse.json(
-        { detail: "Audio clip is too large. Please keep voice descriptions under 90 seconds." },
-        { status: 400 }
-      );
-    }
+    const existingProfile =
+      body.existingProfile && typeof body.existingProfile === "object"
+        ? body.existingProfile
+        : null;
 
     const extracted = await understandBusinessInput({
       text,
-      audioBase64,
-      audioMime,
       languageHint,
+      existingProfile,
     });
 
     return NextResponse.json({

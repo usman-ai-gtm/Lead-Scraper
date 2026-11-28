@@ -9,6 +9,7 @@ import { Building2, Rocket, Briefcase, Users2, ArrowRight, Check } from "lucide-
 export default function SolutionsPage() {
   const solutions = [
     {
+      id: "b2b-agencies",
       title: "B2B Agencies & Service Providers",
       badge: "Targeted Prospecting",
       icon: Building2,
@@ -22,6 +23,7 @@ export default function SolutionsPage() {
       href: "/app/leads",
     },
     {
+      id: "local-service",
       title: "Local Business & Map Lead Teams",
       badge: "Local Discovery",
       icon: Rocket,
@@ -32,9 +34,10 @@ export default function SolutionsPage() {
         "Background batch processing with saved search snapshots",
         "Click-to-chat WhatsApp templates with workspace suppressions",
       ],
-      href: "/app/google-maps",
+      href: "/app/google-maps?keyword=local+services",
     },
     {
+      id: "lead-consultants",
       title: "Lead Generation Consultants",
       badge: "Client Deliverables",
       icon: Briefcase,
@@ -48,6 +51,7 @@ export default function SolutionsPage() {
       href: "/app/exports",
     },
     {
+      id: "lean-sales",
       title: "Founders & Lean Sales Teams",
       badge: "Affordable Outbound",
       icon: Users2,
@@ -84,7 +88,11 @@ export default function SolutionsPage() {
             {solutions.map((s, idx) => {
               const Icon = s.icon;
               return (
-                <div key={idx} className="rounded-2xl border border-white/[0.08] bg-[#0c1017] p-8 flex flex-col justify-between hover:border-blue-500/30 transition-all">
+                <div
+                  key={idx}
+                  id={s.id}
+                  className="scroll-mt-24 rounded-2xl border border-white/[0.08] bg-[#0c1017] p-8 flex flex-col justify-between hover:border-blue-500/30 transition-all"
+                >
                   <div>
                     <div className="flex items-center justify-between mb-4">
                       <div className="h-10 w-10 rounded-xl bg-blue-500/10 border border-blue-500/20 text-blue-400 flex items-center justify-center">

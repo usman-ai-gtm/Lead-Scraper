@@ -21,6 +21,7 @@ import {
   Zap,
   Bot,
   Sliders,
+  Briefcase,
 } from "lucide-react";
 
 export default function HomePage() {
@@ -28,8 +29,8 @@ export default function HomePage() {
     {
       step: "01",
       title: "Describe Your Business",
-      desc: "Speak naturally with your microphone or type in Urdu, English, Arabic, German, Hindi, or 25+ other languages. We structure your ideal customer profile automatically.",
-      icon: Mic,
+      desc: "Prepare your description in ChatGPT Voice or type naturally in Urdu, English, Arabic, German, Hindi, or 25+ other languages. We structure your ideal customer profile automatically.",
+      icon: Sparkles,
       href: "/app/business-profile",
       accent: "text-amber-300 border-amber-500/30 bg-amber-500/10",
     },
@@ -60,18 +61,18 @@ export default function HomePage() {
       tag: "Discovery",
     },
     {
-      title: "Google Maps Discovery",
+      title: "Local Service Prospect & Google Maps",
       desc: "Extract local business listings, phone numbers, and company sites across cities worldwide.",
-      href: "/app/google-maps",
+      href: "/app/google-maps?keyword=local+services",
       icon: MapPin,
       tag: "Local Maps",
     },
     {
-      title: "Multilingual Voice Business Profile",
-      desc: "Record or write your offer in your native language with RTL/LTR editing and tailored search targeting.",
+      title: "Multilingual Business Profile",
+      desc: "Describe or translate your offer via ChatGPT Voice or text with RTL/LTR editing and tailored search targeting.",
       href: "/app/business-profile",
-      icon: Mic,
-      tag: "Voice & Profile",
+      icon: Briefcase,
+      tag: "ICP Profile",
     },
     {
       title: "Personalized Cold Email Studio",
@@ -119,7 +120,7 @@ export default function HomePage() {
           </h1>
 
           <p className="animate-fade-up-delay-2 text-base sm:text-lg text-slate-300 max-w-2xl mx-auto mb-10 leading-relaxed">
-            Describe what you sell by voice or text in your own language, discover real business prospects with source links and domain MX checks, write personalized outreach, and send directly through Gmail.
+            Describe what you sell using ChatGPT Voice or text in your own language, discover real business prospects with source links and domain MX checks, write personalized outreach, and send directly through Gmail.
           </p>
 
           <div className="animate-fade-up-delay-2 flex flex-col sm:flex-row items-center justify-center gap-4 mb-16">
@@ -176,30 +177,36 @@ export default function HomePage() {
 
             <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
               {/* Step Preview 1 */}
-              <div className="rounded-xl border border-white/[0.08] bg-white/[0.02] p-4 space-y-3 hover:border-amber-400/25 transition-colors">
+              <Link
+                href="/app/business-profile"
+                className="group rounded-xl border border-white/[0.08] bg-white/[0.02] p-4 space-y-3 hover:border-amber-400/35 hover:bg-white/[0.035] transition-all block"
+              >
                 <div className="flex items-center justify-between">
                   <span className="text-[11px] font-semibold uppercase tracking-wider text-amber-300 flex items-center gap-1.5">
-                    <Mic className="h-3.5 w-3.5" /> Business Profile Input
+                    <Sparkles className="h-3.5 w-3.5" /> Business Profile Input
                   </span>
-                  <span className="text-[10px] font-mono text-slate-400">25+ Languages</span>
+                  <span className="text-[10px] font-mono text-slate-400 group-hover:text-amber-200">25+ Languages →</span>
                 </div>
                 <div className="p-3 rounded-lg bg-[#07090e] border border-white/[0.06] text-xs text-slate-300 leading-relaxed">
                   &ldquo;We build modern dental websites and local SEO campaigns for private clinics in the UK and UAE.&rdquo;
                 </div>
                 <div className="flex flex-wrap gap-1.5 text-[10px]">
                   <span className="px-2 py-0.5 rounded bg-white/[0.05] text-slate-300">ICP: Dental Clinics</span>
-                  <span className="px-2 py-0.5 rounded bg-white/[0.05] text-slate-300">Voice / Text</span>
+                  <span className="px-2 py-0.5 rounded bg-white/[0.05] text-slate-300">ChatGPT Voice / Text</span>
                   <span className="px-2 py-0.5 rounded bg-white/[0.05] text-slate-300">LTR &amp; RTL Ready</span>
                 </div>
-              </div>
+              </Link>
 
               {/* Step Preview 2 */}
-              <div className="rounded-xl border border-white/[0.08] bg-white/[0.02] p-4 space-y-3 hover:border-blue-400/25 transition-colors">
+              <Link
+                href="/app/leads?keyword=dental+clinics&country=United+Kingdom"
+                className="group rounded-xl border border-white/[0.08] bg-white/[0.02] p-4 space-y-3 hover:border-blue-400/35 hover:bg-white/[0.035] transition-all block"
+              >
                 <div className="flex items-center justify-between">
                   <span className="text-[11px] font-semibold uppercase tracking-wider text-blue-300 flex items-center gap-1.5">
                     <Database className="h-3.5 w-3.5" /> Prospect Discovery (Sample)
                   </span>
-                  <span className="text-[10px] font-mono text-emerald-300">MX Checked</span>
+                  <span className="text-[10px] font-mono text-emerald-300">MX Checked →</span>
                 </div>
                 <div className="space-y-2">
                   <div className="p-2.5 rounded-lg bg-[#07090e] border border-white/[0.06]">
@@ -217,21 +224,21 @@ export default function HomePage() {
                     <div className="text-[11px] text-slate-400 mt-0.5">Workspace deduplication enabled</div>
                   </div>
                 </div>
-              </div>
+              </Link>
 
               {/* Step Preview 3 */}
-              <div className="rounded-xl border border-white/[0.08] bg-white/[0.02] p-4 flex flex-col justify-between space-y-3 hover:border-emerald-400/25 transition-colors">
-                <div className="space-y-2.5">
+              <div className="rounded-xl border border-white/[0.08] bg-white/[0.02] p-4 flex flex-col justify-between space-y-3 hover:border-emerald-400/35 transition-colors">
+                <Link href="/app/outreach" className="space-y-2.5 block group">
                   <div className="flex items-center justify-between">
                     <span className="text-[11px] font-semibold uppercase tracking-wider text-emerald-300 flex items-center gap-1.5">
                       <Mail className="h-3.5 w-3.5" /> Personalized Outreach
                     </span>
-                    <span className="text-[10px] font-mono text-slate-400">Workspace Engine</span>
+                    <span className="text-[10px] font-mono text-slate-400 group-hover:text-emerald-200">Workspace Engine →</span>
                   </div>
                   <div className="p-3 rounded-lg bg-emerald-500/[0.06] border border-emerald-500/20 text-xs text-slate-200 leading-relaxed">
                     Tailors subject line and intro from real company context while checking opt-out suppression and 30-day duplicate guards before Gmail OAuth dispatch.
                   </div>
-                </div>
+                </Link>
                 <Link
                   href="/app"
                   className="w-full text-center py-2.5 text-xs font-bold text-white bg-white/[0.07] hover:bg-blue-600 rounded-lg border border-white/10 transition-colors"

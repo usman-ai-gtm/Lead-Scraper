@@ -45,6 +45,9 @@ export const Header: React.FC = () => {
           <Link href="/about" className="text-sm font-medium text-slate-300 hover:text-white transition-colors">
             About
           </Link>
+          <Link href="/contact" className="text-sm font-medium text-slate-300 hover:text-white transition-colors">
+            Contact
+          </Link>
         </nav>
 
         {/* CTA Actions */}
@@ -121,7 +124,21 @@ export const Header: React.FC = () => {
           >
             About
           </Link>
+          <Link
+            href="/contact"
+            onClick={() => setMobileMenuOpen(false)}
+            className="block text-base font-medium text-slate-300 hover:text-white"
+          >
+            Contact
+          </Link>
           <div className="pt-4 border-t border-white/[0.08] flex flex-col gap-3">
+            <Link
+              href="/signup"
+              onClick={() => setMobileMenuOpen(false)}
+              className="w-full text-center py-2.5 text-sm font-semibold text-slate-200 bg-white/[0.06] border border-white/10 rounded-xl"
+            >
+              Create Account
+            </Link>
             <Link
               href="/login"
               onClick={() => setMobileMenuOpen(false)}

@@ -1552,6 +1552,12 @@ export async function getNeonClients() {
         u.created_at,
         u.last_login,
         u.last_activity_at,
+        u.first_google_signin_at,
+        u.last_google_signin_at,
+        u.google_sub,
+        u.auth_provider,
+        u.converted_from_preview_at,
+        u.converted_by_admin_id,
         COALESCE(u.must_change_password, FALSE) as must_change_password,
         COALESCE(u.session_version, 1) as session_version,
         COALESCE(w.name, u.full_name || '''s Workspace') as workspace_name,
@@ -2148,6 +2154,8 @@ export async function getNeonClientFullProfile(clientId: number) {
               u.subscription_status, u.subscription_start, u.subscription_expires_at,
               u.subscription_notes, u.must_change_password, u.created_at, u.last_login,
               u.last_activity_at, u.updated_at,
+              u.first_google_signin_at, u.last_google_signin_at, u.google_sub, u.auth_provider,
+              u.converted_from_preview_at, u.converted_by_admin_id,
               w.name AS workspace_name, w.created_at AS workspace_created_at
        FROM users u
        LEFT JOIN workspaces w ON u.workspace_id = w.id
@@ -2396,6 +2404,11 @@ export async function getNeonClientFullProfile(clientId: number) {
         created_at: u.created_at,
         last_login: u.last_login || null,
         last_activity: derivedLastActivity,
+        first_google_signin_at: u.first_google_signin_at || null,
+        last_google_signin_at: u.last_google_signin_at || null,
+        google_sub: u.google_sub || null,
+        auth_provider: u.auth_provider || null,
+        converted_from_preview_at: u.converted_from_preview_at || null,
         days_active_total: daysActiveTotal,
         status: computed.status,
         raw_status: u.status,

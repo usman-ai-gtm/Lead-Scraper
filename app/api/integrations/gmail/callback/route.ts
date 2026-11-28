@@ -152,6 +152,7 @@ export async function GET(request: Request) {
     const profile = await profileRes.json();
     const profileEmail = String(profile.email || "").trim().toLowerCase();
     const profileName = String(profile.name || profileEmail.split("@")[0]).trim();
+    const profileGoogleSub = String(profile.id || profile.sub || "").trim() || null;
 
     // ========================================================
     // CASE A: GOOGLE SIGN-IN / AUTHENTICATION FLOW
@@ -165,11 +166,23 @@ export async function GET(request: Request) {
         return NextResponse.redirect(`${appBase}/login?error=Database+connection+failed.`);
       }
 
+      // Ensure tracking columns exist before reading/updating
+      await Promise.all([
+        sql`ALTER TABLE users ADD COLUMN IF NOT EXISTS first_google_signin_at TIMESTAMPTZ`.catch(() => {}),
+        sql`ALTER TABLE users ADD COLUMN IF NOT EXISTS last_google_signin_at TIMESTAMPTZ`.catch(() => {}),
+        sql`ALTER TABLE users ADD COLUMN IF NOT EXISTS google_sub TEXT`.catch(() => {}),
+        sql`ALTER TABLE users ADD COLUMN IF NOT EXISTS auth_provider TEXT`.catch(() => {}),
+      ]);
+
+      // Match by persistent google_sub first, then exact normalized email or username (preserves converted paid users!)
       const users = await sql`
         SELECT id, email, username, full_name, role, account_type, workspace_id, status, plan,
-               COALESCE(session_version, 1) AS session_version
+               google_sub, COALESCE(session_version, 1) AS session_version
         FROM users
-        WHERE LOWER(email) = LOWER(${profileEmail}) OR LOWER(username) = LOWER(${profileEmail})
+        WHERE (${profileGoogleSub}::text IS NOT NULL AND google_sub = ${profileGoogleSub}::text)
+           OR LOWER(email) = LOWER(${profileEmail})
+           OR LOWER(username) = LOWER(${profileEmail})
+        ORDER BY CASE WHEN COALESCE(account_type, '') = 'PAID_CLIENT' THEN 0 ELSE 1 END, id ASC
         LIMIT 1
       `;
 
@@ -223,18 +236,30 @@ export async function GET(request: Request) {
 
         try {
           const newUserRes = await sql`
-            INSERT INTO users (username, email, full_name, role, account_type, workspace_id, status, subscription_status, created_at, tenant_id, password_hash, active, is_active, plan)
-            VALUES (${profileEmail}, ${profileEmail}, ${profileName}, ${assignedRole}, ${assignedAccountType}, ${newWsId}, ${initialStatus}, ${initialSubStatus}, ${nowIso}, 1, 'GOOGLE_OAUTH_USER', ${isOwner ? 1 : 0}, ${isOwner ? 1 : 0}, ${initialPlan})
+            INSERT INTO users (
+              username, email, full_name, role, account_type, workspace_id, status,
+              subscription_status, created_at, tenant_id, password_hash, active, is_active,
+              plan, google_sub, auth_provider, first_google_signin_at, last_google_signin_at
+            )
+            VALUES (
+              ${profileEmail}, ${profileEmail}, ${profileName}, ${assignedRole}, ${assignedAccountType}, ${newWsId}, ${initialStatus},
+              ${initialSubStatus}, ${nowIso}, 1, 'GOOGLE_OAUTH_USER', ${isOwner ? 1 : 0}, ${isOwner ? 1 : 0},
+              ${initialPlan}, ${profileGoogleSub}, 'google', NOW(), NOW()
+            )
             ON CONFLICT (username) DO UPDATE
               SET email = EXCLUDED.email,
-                  full_name = COALESCE(users.full_name, EXCLUDED.full_name)
+                  full_name = COALESCE(users.full_name, EXCLUDED.full_name),
+                  google_sub = COALESCE(users.google_sub, EXCLUDED.google_sub),
+                  auth_provider = COALESCE(users.auth_provider, 'google'),
+                  first_google_signin_at = COALESCE(users.first_google_signin_at, NOW()),
+                  last_google_signin_at = NOW()
             RETURNING id, email, username, full_name, role, account_type, workspace_id, status, plan, active, is_active, COALESCE(session_version, 1) AS session_version
           `;
           activeUser = newUserRes[0];
         } catch (insertErr) {
           console.warn("[Google Sign-in] Insert conflict handled, fetching existing user:", insertErr);
           const fallbackUsers = await sql`
-            SELECT id, email, username, full_name, role, account_type, workspace_id, status, plan, active, is_active
+            SELECT id, email, username, full_name, role, account_type, workspace_id, status, plan, active, is_active, COALESCE(session_version, 1) AS session_version
             FROM users
             WHERE TRIM(LOWER(email)) = TRIM(LOWER(${profileEmail})) OR TRIM(LOWER(username)) = TRIM(LOWER(${profileEmail}))
             LIMIT 1
@@ -242,12 +267,19 @@ export async function GET(request: Request) {
           if (fallbackUsers && fallbackUsers.length > 0) {
             activeUser = fallbackUsers[0];
           } else {
-            // Safe fallback collision-free username
             const safeUsername = `${profileEmail.split('@')[0]}_${Date.now()}@google.user`;
             const safeInsert = await sql`
-              INSERT INTO users (username, email, full_name, role, account_type, workspace_id, status, subscription_status, created_at, tenant_id, password_hash, active, is_active, plan)
-              VALUES (${safeUsername}, ${profileEmail}, ${profileName}, ${assignedRole}, ${assignedAccountType}, ${newWsId}, ${initialStatus}, ${initialSubStatus}, ${nowIso}, 1, 'GOOGLE_OAUTH_USER', ${isOwner ? 1 : 0}, ${isOwner ? 1 : 0}, ${initialPlan})
-              RETURNING id, email, full_name, role, account_type, workspace_id, status, plan, active, is_active
+              INSERT INTO users (
+                username, email, full_name, role, account_type, workspace_id, status,
+                subscription_status, created_at, tenant_id, password_hash, active, is_active,
+                plan, google_sub, auth_provider, first_google_signin_at, last_google_signin_at
+              )
+              VALUES (
+                ${safeUsername}, ${profileEmail}, ${profileName}, ${assignedRole}, ${assignedAccountType}, ${newWsId}, ${initialStatus},
+                ${initialSubStatus}, ${nowIso}, 1, 'GOOGLE_OAUTH_USER', ${isOwner ? 1 : 0}, ${isOwner ? 1 : 0},
+                ${initialPlan}, ${profileGoogleSub}, 'google', NOW(), NOW()
+              )
+              RETURNING id, email, username, full_name, role, account_type, workspace_id, status, plan, active, is_active, COALESCE(session_version, 1) AS session_version
             `;
             activeUser = safeInsert[0];
           }
@@ -271,8 +303,16 @@ export async function GET(request: Request) {
         }
       }
 
+      // Record exact UTC Google sign-in timestamps without altering account_type, workspace, or plan
       await sql`
-        UPDATE users SET last_login = NOW(), last_activity_at = NOW() WHERE id = ${activeUser.id}
+        UPDATE users
+        SET last_login = NOW(),
+            last_activity_at = NOW(),
+            google_sub = COALESCE(google_sub, ${profileGoogleSub}),
+            auth_provider = COALESCE(auth_provider, 'google'),
+            first_google_signin_at = COALESCE(first_google_signin_at, NOW()),
+            last_google_signin_at = NOW()
+        WHERE id = ${activeUser.id}
       `.catch(() => {});
       await logAccountAudit({
         adminId: activeUser.id,

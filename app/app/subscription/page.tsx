@@ -414,20 +414,8 @@ function SubscriptionPageInner() {
 
   const liveCountdownText = formatCountdown(liveProfile?.subscription_expires_at, isLifetime, nowTick);
   const selectedCurrencyMeta = findCurrencyMeta(orderSelection.currency);
-  const compatibleMethods = methods.filter((m) => doesMethodSupportCurrency(m, orderSelection.currency));
-  const [showAllMethodsOverride, setShowAllMethodsOverride] = useState(false);
-
-  useEffect(() => {
-    setShowAllMethodsOverride(false);
-    if (selectedMethodId && selectedMethodId !== "OTHER") {
-      const m = methods.find((item) => String(item.id) === selectedMethodId);
-      if (m && !doesMethodSupportCurrency(m, orderSelection.currency)) {
-        setSelectedMethodId("");
-      }
-    }
-  }, [orderSelection.currency]); // eslint-disable-line react-hooks/exhaustive-deps
-
-  const methodsToRender = showAllMethodsOverride ? methods : compatibleMethods;
+  // Always display ALL Owner-configured active payment methods regardless of currency selected
+  const methodsToRender = methods;
   const selectedMethodObj =
     selectedMethodId && selectedMethodId !== "OTHER"
       ? methods.find((m) => String(m.id) === selectedMethodId) || null
@@ -605,11 +593,11 @@ function SubscriptionPageInner() {
           {rowsToShow.map((row) => (
             <div
               key={row.key}
-              className="flex items-center justify-between gap-3 p-3.5 rounded-xl bg-black/45 border border-white/10"
+              className="flex items-center justify-between gap-3 p-3.5 rounded-xl bg-black/45 border border-white/10 min-w-0"
             >
-              <div className="min-w-0">
+              <div className="min-w-0 flex-1">
                 <div className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider">{row.label}</div>
-                <div className={`text-sm font-bold text-white break-all mt-0.5 ${row.mono ? "font-mono text-blue-200" : ""}`}>
+                <div className={`text-sm font-bold text-white break-words [overflow-wrap:anywhere] mt-0.5 ${row.mono ? "font-mono text-blue-200" : ""}`}>
                   {row.value}
                 </div>
               </div>
@@ -630,10 +618,10 @@ function SubscriptionPageInner() {
             href={m.payment_link}
             target="_blank"
             rel="noopener noreferrer"
-            className="inline-flex items-center gap-1.5 text-xs text-blue-400 hover:text-blue-300 font-semibold"
+            className="inline-flex items-center gap-1.5 text-xs text-blue-400 hover:text-blue-300 font-semibold break-all"
           >
-            <ExternalLink className="h-3.5 w-3.5" />
-            <span>Open Official Payment Link</span>
+            <ExternalLink className="h-3.5 w-3.5 shrink-0" />
+            <span className="break-all">Open Official Payment Link</span>
           </a>
         )}
 
@@ -649,7 +637,7 @@ function SubscriptionPageInner() {
         )}
 
         {m.instructions && (
-          <div className="p-3.5 rounded-xl bg-blue-500/10 border border-blue-500/20 text-xs text-slate-200 leading-relaxed">
+          <div className="p-3.5 rounded-xl bg-blue-500/10 border border-blue-500/20 text-xs text-slate-200 leading-relaxed break-words [overflow-wrap:anywhere]">
             <strong className="text-blue-300 block mb-0.5">How to Complete Transfer:</strong>
             {m.instructions}
           </div>
@@ -922,62 +910,13 @@ function SubscriptionPageInner() {
           <div className="p-3.5 rounded-xl bg-amber-500/10 border border-amber-500/35 text-xs text-amber-100 flex items-start gap-2.5">
             <AlertTriangle className="h-4 w-4 text-amber-400 shrink-0 mt-0.5" />
             <div>
-              <strong>USDT — TRC20 Network Only:</strong> Only payment channels supporting TRC20 settlement are shown first. Double-check the network before initiating any crypto transfer.
+              <strong>USDT — TRC20 Network Note:</strong> All Owner-configured payment channels remain selectable below. Only crypto channels marked TRC20 accept USDT settlement directly.
             </div>
           </div>
         )}
 
-        {compatibleMethods.length === 0 && (
-          <div className="p-4 rounded-2xl bg-amber-500/10 border border-amber-500/30 text-xs text-amber-100 space-y-3">
-            <div className="flex items-start gap-2.5">
-              <Globe className="h-4 w-4 text-amber-400 shrink-0 mt-0.5" />
-              <div className="space-y-1">
-                <div className="font-bold text-white">
-                  No payment method is currently configured for {selectedCurrencyMeta.code} ({selectedCurrencyMeta.name}). Contact support for assistance.
-                </div>
-                <p className="text-slate-300 leading-relaxed">
-                  Your estimated plan total in {selectedCurrencyMeta.code} is displayed for planning reference. Choose USD, PKR, EUR, GBP, or USDT (TRC20) above if paying via an existing channel, or contact support below.
-                </p>
-              </div>
-            </div>
-            <div className="flex flex-wrap items-center gap-2">
-              {WHATSAPP_LINK && (
-                <a
-                  href={WHATSAPP_LINK}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="px-3.5 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-bold inline-flex items-center gap-1.5"
-                >
-                  <MessageCircle className="h-3.5 w-3.5" />
-                  <span>Contact Support (WhatsApp)</span>
-                </a>
-              )}
-              {supportMailtoHref && (
-                <a
-                  href={supportMailtoHref}
-                  className="px-3.5 py-2 rounded-xl bg-white/10 hover:bg-white/20 text-white font-semibold inline-flex items-center gap-1.5"
-                >
-                  <Mail className="h-3.5 w-3.5" />
-                  <span>Email Support</span>
-                </a>
-              )}
-              {methods.length > 0 && (
-                <button
-                  type="button"
-                  onClick={() => setShowAllMethodsOverride((v) => !v)}
-                  className="px-3.5 py-2 rounded-xl bg-white/[0.05] hover:bg-white/[0.1] border border-white/15 text-slate-200 font-semibold cursor-pointer"
-                >
-                  {showAllMethodsOverride
-                    ? "Show Only Exact Currency Matches"
-                    : `Show Configured Methods (${methods.length})`}
-                </button>
-              )}
-            </div>
-          </div>
-        )}
-
-        {/* Clean Selectable Payment Method Cards Only (never showing all bank/wallet numbers simultaneously) */}
-        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3">
+        {/* All Configured Active Payment Method Cards (always visible regardless of currency selected) */}
+        <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3">
           {methodsToRender.map((m) => {
             const isSelected = String(m.id) === selectedMethodId;
             const supportsSelected = doesMethodSupportCurrency(m, orderSelection.currency);
@@ -986,27 +925,31 @@ function SubscriptionPageInner() {
                 key={m.id}
                 type="button"
                 onClick={() => handleSelectMethodCard(String(m.id))}
-                className={`text-left p-4 rounded-2xl border transition-all cursor-pointer flex flex-col justify-between gap-2 ${
+                className={`min-w-0 text-left p-4 rounded-2xl border transition-all cursor-pointer flex flex-col justify-between gap-2 ${
                   isSelected
                     ? "border-blue-400 bg-blue-600/20 shadow-md ring-1 ring-blue-400/50"
                     : "border-white/10 bg-white/[0.025] hover:border-white/30 hover:bg-white/[0.05]"
                 }`}
               >
-                <div className="flex items-center justify-between gap-2 w-full">
-                  <Wallet className={`h-4 w-4 ${isSelected ? "text-blue-300" : "text-slate-400"}`} />
+                <div className="flex items-center justify-between gap-2 w-full min-w-0">
+                  <Wallet className={`h-4 w-4 shrink-0 ${isSelected ? "text-blue-300" : "text-slate-400"}`} />
                   {isSelected ? (
-                    <span className="text-[9px] font-black uppercase px-2 py-0.5 rounded-full bg-blue-600 text-white">
+                    <span className="text-[9px] font-black uppercase px-2 py-0.5 rounded-full bg-blue-600 text-white shrink-0">
                       Selected
                     </span>
                   ) : !supportsSelected ? (
-                    <span className="text-[9px] font-mono px-2 py-0.5 rounded-full bg-amber-500/15 text-amber-300 border border-amber-500/30">
+                    <span className="text-[9px] font-mono px-2 py-0.5 rounded-full bg-amber-500/15 text-amber-300 border border-amber-500/30 break-words">
                       Accepts {m.currency}
                     </span>
-                  ) : null}
+                  ) : (
+                    <span className="text-[9px] font-mono px-2 py-0.5 rounded-full bg-emerald-500/15 text-emerald-300 border border-emerald-500/30 shrink-0">
+                      {m.currency}
+                    </span>
+                  )}
                 </div>
-                <div>
-                  <div className="text-sm font-black text-white">{m.name}</div>
-                  <div className="text-[10px] font-mono text-slate-400 mt-0.5">
+                <div className="min-w-0">
+                  <div className="text-sm font-black text-white break-words">{m.name}</div>
+                  <div className="text-[10px] font-mono text-slate-400 mt-0.5 break-words">
                     {m.currency} • {m.region}
                   </div>
                 </div>
@@ -1018,23 +961,23 @@ function SubscriptionPageInner() {
           <button
             type="button"
             onClick={() => handleSelectMethodCard("OTHER")}
-            className={`text-left p-4 rounded-2xl border transition-all cursor-pointer flex flex-col justify-between gap-2 ${
+            className={`min-w-0 text-left p-4 rounded-2xl border transition-all cursor-pointer flex flex-col justify-between gap-2 ${
               selectedMethodId === "OTHER"
                 ? "border-emerald-400 bg-emerald-600/20 shadow-md ring-1 ring-emerald-400/50"
                 : "border-white/10 bg-white/[0.025] hover:border-white/30 hover:bg-white/[0.05]"
             }`}
           >
             <div className="flex items-center justify-between gap-2 w-full">
-              <MessageCircle className={`h-4 w-4 ${selectedMethodId === "OTHER" ? "text-emerald-300" : "text-slate-400"}`} />
+              <MessageCircle className={`h-4 w-4 shrink-0 ${selectedMethodId === "OTHER" ? "text-emerald-300" : "text-slate-400"}`} />
               {selectedMethodId === "OTHER" && (
-                <span className="text-[9px] font-black uppercase px-2 py-0.5 rounded-full bg-emerald-600 text-white">
+                <span className="text-[9px] font-black uppercase px-2 py-0.5 rounded-full bg-emerald-600 text-white shrink-0">
                   Selected
                 </span>
               )}
             </div>
-            <div>
-              <div className="text-sm font-black text-white">Other Payment Method</div>
-              <div className="text-[10px] text-slate-400 mt-0.5">Ask Owner for alternatives</div>
+            <div className="min-w-0">
+              <div className="text-sm font-black text-white break-words">Other Payment Method</div>
+              <div className="text-[10px] text-slate-400 mt-0.5 break-words">Ask Owner for alternatives</div>
             </div>
           </button>
         </div>
@@ -1043,7 +986,7 @@ function SubscriptionPageInner() {
         <div
           id="selected-payment-details"
           ref={detailsPanelRef}
-          className="rounded-2xl border border-white/10 bg-[#090d16] p-5"
+          className="rounded-2xl border border-white/10 bg-[#090d16] p-5 min-w-0 overflow-hidden"
         >
           {!selectedMethodId ? (
             <div className="text-center py-6 space-y-1.5">
@@ -1055,9 +998,9 @@ function SubscriptionPageInner() {
             </div>
           ) : selectedMethodId === "OTHER" ? (
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 py-2">
-              <div className="space-y-1">
+              <div className="space-y-1 min-w-0">
                 <h4 className="text-base font-black text-white">Other Payment Method</h4>
-                <p className="text-xs text-slate-300">
+                <p className="text-xs text-slate-300 break-words">
                   Don&apos;t see your preferred payment method?{" "}
                   {WHATSAPP_LINK ? (
                     <a
@@ -1088,7 +1031,21 @@ function SubscriptionPageInner() {
               )}
             </div>
           ) : selectedMethodObj ? (
-            renderSelectedMethodDetails(selectedMethodObj)
+            <div className="space-y-4">
+              {!doesMethodSupportCurrency(selectedMethodObj, orderSelection.currency) && (
+                <div className="p-3.5 rounded-xl bg-amber-500/10 border border-amber-500/35 text-xs text-amber-100 flex items-start gap-2.5">
+                  <Globe className="h-4 w-4 text-amber-400 shrink-0 mt-0.5" />
+                  <div className="min-w-0 break-words leading-relaxed">
+                    <strong>Accepted Currency Note:</strong> Your plan estimator is currently set to{" "}
+                    <span className="font-mono font-bold text-white">{orderSelection.currency}</span>, while{" "}
+                    <strong className="text-white">{selectedMethodObj.name}</strong> accepts{" "}
+                    <span className="font-mono font-bold text-amber-200">{selectedMethodObj.currency}</span>.{" "}
+                    Payable amounts are not automatically converted here — send in the channel&apos;s supported currency or choose a matching method above. The Owner manually verifies receipt before activation.
+                  </div>
+                </div>
+              )}
+              {renderSelectedMethodDetails(selectedMethodObj)}
+            </div>
           ) : (
             <div className="text-xs text-amber-200">
               Selected payment method is currently unavailable. Choose another method above.
@@ -1099,56 +1056,56 @@ function SubscriptionPageInner() {
 
       {/* SECTION C: SUBMIT PAYMENT PROOF FOR ORDER VERIFICATION (PART 4) */}
       {selectedMethodObj && (
-        <div id="payment-proof-upload" className="rounded-2xl border border-emerald-500/25 bg-[#0c1017] p-6 space-y-5">
+        <div id="payment-proof-upload" className="rounded-2xl border border-emerald-500/25 bg-[#0c1017] p-4 sm:p-6 space-y-5 min-w-0 overflow-hidden">
           <div className="border-b border-white/[0.06] pb-3">
             <h3 className="text-base font-extrabold text-white flex items-center gap-2">
-              <Upload className="h-4 w-4 text-emerald-400" />
+              <Upload className="h-4 w-4 text-emerald-400 shrink-0" />
               <span>SUBMIT PAYMENT PROOF FOR ORDER VERIFICATION</span>
             </h3>
-            <p className="text-xs text-slate-400 mt-0.5">
+            <p className="text-xs text-slate-400 mt-0.5 break-words">
               Submitting proof saves a PENDING verification request in the database. Subscriptions activate only after the Owner confirms receipt of funds.
             </p>
           </div>
 
-          {/* Auto-Populated Verified Summary */}
-          <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-8 gap-2.5 text-xs font-mono">
-            <div className="p-2.5 rounded-xl bg-white/[0.03] border border-white/10">
-              <span className="text-[10px] text-slate-400 font-sans block">Account Email</span>
-              <strong className="text-white truncate block" title={displayEmail}>{displayEmail}</strong>
+          {/* Auto-Populated Verified Summary (overflow-safe responsive wrapping for long usernames, emails, and URLs) */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 text-xs font-mono">
+            <div className="p-3 rounded-xl bg-white/[0.03] border border-white/10 min-w-0">
+              <span className="text-[10px] text-slate-400 font-sans block mb-0.5">Account Email</span>
+              <strong className="text-white break-all block leading-snug">{displayEmail}</strong>
             </div>
-            <div className="p-2.5 rounded-xl bg-white/[0.03] border border-white/10">
-              <span className="text-[10px] text-slate-400 font-sans block">Username</span>
-              <strong className="text-white">@{displayUsername}</strong>
+            <div className="p-3 rounded-xl bg-white/[0.03] border border-white/10 min-w-0">
+              <span className="text-[10px] text-slate-400 font-sans block mb-0.5">Username</span>
+              <strong className="text-white break-words [overflow-wrap:anywhere] block leading-snug">@{displayUsername}</strong>
             </div>
-            <div className="p-2.5 rounded-xl bg-white/[0.03] border border-white/10">
-              <span className="text-[10px] text-slate-400 font-sans block">Selected Plan</span>
-              <strong className="text-blue-300">{orderSelection.plan}</strong>
+            <div className="p-3 rounded-xl bg-white/[0.03] border border-white/10 min-w-0">
+              <span className="text-[10px] text-slate-400 font-sans block mb-0.5">Selected Plan</span>
+              <strong className="text-blue-300 break-words block leading-snug">{orderSelection.plan}</strong>
             </div>
-            <div className="p-2.5 rounded-xl bg-white/[0.03] border border-white/10">
-              <span className="text-[10px] text-slate-400 font-sans block">Duration</span>
-              <strong className="text-purple-300">
+            <div className="p-3 rounded-xl bg-white/[0.03] border border-white/10 min-w-0">
+              <span className="text-[10px] text-slate-400 font-sans block mb-0.5">Duration</span>
+              <strong className="text-purple-300 break-words block leading-snug">
                 {orderSelection.durationUnit === "lifetime"
                   ? "Lifetime"
                   : `${orderSelection.durationValue} ${orderSelection.durationUnit}`}
               </strong>
             </div>
-            <div className="p-2.5 rounded-xl bg-white/[0.03] border border-white/10">
-              <span className="text-[10px] text-slate-400 font-sans block">Lead Allowance</span>
-              <strong className="text-white">{orderSelection.leadAllowance.toLocaleString()}</strong>
+            <div className="p-3 rounded-xl bg-white/[0.03] border border-white/10 min-w-0">
+              <span className="text-[10px] text-slate-400 font-sans block mb-0.5">Lead Allowance</span>
+              <strong className="text-white break-words block leading-snug">{orderSelection.leadAllowance.toLocaleString()}</strong>
             </div>
-            <div className="p-2.5 rounded-xl bg-white/[0.03] border border-white/10">
-              <span className="text-[10px] text-slate-400 font-sans block">Google Maps</span>
-              <strong className={orderSelection.includeGoogleMaps ? "text-amber-300" : "text-rose-300"}>
+            <div className="p-3 rounded-xl bg-white/[0.03] border border-white/10 min-w-0">
+              <span className="text-[10px] text-slate-400 font-sans block mb-0.5">Google Maps</span>
+              <strong className={`break-words block leading-snug ${orderSelection.includeGoogleMaps ? "text-amber-300" : "text-rose-300"}`}>
                 {orderSelection.includeGoogleMaps ? "Included" : "Excluded"}
               </strong>
             </div>
-            <div className="p-2.5 rounded-xl bg-white/[0.03] border border-white/10">
-              <span className="text-[10px] text-slate-400 font-sans block">Payment Method</span>
-              <strong className="text-blue-200">{selectedMethodObj.name}</strong>
+            <div className="p-3 rounded-xl bg-white/[0.03] border border-white/10 min-w-0">
+              <span className="text-[10px] text-slate-400 font-sans block mb-0.5">Payment Method</span>
+              <strong className="text-blue-200 break-words [overflow-wrap:anywhere] block leading-snug">{selectedMethodObj.name}</strong>
             </div>
-            <div className="p-2.5 rounded-xl bg-emerald-500/15 border border-emerald-500/35">
-              <span className="text-[10px] text-emerald-200 font-sans block">Total Payable ({orderSelection.currency})</span>
-              <strong className="text-emerald-300">{formatPayableText()}</strong>
+            <div className="p-3 rounded-xl bg-emerald-500/15 border border-emerald-500/35 min-w-0">
+              <span className="text-[10px] text-emerald-200 font-sans block mb-0.5">Total Payable ({orderSelection.currency})</span>
+              <strong className="text-emerald-300 break-words [overflow-wrap:anywhere] block leading-snug">{formatPayableText()}</strong>
             </div>
           </div>
 

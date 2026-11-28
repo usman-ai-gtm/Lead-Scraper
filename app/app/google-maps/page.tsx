@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useState, useEffect, Suspense } from "react";
+import { useSearchParams } from "next/navigation";
 import { useAuth } from "@/lib/auth-context";
 import { useMapsJob } from "@/lib/maps-job-context";
 import { ALL_193_COUNTRIES } from "@/lib/countries";
@@ -17,6 +18,7 @@ import { LeadQualityBadge } from "@/components/leads/LeadQualityBadge";
 import { BatchPersonalizeButton } from "@/components/leads/BatchPersonalizeButton";
 
 function GoogleMapsLeadComponent() {
+  const searchParams = useSearchParams();
   const { user, isLocked } = useAuth();
   const { job, isRunning, actionError, clearError, startJob, cancelJob } = useMapsJob();
 
@@ -40,7 +42,7 @@ function GoogleMapsLeadComponent() {
       (user?.features ? user.features.multi_country_maps : hasMapsAccess)
   );
 
-  // Form State
+  // Form State (supports ?keyword= and ?country= prefill from marketing & solution links)
   const [keyword, setKeyword] = useState<string>("");
   const [selectedCountries, setSelectedCountries] = useState<string[]>(["United States"]);
   const [specificCitiesEnabled, setSpecificCitiesEnabled] = useState<boolean>(false);
@@ -49,6 +51,13 @@ function GoogleMapsLeadComponent() {
   const [contactFilter, setContactFilter] = useState<
     "EMAIL_AND_PHONE" | "EMAIL_ONLY" | "PHONE_ONLY" | "EMAIL_OR_PHONE"
   >("EMAIL_OR_PHONE");
+
+  useEffect(() => {
+    const qKeyword = searchParams.get("keyword") || searchParams.get("query") || "";
+    const qCountry = searchParams.get("country") || "";
+    if (qKeyword) setKeyword(qKeyword);
+    if (qCountry) setSelectedCountries([qCountry]);
+  }, [searchParams]);
 
   const [toastMsg, setToastMsg] = useState<string | null>(null);
   const [exportLoading, setExportLoading] = useState<boolean>(false);
